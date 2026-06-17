@@ -81,6 +81,43 @@ npm run android    # Android Studio emulator
 npm run typecheck  # tsc --noEmit
 ```
 
+## Deploying as a website (Vercel / Netlify)
+
+This is primarily a native app, but `react-native-web` lets it also run as a
+website. A `vercel.json` is included, so a Vercel deploy works out of the box:
+
+- **Build command:** `expo export --platform web`
+- **Output directory:** `dist`
+- **Install command:** `npm install`
+
+If Vercel ever shows a download prompt instead of the app, it means it served
+the repo without running the web build — confirm the **Output Directory** is
+set to `dist` (the included `vercel.json` does this automatically).
+
+Build the static site locally to preview:
+
+```bash
+npm run build      # -> dist/  (open dist/index.html via a static server)
+npx serve dist     # quick local preview
+```
+
+> The web build is great for demos and as an installable PWA. For real iPhone
+> and Android apps, use Expo Go (development) and EAS Build (store-ready
+> binaries) — see "Shipping to the App Store / Play Store" below.
+
+## Shipping to the App Store / Play Store
+
+Vercel hosts websites, not native apps. To distribute actual iOS/Android apps:
+
+```bash
+npm install -g eas-cli
+eas login
+eas build --platform all      # cloud builds .ipa / .aab
+eas submit                     # uploads to App Store Connect / Play Console
+```
+
+For day-to-day testing, `npm start` + the **Expo Go** app is fastest.
+
 ## How the bite score works
 
 The engine starts at a neutral 50 and adjusts on well-known heuristics:
