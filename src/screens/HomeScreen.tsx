@@ -9,28 +9,47 @@ import {
 } from 'react-native';
 import type {
   Conditions,
+  Coordinates,
   StructureType,
   Strategy,
   WaterType,
 } from '@/types';
-import { getCurrentLocation } from '@/api/location';
+import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { gatherConditions } from '@/api/conditions';
 import { buildStrategy } from '@/engine/strategy';
 import { ConditionsCard } from '@/components/ConditionsCard';
 import { StrategyCard } from '@/components/StrategyCard';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
-import { StructurePicker } from '@/components/StructurePicker';
+import {
+  StructurePicker,
+  structuresForWaterType,
+} from '@/components/StructurePicker';
+import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { colors, radius, spacing } from '@/theme';
 
 export function HomeScreen() {
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
+  const [place, setPlace] = useState<string>('');
+  const [locating, setLocating] = useState(false);
+
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
   const [structures, setStructures] = useState<StructureType[]>(['vegetation']);
-  const [loading, setLoading] = useState(false);
+
+  const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conditions, setConditions] = useState<Conditions | null>(null);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
-  const [place, setPlace] = useState<string>('');
+
+  // Keep only cover that exists in the chosen water type when it changes.
+  const onChangeWaterType = useCallback((next: WaterType) => {
+    setWaterType(next);
+    const allowed = structuresForWaterType(next);
+    setStructures((prev) => {
+      const kept = prev.filter((s) => allowed.includes(s));
+      return kept.length > 0 ? kept : allowed.slice(0, 1);
+    });
+  }, []);
 
   const toggleStructure = useCallback((value: StructureType) => {
     setStructures((prev) =>
@@ -40,25 +59,44 @@ export function HomeScreen() {
     );
   }, []);
 
-  const onAnalyze = useCallback(async () => {
-    setLoading(true);
+  const useMyLocation = useCallback(async () => {
+    setLocating(true);
     setError(null);
     try {
       const loc = await getCurrentLocation();
-      setPlace(loc.label);
-      const next = await gatherConditions({
-        coordinates: loc.coordinates,
-        waterType,
-        structures,
-      });
+      setCoordinates(loc.coordinates);
+      setPlace(loc.label || formatCoords(loc.coordinates));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not get your location.');
+    } finally {
+      setLocating(false);
+    }
+  }, []);
+
+  const onPickOnMap = useCallback((coords: Coordinates) => {
+    setCoordinates(coords);
+    setPlace(formatCoords(coords));
+    setError(null);
+    // Try to upgrade the raw coords to a place name (native only).
+    void reverseGeocode(coords).then((label) => {
+      if (label) setPlace(label);
+    });
+  }, []);
+
+  const onAnalyze = useCallback(async () => {
+    if (!coordinates) return;
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const next = await gatherConditions({ coordinates, waterType, structures });
       setConditions(next);
       setStrategy(buildStrategy(next));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
-      setLoading(false);
+      setAnalyzing(false);
     }
-  }, [waterType, structures]);
+  }, [coordinates, waterType, structures]);
 
   return (
     <ScrollView
@@ -67,29 +105,65 @@ export function HomeScreen() {
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.brand}>BALURE</Text>
-      <Text style={styles.tagline}>
-        Read the conditions. Tie on the right thing.
-      </Text>
+      <Text style={styles.tagline}>Read the water. Tie on the right thing.</Text>
 
-      <Section title="Your Spot">
-        <WaterTypeToggle value={waterType} onChange={setWaterType} />
-        <Text style={styles.fieldLabel}>Structure & cover you can see</Text>
-        <StructurePicker selected={structures} onToggle={toggleStructure} />
+      {/* Step 1 — Location */}
+      <Section title="1 · Location">
+        <Pressable
+          onPress={useMyLocation}
+          disabled={locating}
+          style={[styles.secondaryBtn, locating && styles.btnDisabled]}
+        >
+          {locating ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Text style={styles.secondaryBtnText}>📍 Use my location</Text>
+          )}
+        </Pressable>
+
+        <Text style={styles.orLabel}>or drop a pin on the map</Text>
+        <MapPicker center={coordinates} onPick={onPickOnMap} height={220} />
+
+        <Text style={styles.selected}>
+          {coordinates
+            ? `Spot set — ${place}`
+            : 'No spot selected yet.'}
+        </Text>
+      </Section>
+
+      {/* Step 2 — Water type */}
+      <Section title="2 · Water Type">
+        <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
+      </Section>
+
+      {/* Step 3 — Structure & cover (filtered to the water type) */}
+      <Section title="3 · Structure & Cover">
+        <Text style={styles.helper}>
+          Tap everything you can see at your spot.
+        </Text>
+        <StructurePicker
+          waterType={waterType}
+          selected={structures}
+          onToggle={toggleStructure}
+        />
       </Section>
 
       <Pressable
         onPress={onAnalyze}
-        disabled={loading}
-        style={[styles.cta, loading && styles.ctaDisabled]}
+        disabled={analyzing || !coordinates}
+        style={[
+          styles.cta,
+          (analyzing || !coordinates) && styles.btnDisabled,
+        ]}
       >
-        {loading ? (
-          <ActivityIndicator color={colors.bg} />
+        {analyzing ? (
+          <ActivityIndicator color={colors.card} />
         ) : (
-          <Text style={styles.ctaText}>Analyze my spot</Text>
+          <Text style={styles.ctaText}>
+            {coordinates ? 'Analyze my spot' : 'Set a location first'}
+          </Text>
         )}
       </Pressable>
-
-      {place ? <Text style={styles.place}>📍 {place}</Text> : null}
 
       {error ? (
         <View style={styles.errorBox}>
@@ -100,12 +174,13 @@ export function HomeScreen() {
       {conditions ? <ConditionsCard conditions={conditions} /> : null}
       {strategy ? <StrategyCard strategy={strategy} /> : null}
 
-      {!conditions && !loading && !error ? (
+      {!conditions && !analyzing && !error ? (
         <Text style={styles.hint}>
-          Pick your water type and the cover you're fishing, then tap Analyze.
-          BALURE pulls live weather, water temperature{' '}
-          {waterType === 'saltwater' ? 'and NOAA tides ' : ''}
-          for your GPS location and builds a game plan.
+          Set your spot, choose your water, and tell BALURE the cover you see.
+          It pulls live weather, water temperature
+          {waterType === 'saltwater' ? ' and NOAA tides ' : ' '}
+          for that location and builds a game plan with the lures, rigs, and
+          bait to throw.
         </Text>
       ) : null}
 
@@ -115,6 +190,10 @@ export function HomeScreen() {
       </Text>
     </ScrollView>
   );
+}
+
+function formatCoords(c: Coordinates): string {
+  return `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`;
 }
 
 const styles = StyleSheet.create({
@@ -129,21 +208,44 @@ const styles = StyleSheet.create({
   },
   brand: {
     color: colors.text,
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '900',
-    letterSpacing: 4,
+    letterSpacing: 3,
   },
   tagline: {
     color: colors.textMuted,
     fontSize: 13,
     marginBottom: spacing.lg,
   },
-  fieldLabel: {
+  secondaryBtn: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  secondaryBtnText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  orLabel: {
     color: colors.textMuted,
     fontSize: 12,
+    textAlign: 'center',
+    marginVertical: spacing.sm,
+  },
+  selected: {
+    color: colors.text,
+    fontSize: 13,
     fontWeight: '600',
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  helper: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginBottom: spacing.md,
   },
   cta: {
     backgroundColor: colors.accent,
@@ -152,30 +254,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.md,
   },
-  ctaDisabled: {
-    opacity: 0.7,
+  btnDisabled: {
+    opacity: 0.5,
   },
   ctaText: {
-    color: colors.bg,
+    color: colors.card,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  place: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginBottom: spacing.md,
-  },
   errorBox: {
-    backgroundColor: '#3a1f1f',
-    borderColor: colors.bad,
+    backgroundColor: colors.errorBg,
+    borderColor: colors.errorBorder,
     borderWidth: 1,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
   errorText: {
-    color: '#f4c4ba',
+    color: colors.errorText,
     fontSize: 13,
   },
   hint: {
@@ -189,6 +286,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     marginTop: spacing.lg,
-    opacity: 0.7,
+    opacity: 0.8,
   },
 });

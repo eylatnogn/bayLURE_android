@@ -14,7 +14,11 @@ Built with **Expo / React Native (TypeScript)**.
 
 ## What it does
 
-1. **Location** — uses your device GPS (with reverse-geocoded place name).
+1. **Location** — tap **Use my location** for device GPS, or **drop a pin** on
+   an interactive map to fish a spot you're not standing on. The map is Leaflet
+   + OpenStreetMap (no API key) and works on web (iframe) and native (WebView).
+   Structure & cover options are **filtered to the water type** — lily pads show
+   only for freshwater; oyster bars and mangroves only for saltwater.
 2. **Conditions** — gathers everything the strategy needs:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,

@@ -28,18 +28,25 @@ export async function getCurrentLocation(): Promise<LocationResult> {
     longitude: position.coords.longitude,
   };
 
-  let label = '';
+  const label = await reverseGeocode(coordinates);
+  return { coordinates, label };
+}
+
+/**
+ * Best-effort place name for a coordinate. Returns '' when reverse geocoding
+ * isn't available (e.g. on web) or fails — callers fall back to raw coords.
+ */
+export async function reverseGeocode(coords: Coordinates): Promise<string> {
   try {
-    const places = await Location.reverseGeocodeAsync(coordinates);
+    const places = await Location.reverseGeocodeAsync(coords);
     const place = places[0];
     if (place) {
-      label = [place.city ?? place.subregion, place.region]
+      return [place.city ?? place.subregion, place.region]
         .filter(Boolean)
         .join(', ');
     }
   } catch {
     // Reverse geocoding is best-effort; ignore failures.
   }
-
-  return { coordinates, label };
+  return '';
 }

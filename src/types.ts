@@ -2,14 +2,17 @@
 
 export type WaterType = 'saltwater' | 'freshwater';
 
-/** Generic structure / cover the user reports at their spot. */
+/** Structure / cover the user reports at their spot. */
 export type StructureType =
-  | 'vegetation' // weeds, grass, lily pads, milfoil
-  | 'rock' // rip-rap, rocky points, boulders
-  | 'wood' // laydowns, brush, timber, docks
-  | 'open' // open water / flats / no obvious cover
+  | 'vegetation' // submerged/emergent grass & weeds, grass flats
+  | 'pads' // lily pads / matted vegetation (freshwater)
+  | 'wood' // laydowns, timber, docks, pilings
+  | 'rock' // rip-rap, rocky points, jetties
+  | 'oyster' // oyster bars / shell (saltwater)
+  | 'mangrove' // mangrove shorelines (saltwater)
   | 'dropoff' // ledges, channel edges, depth breaks
-  | 'current'; // creek mouths, inlets, moving water
+  | 'current' // river current, inlets, passes
+  | 'open'; // open water / flats / no obvious cover
 
 export type PressureTrend = 'rising' | 'falling' | 'steady' | 'unknown';
 

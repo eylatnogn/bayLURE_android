@@ -9,7 +9,7 @@
     "newArchEnabled": true,
     "splash": {
       "resizeMode": "contain",
-      "backgroundColor": "#0b1f33"
+      "backgroundColor": "#3c7a4e"
     },
     "ios": {
       "supportsTablet": true,
@@ -21,7 +21,7 @@
     "android": {
       "package": "com.balure.app",
       "adaptiveIcon": {
-        "backgroundColor": "#0b1f33"
+        "backgroundColor": "#3c7a4e"
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",

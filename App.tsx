@@ -6,7 +6,7 @@ import { colors } from '@/theme';
 export default function App() {
   return (
     <SafeAreaView style={styles.root}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <HomeScreen />
     </SafeAreaView>
   );
