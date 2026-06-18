@@ -32,6 +32,11 @@ export interface LureEntry {
    * species-specific lures that don't list it are de-prioritized.
    */
   species?: Species[];
+  /**
+   * Subtle / natural presentations that excel on heavily pressured, educated
+   * fish. Boosted when the user marks the water as pressured.
+   */
+  pressureFriendly?: boolean;
 }
 
 /**
@@ -170,6 +175,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.74,
     strength: 'weedless presentation right in heavy cover',
     species: ['largemouth'],
+    pressureFriendly: true,
   },
   {
     name: 'Wacky-Rigged Stickbait',
@@ -184,6 +190,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.7,
     strength: 'subtle fall that pressured, inactive fish rarely refuse',
     species: ['largemouth', 'smallmouth'],
+    pressureFriendly: true,
   },
   {
     name: 'Ned Rig',
@@ -198,6 +205,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.7,
     strength: 'tiny profile that saves tough, high-pressure days',
     species: ['smallmouth', 'largemouth', 'walleye', 'panfish'],
+    pressureFriendly: true,
   },
   {
     name: 'Drop-Shot Rig',
@@ -212,6 +220,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.68,
     strength: 'keeps a bait in the strike zone over deep structure',
     species: ['smallmouth', 'largemouth', 'walleye', 'panfish', 'seatrout'],
+    pressureFriendly: true,
   },
   {
     name: 'Football Jig',
@@ -242,6 +251,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.8,
     strength: 'the inshore workhorse for reds, trout and flounder',
     species: ['redfish', 'seatrout', 'flounder', 'snook', 'striper'],
+    pressureFriendly: true,
   },
   {
     name: 'Gold/Silver Spoon',
@@ -284,6 +294,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.66,
     strength: 'shines on cooler-water trout that want a slow, suspending target',
     species: ['seatrout', 'snook', 'striper'],
+    pressureFriendly: true,
   },
 
   // ---- Natural bait ----
@@ -300,6 +311,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.82,
     strength: 'almost nothing inshore refuses live shrimp',
     species: ['redfish', 'seatrout', 'snook', 'flounder'],
+    pressureFriendly: true,
   },
   {
     name: 'Cut/Live Baitfish',
@@ -314,6 +326,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.72,
     strength: 'scent does the work when fish are inactive or water is cold/stained',
     species: ['catfish', 'striper', 'redfish', 'snook', 'flounder', 'tarpon', 'spanish'],
+    pressureFriendly: true,
   },
   {
     name: 'Nightcrawlers',
@@ -328,6 +341,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.68,
     strength: 'universal confidence bait when the bite is slow',
     species: ['panfish', 'trout', 'walleye', 'catfish'],
+    pressureFriendly: true,
   },
 
   // ---- Added species coverage ----
@@ -358,6 +372,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.66,
     strength: 'a struggling minnow is deadly on crappie, walleye and trout',
     species: ['panfish', 'walleye', 'trout'],
+    pressureFriendly: true,
   },
   {
     name: 'Curly-Tail Grub on Jighead',
@@ -372,6 +387,7 @@ export const LURES: LureEntry[] = [
     baseScore: 0.62,
     strength: 'the most versatile little bait there is for panfish, walleye and bass',
     species: ['panfish', 'walleye', 'smallmouth', 'largemouth'],
+    pressureFriendly: true,
   },
   {
     name: 'Bucktail Jig',

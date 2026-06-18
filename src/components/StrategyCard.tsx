@@ -69,6 +69,20 @@ export function StrategyCard({ strategy }: { strategy: Strategy }) {
         ))}
       </Section>
 
+      {strategy.pressureTips ? (
+        <Section title="Pressured-Water Playbook">
+          <Text style={styles.playbookIntro}>
+            This water is heavily fished — outfinesse the crowd:
+          </Text>
+          {strategy.pressureTips.map((t, i) => (
+            <View key={i} style={styles.factorRow}>
+              <Text style={styles.bulletWater}>›</Text>
+              <Text style={styles.factor}>{t}</Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
+
       <Section title="Throw This">
         {strategy.picks.map((p, i) => (
           <PickRow key={`${p.name}-${i}`} pick={p} />
@@ -135,6 +149,17 @@ const styles = StyleSheet.create({
     color: colors.accent,
     marginRight: spacing.sm,
     fontSize: 14,
+  },
+  bulletWater: {
+    color: colors.water,
+    marginRight: spacing.sm,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  playbookIntro: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginBottom: spacing.md,
   },
   factor: {
     color: colors.text,

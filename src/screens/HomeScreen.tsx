@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type {
@@ -16,6 +17,7 @@ import type {
   WaterType,
 } from '@/types';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
+import { geocodeQuery } from '@/api/geocode';
 import { gatherConditions } from '@/api/conditions';
 import { buildStrategy } from '@/engine/strategy';
 import { speciesForWaterType } from '@/engine/species';
@@ -35,10 +37,13 @@ export function HomeScreen() {
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [place, setPlace] = useState<string>('');
   const [locating, setLocating] = useState(false);
+  const [query, setQuery] = useState('');
+  const [geocoding, setGeocoding] = useState(false);
 
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
   const [species, setSpecies] = useState<Species>('any');
   const [structures, setStructures] = useState<StructureType[]>(['vegetation']);
+  const [pressured, setPressured] = useState(false);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +97,25 @@ export function HomeScreen() {
     });
   }, []);
 
+  const onFindAddress = useCallback(async () => {
+    if (!query.trim()) return;
+    setGeocoding(true);
+    setError(null);
+    try {
+      const hit = await geocodeQuery(query);
+      if (!hit) {
+        setError(`Couldn't find "${query.trim()}". Try a ZIP code or "City, State".`);
+        return;
+      }
+      setCoordinates(hit.coordinates);
+      setPlace(hit.label || formatCoords(hit.coordinates));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Address lookup failed.');
+    } finally {
+      setGeocoding(false);
+    }
+  }, [query]);
+
   const onAnalyze = useCallback(async () => {
     if (!coordinates) return;
     setAnalyzing(true);
@@ -102,6 +126,7 @@ export function HomeScreen() {
         waterType,
         species,
         structures,
+        pressured,
       });
       setConditions(next);
       setStrategy(buildStrategy(next));
@@ -110,7 +135,7 @@ export function HomeScreen() {
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, species, structures]);
+  }, [coordinates, waterType, species, structures, pressured]);
 
   return (
     <ScrollView
@@ -134,6 +159,34 @@ export function HomeScreen() {
             <Text style={styles.secondaryBtnText}>📍 Use my location</Text>
           )}
         </Pressable>
+
+        <Text style={styles.orLabel}>or enter an address or ZIP code</Text>
+        <View style={styles.searchRow}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={onFindAddress}
+            placeholder="e.g. 30301 or Lake Lanier, GA"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="words"
+            returnKeyType="search"
+            style={styles.input}
+          />
+          <Pressable
+            onPress={onFindAddress}
+            disabled={geocoding || !query.trim()}
+            style={[
+              styles.findBtn,
+              (geocoding || !query.trim()) && styles.btnDisabled,
+            ]}
+          >
+            {geocoding ? (
+              <ActivityIndicator color={colors.card} />
+            ) : (
+              <Text style={styles.findBtnText}>Find</Text>
+            )}
+          </Pressable>
+        </View>
 
         <Text style={styles.orLabel}>or drop a pin on the map</Text>
         <MapPicker center={coordinates} onPick={onPickOnMap} height={220} />
@@ -172,6 +225,38 @@ export function HomeScreen() {
           selected={structures}
           onToggle={toggleStructure}
         />
+      </Section>
+
+      {/* Step 5 — Fishing pressure */}
+      <Section title="5 · Fishing Pressure">
+        <Text style={styles.helper}>
+          Heavily fished water? Lots of boats, docks, or popular bank spots make
+          fish wary — turn this on for a finesse plan.
+        </Text>
+        <View style={styles.toggleRow}>
+          {[
+            { value: false, label: 'Normal' },
+            { value: true, label: 'Heavily pressured' },
+          ].map((opt) => {
+            const active = pressured === opt.value;
+            return (
+              <Pressable
+                key={String(opt.value)}
+                onPress={() => setPressured(opt.value)}
+                style={[styles.togglePill, active && styles.togglePillActive]}
+              >
+                <Text
+                  style={[
+                    styles.togglePillText,
+                    active && styles.togglePillTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </Section>
 
       <Pressable
@@ -261,6 +346,58 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginVertical: spacing.sm,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    color: colors.text,
+    fontSize: 15,
+  },
+  findBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 72,
+  },
+  findBtnText: {
+    color: colors.card,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  togglePill: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    alignItems: 'center',
+  },
+  togglePillActive: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+  },
+  togglePillText: {
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  togglePillTextActive: {
+    color: colors.text,
   },
   selected: {
     color: colors.text,

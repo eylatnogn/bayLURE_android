@@ -103,6 +103,8 @@ export interface Conditions {
   waterType: WaterType;
   species: Species;
   structures: StructureType[];
+  /** True when the water is heavily fished (educated, wary fish). */
+  pressured: boolean;
   fetchedAt: string;
   weather: WeatherConditions;
   water: WaterConditions;
@@ -129,6 +131,8 @@ export interface Strategy {
   /** Bullet-point factors driving the recommendation. */
   factors: string[];
   picks: LurePick[];
+  /** Finesse "playbook" tips, present only for heavily pressured water. */
+  pressureTips?: string[];
   /** Present only when the optional Claude AI layer ran. */
   aiNarrative?: string;
 }

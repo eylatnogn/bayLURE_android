@@ -9,7 +9,8 @@ import { speciesLabel, speciesTip } from '@/engine/species';
  */
 export function buildStrategy(c: Conditions): Strategy {
   const { score: biteScore, factors } = scoreBite(c);
-  const mood = biteMood(biteScore);
+  // Heavily pressured water nudges the whole approach one notch toward finesse.
+  const mood = c.pressured ? downshift(biteMood(biteScore)) : biteMood(biteScore);
   const picks = rankPicks(c, mood);
   const summary = buildSummary(c, biteScore, mood);
 
@@ -24,7 +25,33 @@ export function buildStrategy(c: Conditions): Strategy {
     summary,
     factors,
     picks,
+    pressureTips: c.pressured ? buildPressureTips(c) : undefined,
   };
+}
+
+/** Move a presentation mood one step toward finesse. */
+function downshift(mood: BiteMood): BiteMood {
+  if (mood === 'aggressive') return 'neutral';
+  if (mood === 'neutral') return 'finesse';
+  return 'finesse';
+}
+
+/** Curated finesse "playbook" for heavily pressured, educated fish. */
+function buildPressureTips(c: Conditions): string[] {
+  const tips = [
+    'Downsize everything — a smaller profile draws strikes from fish that have seen every popular bait.',
+    'Switch to natural, translucent colors (green pumpkin, watermelon, clear/shad) and kill the flash in clear water.',
+    'Lengthen and lighten your leader — drop to thinner fluorocarbon so the line disappears.',
+    'Slow down and add long pauses; deadstick the bait and let pressured fish commit.',
+    'Make longer casts and stay off the spot — wary fish spook from boat noise and shadows.',
+    'Fish overlooked water and off-hours (first light, dusk, weekdays) to find fish that see less traffic.',
+  ];
+  tips.push(
+    c.waterType === 'saltwater'
+      ? 'Lead with a light jighead + small paddletail or a free-lined live shrimp on a long fluoro leader.'
+      : 'Lead with finesse rigs — Ned, drop-shot, and weightless wacky worms on spinning gear and light line.',
+  );
+  return tips;
 }
 
 type BiteMood = Presentation; // 'aggressive' | 'neutral' | 'finesse'
@@ -141,6 +168,12 @@ function scoreBite(c: Conditions): { score: number; factors: string[] } {
     }
   }
 
+  // Fishing pressure: educated fish are warier and harder to fool.
+  if (c.pressured) {
+    score -= 8;
+    factors.push('Heavily pressured water — fish are wary and selective; finesse it.');
+  }
+
   return { score: clamp(Math.round(score), 1, 99), factors };
 }
 
@@ -233,6 +266,18 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
       score += 20;
       reasons.unshift(`a go-to for ${speciesLabel(c.species)}`);
     } else {
+      score -= 12;
+    }
+  }
+
+  // Heavily pressured water: reward subtle/natural baits, bury loud reaction
+  // baits that educated fish ignore.
+  if (c.pressured) {
+    if (l.pressureFriendly) {
+      score += 16;
+      reasons.push('subtle enough for pressured, educated fish');
+    }
+    if (l.presentation === 'aggressive') {
       score -= 12;
     }
   }

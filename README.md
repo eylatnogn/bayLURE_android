@@ -14,14 +14,18 @@ Built with **Expo / React Native (TypeScript)**.
 
 ## What it does
 
-1. **Location** — tap **Use my location** for device GPS, or **drop a pin** on
-   an interactive map to fish a spot you're not standing on. The map is Leaflet
-   + OpenStreetMap (no API key) and works on web (iframe) and native (WebView).
+1. **Location** — three ways to set your spot: tap **Use my location** for
+   device GPS, type an **address or ZIP code** (geocoded via OpenStreetMap
+   Nominatim, no key — great when location services are off), or **drop a pin**
+   on an interactive map. The map is Leaflet + OpenStreetMap and works on web
+   (iframe) and native (WebView).
    Structure & cover options are **filtered to the water type** — lily pads show
    only for freshwater; oyster bars and mangroves only for saltwater.
    A **target species** selector (largemouth, smallmouth, walleye, panfish,
    trout, catfish, pike / redfish, seatrout, snook, flounder, striper, tarpon,
    Spanish — or "Any") biases the lure ranking toward what that fish eats.
+   A **fishing-pressure** toggle (separate from barometric pressure) flips the
+   whole plan to finesse for heavily-fished, educated water — see below.
 2. **Conditions** — gathers everything the strategy needs:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
@@ -44,6 +48,7 @@ Built with **Expo / React Native (TypeScript)**.
 | Weather, pressure, wind, clouds | [Open-Meteo Forecast API](https://open-meteo.com/) |
 | Sea-surface temp, wave height | [Open-Meteo Marine API](https://open-meteo.com/en/docs/marine-weather-api) |
 | Tide predictions | [NOAA CO-OPS Tides & Currents](https://api.tidesandcurrents.noaa.gov/api/prod/) |
+| Address / ZIP geocoding | [OpenStreetMap Nominatim](https://nominatim.org/) |
 
 > NOAA tides cover U.S. coastal waters. Open-Meteo is global. Freshwater water
 > temperature is **estimated** from air temperature and flagged as such in the UI.
@@ -58,6 +63,7 @@ src/
   theme.ts                 Colors / spacing tokens
   api/
     location.ts            GPS + reverse geocode (expo-location)
+    geocode.ts             Address / ZIP -> coordinates (Nominatim)
     weather.ts             Open-Meteo weather + pressure trend
     marine.ts              Sea-surface temp / freshwater estimate
     tides.ts               Nearest NOAA station + hi/lo predictions
@@ -170,6 +176,12 @@ The engine starts at a neutral 50 and adjusts on well-known heuristics:
 - **Sky & light** — overcast and dawn/dusk extend the feed; bright sun pins fish
   to cover.
 - **Tide** — moving water feeds; slack water stalls.
+- **Fishing pressure** — when you flag the water as heavily pressured, the bite
+  score drops, the mood shifts one notch toward finesse, subtle/natural baits
+  (Ned, drop-shot, wacky, live bait, light jigheads) get boosted while loud
+  reaction baits get buried, and a **Pressured-Water Playbook** of finesse tips
+  (downsize, natural colors, lighter/longer leaders, longer pauses, fish
+  overlooked water) is added to the result.
 
 The resulting mood (aggressive / neutral / finesse) decides whether moving
 reaction baits or subtle finesse presentations get ranked first. Each pick is

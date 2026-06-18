@@ -66,6 +66,7 @@ function buildPrompt(c: Conditions, s: Strategy): string {
   return [
     `Water type: ${c.waterType}.`,
     `Target species: ${c.species === 'any' ? 'angler is open to anything' : c.species}.`,
+    `Fishing pressure: ${c.pressured ? 'HEAVILY pressured / educated fish — favor finesse and downsizing' : 'normal'}.`,
     `Structure/cover present: ${c.structures.join(', ') || 'unspecified'}.`,
     `Air: ${c.weather.airTempF}°F. Water: ${c.water.waterTempF}°F${c.water.isEstimated ? ' (estimated)' : ''}.`,
     `Pressure: ${c.weather.pressureInHg} inHg, trend ${c.weather.pressureTrend}.`,
