@@ -11,17 +11,23 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import type { CatchRecord } from '@/types';
+import type { CatchConditions, CatchRecord } from '@/types';
 import { LURES } from '@/engine/lureDatabase';
 import { SPECIES } from '@/engine/species';
 import { addCatch, deleteCatch, loadCatches } from '@/storage/catchLog';
+import { summarizeCatchConditions } from '@/utils/snapshot';
 import { LureSelect } from '@/components/LureSelect';
 import { Section } from '@/components/Section';
 import { colors, radius, spacing } from '@/theme';
 
 const SPECIES_OPTIONS = [...SPECIES.map((s) => s.label), 'Other'];
 
-export function CatchLogScreen() {
+interface Props {
+  /** Latest analyzed conditions from the planner, offered for attaching. */
+  snapshot?: CatchConditions | null;
+}
+
+export function CatchLogScreen({ snapshot }: Props) {
   const [catches, setCatches] = useState<CatchRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -32,6 +38,7 @@ export function CatchLogScreen() {
   const [size, setSize] = useState('');
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [attachConditions, setAttachConditions] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,6 +104,7 @@ export function CatchLogScreen() {
         size: size.trim() || undefined,
         notes: notes.trim() || undefined,
         photoUri: photoUri ?? undefined,
+        conditions: attachConditions && snapshot ? snapshot : undefined,
       });
       setCatches(next);
       resetForm();
@@ -106,7 +114,7 @@ export function CatchLogScreen() {
     } finally {
       setSaving(false);
     }
-  }, [species, lure, size, notes, photoUri, resetForm]);
+  }, [species, lure, size, notes, photoUri, attachConditions, snapshot, resetForm]);
 
   const onDelete = useCallback(async (id: string) => {
     const next = await deleteCatch(id);
@@ -196,6 +204,29 @@ export function CatchLogScreen() {
             </Pressable>
           )}
 
+          {snapshot ? (
+            <Pressable
+              onPress={() => setAttachConditions((v) => !v)}
+              style={styles.attachRow}
+            >
+              <View style={[styles.check, attachConditions && styles.checkOn]}>
+                {attachConditions ? <Text style={styles.checkMark}>✓</Text> : null}
+              </View>
+              <View style={styles.attachText}>
+                <Text style={styles.attachLabel}>Attach current conditions</Text>
+                <Text style={styles.attachPreview}>
+                  {snapshot.place ? `${snapshot.place} · ` : ''}
+                  {summarizeCatchConditions(snapshot)}
+                </Text>
+              </View>
+            </Pressable>
+          ) : (
+            <Text style={styles.attachHint}>
+              Run an analysis on the Plan tab first to attach live conditions to
+              this catch.
+            </Text>
+          )}
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <Pressable
@@ -240,6 +271,12 @@ export function CatchLogScreen() {
                 {c.size ? `  ·  ${c.size}` : ''}
               </Text>
               {c.notes ? <Text style={styles.cardNotes}>{c.notes}</Text> : null}
+              {c.conditions ? (
+                <Text style={styles.cardConditions}>
+                  {c.conditions.place ? `${c.conditions.place} · ` : ''}
+                  {summarizeCatchConditions(c.conditions)}
+                </Text>
+              ) : null}
             </View>
           </View>
         ))
@@ -340,6 +377,37 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: spacing.sm,
   },
+  attachRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    backgroundColor: colors.bgElevated,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: spacing.md,
+  },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    marginRight: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkOn: { backgroundColor: colors.accent },
+  checkMark: { color: colors.card, fontSize: 14, fontWeight: '900' },
+  attachText: { flex: 1 },
+  attachLabel: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  attachPreview: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  attachHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginTop: spacing.lg,
+    lineHeight: 17,
+  },
   error: { color: colors.bad, fontSize: 13, marginTop: spacing.md },
   empty: {
     color: colors.textMuted,
@@ -375,4 +443,10 @@ const styles = StyleSheet.create({
   cardLure: { color: colors.accent, fontSize: 14, fontWeight: '700', marginTop: 2 },
   cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   cardNotes: { color: colors.text, fontSize: 13, marginTop: spacing.sm, lineHeight: 18 },
+  cardConditions: {
+    color: colors.water,
+    fontSize: 11,
+    marginTop: spacing.sm,
+    lineHeight: 15,
+  },
 });

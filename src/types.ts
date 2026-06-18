@@ -145,6 +145,28 @@ export interface PressurePlaybookSection {
   tips: string[];
 }
 
+/** A compact, serializable snapshot of conditions saved alongside a catch. */
+export interface CatchConditions {
+  capturedAt: string;
+  place?: string;
+  latitude?: number;
+  longitude?: number;
+  waterType: WaterType;
+  targetSpecies: Species;
+  structures: StructureType[];
+  pressureLevel: PressureLevel;
+  airTempF: number;
+  waterTempF: number;
+  waterTempEstimated: boolean;
+  pressureInHg: number;
+  pressureTrend: PressureTrend;
+  windMph: number;
+  windDirectionLabel: string;
+  sky: SkyCondition;
+  tideState?: 'incoming' | 'outgoing' | 'slack' | 'unknown';
+  biteScore?: number;
+}
+
 /** A logged catch. Photos and data are stored on-device. */
 export interface CatchRecord {
   id: string;
@@ -160,4 +182,6 @@ export interface CatchRecord {
   notes?: string;
   /** File URI (native) or data URL (web) for the catch photo. */
   photoUri?: string;
+  /** Conditions captured from the planner at log time, if available. */
+  conditions?: CatchConditions;
 }

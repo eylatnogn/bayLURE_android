@@ -117,3 +117,32 @@ export function speciesLabel(id: Species): string {
 export function speciesTip(id: Species): string | null {
   return SPECIES.find((s) => s.id === id)?.tip ?? null;
 }
+
+// Ordered keyword rules: more specific names first (e.g. "sea trout" before
+// the generic "trout"). Used to flag locally-observed fish that map to a
+// BALURE target species.
+const MATCHERS: { id: Species; keywords: string[] }[] = [
+  { id: 'seatrout', keywords: ['spotted seatrout', 'sea trout', 'seatrout', 'speckled trout', 'spotted weakfish'] },
+  { id: 'largemouth', keywords: ['largemouth'] },
+  { id: 'smallmouth', keywords: ['smallmouth'] },
+  { id: 'striper', keywords: ['striped bass', 'striper', 'rockfish'] },
+  { id: 'redfish', keywords: ['red drum', 'redfish'] },
+  { id: 'snook', keywords: ['snook'] },
+  { id: 'flounder', keywords: ['flounder', 'fluke'] },
+  { id: 'tarpon', keywords: ['tarpon'] },
+  { id: 'spanish', keywords: ['spanish mackerel'] },
+  { id: 'walleye', keywords: ['walleye', 'sauger'] },
+  { id: 'pike', keywords: ['northern pike', 'pike', 'muskellunge', 'muskie', 'musky'] },
+  { id: 'catfish', keywords: ['catfish', 'bullhead'] },
+  { id: 'panfish', keywords: ['crappie', 'bluegill', 'sunfish', 'perch', 'pumpkinseed'] },
+  { id: 'trout', keywords: ['rainbow trout', 'brown trout', 'brook trout', 'cutthroat', 'trout'] },
+];
+
+/** Map a fish common name to a BALURE target species, or null if unsupported. */
+export function matchSpecies(commonName: string): Species | null {
+  const name = commonName.toLowerCase();
+  for (const m of MATCHERS) {
+    if (m.keywords.some((k) => name.includes(k))) return m.id;
+  }
+  return null;
+}

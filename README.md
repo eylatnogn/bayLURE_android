@@ -27,9 +27,15 @@ Built with **Expo / React Native (TypeScript)**.
    A **fishing-pressure** selector (Light / Moderate / Heavy — separate from
    barometric pressure) scales the plan toward finesse for heavily-fished,
    educated water and adds a categorized playbook — see below.
+   After an analysis, an **Expected Fish Nearby** card lists the fish most
+   reported around your spot (iNaturalist sightings); tap a 🎣 BALURE-supported
+   fish to set it as your target.
 4. **Catch Log** — a second tab where you log each fish: pick the **species**
    and the **lure/rig/bait that caught it from a list** (never free text),
-   add an optional size, notes, and photo. Everything is stored on-device.
+   add an optional size, notes, and photo. If you've run an analysis, the live
+   **conditions snapshot** (water temp, pressure trend, wind, tide, bite score)
+   is attached to the catch — seeding a dataset of what worked, and when.
+   Everything is stored on-device.
 2. **Conditions** — gathers everything the strategy needs:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
@@ -53,6 +59,7 @@ Built with **Expo / React Native (TypeScript)**.
 | Sea-surface temp, wave height | [Open-Meteo Marine API](https://open-meteo.com/en/docs/marine-weather-api) |
 | Tide predictions | [NOAA CO-OPS Tides & Currents](https://api.tidesandcurrents.noaa.gov/api/prod/) |
 | Address / ZIP geocoding | [OpenStreetMap Nominatim](https://nominatim.org/) |
+| Fish observed nearby | [iNaturalist species counts](https://api.inaturalist.org/v1/) |
 
 > NOAA tides cover U.S. coastal waters. Open-Meteo is global. Freshwater water
 > temperature is **estimated** from air temperature and flagged as such in the UI.
@@ -68,6 +75,7 @@ src/
   api/
     location.ts            GPS + reverse geocode (expo-location)
     geocode.ts             Address / ZIP -> coordinates (Nominatim)
+    areaSpecies.ts         Fish observed nearby (iNaturalist)
     weather.ts             Open-Meteo weather + pressure trend
     marine.ts              Sea-surface temp / freshwater estimate
     tides.ts               Nearest NOAA station + hi/lo predictions
@@ -86,6 +94,7 @@ src/
     SpeciesPicker.tsx      Target-species chips
     StructurePicker.tsx    Water-type-aware cover chips
     LureSelect.tsx         Pick-from-list lure selector (catch log)
+    AreaFishCard.tsx       Expected-fish-nearby list
     TabBar.tsx             Plan / Catch Log tabs
     ...                    Cards, toggles, sections
   screens/

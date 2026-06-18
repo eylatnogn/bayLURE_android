@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import type {
+  CatchConditions,
   Conditions,
   Coordinates,
   PressureLevel,
@@ -20,9 +21,12 @@ import type {
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery } from '@/api/geocode';
 import { gatherConditions } from '@/api/conditions';
+import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
-import { speciesForWaterType } from '@/engine/species';
+import { speciesForWaterType, SPECIES } from '@/engine/species';
+import { buildCatchConditions } from '@/utils/snapshot';
 import { ConditionsCard } from '@/components/ConditionsCard';
+import { AreaFishCard } from '@/components/AreaFishCard';
 import { StrategyCard } from '@/components/StrategyCard';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
 import {
@@ -34,7 +38,12 @@ import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { colors, radius, spacing } from '@/theme';
 
-export function HomeScreen() {
+interface Props {
+  /** Called after an analysis so the catch log can attach these conditions. */
+  onSnapshot?: (snapshot: CatchConditions) => void;
+}
+
+export function HomeScreen({ onSnapshot }: Props) {
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [place, setPlace] = useState<string>('');
   const [locating, setLocating] = useState(false);
@@ -50,6 +59,7 @@ export function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [conditions, setConditions] = useState<Conditions | null>(null);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
+  const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
 
   // Keep cover and species valid for the chosen water type when it changes.
   const onChangeWaterType = useCallback((next: WaterType) => {
@@ -117,26 +127,41 @@ export function HomeScreen() {
     }
   }, [query]);
 
+  const onPickTarget = useCallback(
+    (sp: Species) => {
+      const info = SPECIES.find((s) => s.id === sp);
+      if (info) onChangeWaterType(info.waterType);
+      setSpecies(sp);
+    },
+    [onChangeWaterType],
+  );
+
   const onAnalyze = useCallback(async () => {
     if (!coordinates) return;
     setAnalyzing(true);
     setError(null);
     try {
-      const next = await gatherConditions({
-        coordinates,
-        waterType,
-        species,
-        structures,
-        pressureLevel,
-      });
+      const [next, fish] = await Promise.all([
+        gatherConditions({
+          coordinates,
+          waterType,
+          species,
+          structures,
+          pressureLevel,
+        }),
+        fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
+      ]);
+      const strat = buildStrategy(next);
       setConditions(next);
-      setStrategy(buildStrategy(next));
+      setStrategy(strat);
+      setAreaFish(fish);
+      onSnapshot?.(buildCatchConditions(next, strat.biteScore, place));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, species, structures, pressureLevel]);
+  }, [coordinates, waterType, species, structures, pressureLevel, place, onSnapshot]);
 
   return (
     <ScrollView
@@ -285,6 +310,9 @@ export function HomeScreen() {
       ) : null}
 
       {conditions ? <ConditionsCard conditions={conditions} /> : null}
+      {areaFish.length > 0 ? (
+        <AreaFishCard fish={areaFish} onPickTarget={onPickTarget} />
+      ) : null}
       {strategy ? <StrategyCard strategy={strategy} /> : null}
 
       {!conditions && !analyzing && !error ? (
