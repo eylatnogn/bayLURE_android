@@ -19,6 +19,9 @@ Built with **Expo / React Native (TypeScript)**.
    + OpenStreetMap (no API key) and works on web (iframe) and native (WebView).
    Structure & cover options are **filtered to the water type** — lily pads show
    only for freshwater; oyster bars and mangroves only for saltwater.
+   A **target species** selector (largemouth, smallmouth, walleye, panfish,
+   trout, catfish, pike / redfish, seatrout, snook, flounder, striper, tarpon,
+   Spanish — or "Any") biases the lure ranking toward what that fish eats.
 2. **Conditions** — gathers everything the strategy needs:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
@@ -61,10 +64,17 @@ src/
     conditions.ts          Orchestrates the three fetches
   engine/
     lureDatabase.ts        The knowledge base (lures, rigs, baits + tags)
+    species.ts             Target-species list, labels, and tips
     strategy.ts            Bite-score model + lure ranking (rule-based)
     ai.ts                  Optional Claude enhancement layer
-  components/              Reusable UI (cards, pickers, toggles)
-  screens/HomeScreen.tsx   Main screen
+  components/
+    MapPicker.tsx          Draggable-pin map (native WebView)
+    MapPicker.web.tsx      Same map for web (iframe) — Metro auto-selects
+    mapHtml.ts             Shared Leaflet/OSM document
+    SpeciesPicker.tsx      Target-species chips
+    StructurePicker.tsx    Water-type-aware cover chips
+    ...                    Cards, toggles, sections
+  screens/HomeScreen.tsx   Main screen (4-step flow)
 ```
 
 ## Run it
@@ -109,18 +119,43 @@ npx serve dist     # quick local preview
 > and Android apps, use Expo Go (development) and EAS Build (store-ready
 > binaries) — see "Shipping to the App Store / Play Store" below.
 
-## Shipping to the App Store / Play Store
+## Shipping to the App Store / Play Store (EAS Build)
 
-Vercel hosts websites, not native apps. To distribute actual iOS/Android apps:
+Vercel hosts websites, not native apps. To distribute actual iOS/Android apps,
+use **EAS Build** (Expo's cloud build service). An `eas.json` with three build
+profiles is already included:
+
+| Profile | What it's for | Output |
+| --- | --- | --- |
+| `development` | Dev client for debugging on a device | internal install |
+| `preview` | QA / TestFlight-style sharing | iOS simulator build + Android `.apk` |
+| `production` | Store submission (auto-increments build number) | `.ipa` / `.aab` |
+
+One-time setup:
 
 ```bash
 npm install -g eas-cli
-eas login
-eas build --platform all      # cloud builds .ipa / .aab
-eas submit                     # uploads to App Store Connect / Play Console
+eas login                 # free Expo account
+eas init                  # links the app & writes your projectId into app.json
 ```
 
-For day-to-day testing, `npm start` + the **Expo Go** app is fastest.
+Then build and submit (npm scripts wrap these):
+
+```bash
+npm run build:preview     # eas build --profile preview --platform all
+npm run build:ios         # production iOS .ipa
+npm run build:android     # production Android .aab
+npm run submit:ios        # upload to App Store Connect
+npm run submit:android    # upload to Google Play
+```
+
+You'll need paid developer accounts to publish (Apple Developer $99/yr, Google
+Play one-time $25). EAS handles the signing credentials for you. For day-to-day
+testing, `npm start` + the **Expo Go** app is fastest — no build required.
+
+> Note: app icons and a splash image aren't included yet, so builds use Expo's
+> defaults. Drop a 1024×1024 `icon.png` into `assets/` and reference it under
+> `expo.icon` in `app.json` before a store release.
 
 ## How the bite score works
 

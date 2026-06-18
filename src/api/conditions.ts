@@ -1,6 +1,7 @@
 import type {
   Conditions,
   Coordinates,
+  Species,
   StructureType,
   WaterType,
 } from '@/types';
@@ -11,6 +12,7 @@ import { fetchTides } from '@/api/tides';
 export interface ConditionsRequest {
   coordinates: Coordinates;
   waterType: WaterType;
+  species: Species;
   structures: StructureType[];
 }
 
@@ -34,6 +36,7 @@ export async function gatherConditions(
   return {
     coordinates: req.coordinates,
     waterType: req.waterType,
+    species: req.species,
     structures: req.structures,
     fetchedAt: new Date().toISOString(),
     weather,

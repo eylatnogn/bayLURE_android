@@ -2,6 +2,30 @@
 
 export type WaterType = 'saltwater' | 'freshwater';
 
+/**
+ * Target species. `any` means "not sure / no preference" and applies no
+ * species bias. Freshwater and saltwater species are namespaced so a trout in
+ * a lake and a trout on the flats stay distinct.
+ */
+export type Species =
+  | 'any'
+  // freshwater
+  | 'largemouth'
+  | 'smallmouth'
+  | 'walleye'
+  | 'panfish'
+  | 'trout'
+  | 'catfish'
+  | 'pike'
+  // saltwater
+  | 'redfish'
+  | 'seatrout'
+  | 'snook'
+  | 'flounder'
+  | 'striper'
+  | 'tarpon'
+  | 'spanish';
+
 /** Structure / cover the user reports at their spot. */
 export type StructureType =
   | 'vegetation' // submerged/emergent grass & weeds, grass flats
@@ -77,6 +101,7 @@ export interface TideConditions {
 export interface Conditions {
   coordinates: Coordinates;
   waterType: WaterType;
+  species: Species;
   structures: StructureType[];
   fetchedAt: string;
   weather: WeatherConditions;

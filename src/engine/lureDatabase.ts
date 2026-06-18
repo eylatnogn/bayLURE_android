@@ -1,5 +1,6 @@
 import type {
   SkyCondition,
+  Species,
   StructureType,
   WaterType,
 } from '@/types';
@@ -25,6 +26,12 @@ export interface LureEntry {
   baseScore: number;
   /** Short clause used when explaining the pick, e.g. "covers water fast". */
   strength: string;
+  /**
+   * Species this especially produces for. Omitted = broadly applicable (no
+   * species bias). When a target species is set, listed lures get a boost and
+   * species-specific lures that don't list it are de-prioritized.
+   */
+  species?: Species[];
 }
 
 /**
@@ -46,6 +53,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.8,
     strength: 'covers water fast and triggers reaction strikes',
+    species: ['largemouth', 'smallmouth', 'pike'],
   },
   {
     name: 'Squarebill Crankbait',
@@ -59,6 +67,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.78,
     strength: 'deflects off rock and wood to draw reaction bites',
+    species: ['largemouth', 'smallmouth'],
   },
   {
     name: 'Spinnerbait',
@@ -72,6 +81,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.75,
     strength: 'flash and vibration shine in wind and low light',
+    species: ['largemouth', 'pike', 'smallmouth'],
   },
   {
     name: 'Topwater Walking Bait',
@@ -85,6 +95,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.7,
     strength: 'calls fish up in warm water and low light',
+    species: ['largemouth', 'smallmouth', 'snook', 'seatrout'],
   },
   {
     name: 'Hollow-Body Frog',
@@ -98,6 +109,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.7,
     strength: 'weedless over heavy vegetation where nothing else goes',
+    species: ['largemouth', 'pike'],
   },
 
   // ---- Freshwater: neutral / versatile ----
@@ -113,6 +125,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.72,
     strength: 'vibration through grass at any speed',
+    species: ['largemouth', 'smallmouth', 'pike'],
   },
   {
     name: 'Jerkbait',
@@ -126,6 +139,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.7,
     strength: 'long pauses tempt lethargic cold-water fish',
+    species: ['smallmouth', 'largemouth', 'walleye'],
   },
   {
     name: 'Swim Jig',
@@ -139,6 +153,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.66,
     strength: 'compact profile through scattered cover',
+    species: ['largemouth', 'pike'],
   },
 
   // ---- Freshwater: finesse ----
@@ -154,6 +169,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.74,
     strength: 'weedless presentation right in heavy cover',
+    species: ['largemouth'],
   },
   {
     name: 'Wacky-Rigged Stickbait',
@@ -167,6 +183,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.7,
     strength: 'subtle fall that pressured, inactive fish rarely refuse',
+    species: ['largemouth', 'smallmouth'],
   },
   {
     name: 'Ned Rig',
@@ -180,6 +197,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.7,
     strength: 'tiny profile that saves tough, high-pressure days',
+    species: ['smallmouth', 'largemouth', 'walleye', 'panfish'],
   },
   {
     name: 'Drop-Shot Rig',
@@ -193,6 +211,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.68,
     strength: 'keeps a bait in the strike zone over deep structure',
+    species: ['smallmouth', 'largemouth', 'walleye', 'panfish', 'seatrout'],
   },
   {
     name: 'Football Jig',
@@ -206,6 +225,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.68,
     strength: 'mimics crawfish along rocky bottoms',
+    species: ['smallmouth', 'largemouth'],
   },
 
   // ---- Saltwater inshore ----
@@ -221,6 +241,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.8,
     strength: 'the inshore workhorse for reds, trout and flounder',
+    species: ['redfish', 'seatrout', 'flounder', 'snook', 'striper'],
   },
   {
     name: 'Gold/Silver Spoon',
@@ -234,6 +255,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.7,
     strength: 'flash that calls redfish across grass flats',
+    species: ['redfish', 'seatrout', 'spanish'],
   },
   {
     name: 'Popping Cork + Shrimp',
@@ -247,6 +269,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.78,
     strength: 'the pop calls trout/reds; the cork suspends bait in the strike zone',
+    species: ['seatrout', 'redfish', 'snook'],
   },
   {
     name: 'Suspending Twitchbait',
@@ -260,6 +283,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.66,
     strength: 'shines on cooler-water trout that want a slow, suspending target',
+    species: ['seatrout', 'snook', 'striper'],
   },
 
   // ---- Natural bait ----
@@ -275,6 +299,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.82,
     strength: 'almost nothing inshore refuses live shrimp',
+    species: ['redfish', 'seatrout', 'snook', 'flounder'],
   },
   {
     name: 'Cut/Live Baitfish',
@@ -288,6 +313,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.72,
     strength: 'scent does the work when fish are inactive or water is cold/stained',
+    species: ['catfish', 'striper', 'redfish', 'snook', 'flounder', 'tarpon', 'spanish'],
   },
   {
     name: 'Nightcrawlers',
@@ -301,5 +327,64 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.68,
     strength: 'universal confidence bait when the bite is slow',
+    species: ['panfish', 'trout', 'walleye', 'catfish'],
+  },
+
+  // ---- Added species coverage ----
+  {
+    name: 'Inline Spinner',
+    category: 'lure',
+    details: 'Roostertail-style 1/8-1/4 oz, silver/gold; steady retrieve, swing through current',
+    waterTypes: ['freshwater'],
+    structures: ['current', 'open', 'rock', 'vegetation'],
+    minWaterF: 42,
+    maxWaterF: 72,
+    skies: [],
+    presentation: 'neutral',
+    baseScore: 0.6,
+    strength: 'flash and thump that trout, panfish and smallmouth chase in moving water',
+    species: ['trout', 'panfish', 'smallmouth'],
+  },
+  {
+    name: 'Live Minnow under a Slip Float',
+    category: 'bait',
+    details: 'Crappie minnow on a light wire hook, depth set just above cover',
+    waterTypes: ['freshwater'],
+    structures: ['wood', 'dropoff', 'open'],
+    minWaterF: 38,
+    maxWaterF: 80,
+    skies: [],
+    presentation: 'finesse',
+    baseScore: 0.66,
+    strength: 'a struggling minnow is deadly on crappie, walleye and trout',
+    species: ['panfish', 'walleye', 'trout'],
+  },
+  {
+    name: 'Curly-Tail Grub on Jighead',
+    category: 'rig',
+    details: '1/8-1/4 oz head, 2-3" grub (white/chartreuse); cast, count down, swim',
+    waterTypes: ['freshwater'],
+    structures: ['dropoff', 'open', 'rock', 'wood'],
+    minWaterF: 42,
+    maxWaterF: 82,
+    skies: [],
+    presentation: 'finesse',
+    baseScore: 0.62,
+    strength: 'the most versatile little bait there is for panfish, walleye and bass',
+    species: ['panfish', 'walleye', 'smallmouth', 'largemouth'],
+  },
+  {
+    name: 'Bucktail Jig',
+    category: 'lure',
+    details: '1/4-1 oz white/chartreuse, optional trailer; hop along the bottom',
+    waterTypes: ['saltwater'],
+    structures: ['dropoff', 'current', 'open', 'oyster'],
+    minWaterF: 45,
+    maxWaterF: 85,
+    skies: [],
+    presentation: 'neutral',
+    baseScore: 0.68,
+    strength: 'bottom-bouncing classic that flounder, striper and reds eat year-round',
+    species: ['flounder', 'striper', 'redfish', 'snook'],
   },
 ];

@@ -1,5 +1,6 @@
 import type { Conditions, LurePick, Strategy } from '@/types';
 import { LURES, type LureEntry, type Presentation } from '@/engine/lureDatabase';
+import { speciesLabel, speciesTip } from '@/engine/species';
 
 /**
  * Build a complete fishing strategy from gathered conditions using a
@@ -11,6 +12,11 @@ export function buildStrategy(c: Conditions): Strategy {
   const mood = biteMood(biteScore);
   const picks = rankPicks(c, mood);
   const summary = buildSummary(c, biteScore, mood);
+
+  if (c.species !== 'any') {
+    const tip = speciesTip(c.species);
+    if (tip) factors.push(`Targeting ${speciesLabel(c.species)}: ${tip}`);
+  }
 
   return {
     biteScore,
@@ -220,6 +226,17 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
     score -= 4;
   }
 
+  // Target species bias. Lures that name the species get a strong boost;
+  // species-specific lures that don't name it get pushed down.
+  if (c.species !== 'any' && l.species) {
+    if (l.species.includes(c.species)) {
+      score += 20;
+      reasons.unshift(`a go-to for ${speciesLabel(c.species)}`);
+    } else {
+      score -= 12;
+    }
+  }
+
   // Lead with the lure's signature strength, then condition-specific reasons.
   const reasonText = [l.strength, ...reasons].join('; ');
 
@@ -237,7 +254,9 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
 // ---------------------------------------------------------------------------
 
 function buildSummary(c: Conditions, score: number, mood: BiteMood): string {
-  const place = `${c.waterType === 'saltwater' ? 'Inshore salt' : 'Freshwater'}`;
+  const target =
+    c.species === 'any' ? '' : ` for ${speciesLabel(c.species)}`;
+  const place = `${c.waterType === 'saltwater' ? 'Inshore salt' : 'Freshwater'}${target}`;
   const moodWord =
     mood === 'aggressive'
       ? 'Fish should be willing to chase — lead with moving baits and reaction lures'

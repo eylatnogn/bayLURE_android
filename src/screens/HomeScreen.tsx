@@ -10,6 +10,7 @@ import {
 import type {
   Conditions,
   Coordinates,
+  Species,
   StructureType,
   Strategy,
   WaterType,
@@ -17,6 +18,7 @@ import type {
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { gatherConditions } from '@/api/conditions';
 import { buildStrategy } from '@/engine/strategy';
+import { speciesForWaterType } from '@/engine/species';
 import { ConditionsCard } from '@/components/ConditionsCard';
 import { StrategyCard } from '@/components/StrategyCard';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
@@ -24,6 +26,7 @@ import {
   StructurePicker,
   structuresForWaterType,
 } from '@/components/StructurePicker';
+import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { colors, radius, spacing } from '@/theme';
@@ -34,6 +37,7 @@ export function HomeScreen() {
   const [locating, setLocating] = useState(false);
 
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
+  const [species, setSpecies] = useState<Species>('any');
   const [structures, setStructures] = useState<StructureType[]>(['vegetation']);
 
   const [analyzing, setAnalyzing] = useState(false);
@@ -41,7 +45,7 @@ export function HomeScreen() {
   const [conditions, setConditions] = useState<Conditions | null>(null);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
 
-  // Keep only cover that exists in the chosen water type when it changes.
+  // Keep cover and species valid for the chosen water type when it changes.
   const onChangeWaterType = useCallback((next: WaterType) => {
     setWaterType(next);
     const allowed = structuresForWaterType(next);
@@ -49,6 +53,11 @@ export function HomeScreen() {
       const kept = prev.filter((s) => allowed.includes(s));
       return kept.length > 0 ? kept : allowed.slice(0, 1);
     });
+    setSpecies((prev) =>
+      prev === 'any' || speciesForWaterType(next).some((s) => s.id === prev)
+        ? prev
+        : 'any',
+    );
   }, []);
 
   const toggleStructure = useCallback((value: StructureType) => {
@@ -88,7 +97,12 @@ export function HomeScreen() {
     setAnalyzing(true);
     setError(null);
     try {
-      const next = await gatherConditions({ coordinates, waterType, structures });
+      const next = await gatherConditions({
+        coordinates,
+        waterType,
+        species,
+        structures,
+      });
       setConditions(next);
       setStrategy(buildStrategy(next));
     } catch (e) {
@@ -96,7 +110,7 @@ export function HomeScreen() {
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, structures]);
+  }, [coordinates, waterType, species, structures]);
 
   return (
     <ScrollView
@@ -136,8 +150,20 @@ export function HomeScreen() {
         <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
       </Section>
 
-      {/* Step 3 — Structure & cover (filtered to the water type) */}
-      <Section title="3 · Structure & Cover">
+      {/* Step 3 — Target species */}
+      <Section title="3 · Target Species">
+        <Text style={styles.helper}>
+          Pick a fish to sharpen the picks, or leave it on Any.
+        </Text>
+        <SpeciesPicker
+          waterType={waterType}
+          value={species}
+          onChange={setSpecies}
+        />
+      </Section>
+
+      {/* Step 4 — Structure & cover (filtered to the water type) */}
+      <Section title="4 · Structure & Cover">
         <Text style={styles.helper}>
           Tap everything you can see at your spot.
         </Text>
