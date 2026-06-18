@@ -98,13 +98,16 @@ export interface TideConditions {
   nextEvent: TideEvent | null;
 }
 
+/** How heavily fished the water is. Drives the finesse playbook. */
+export type PressureLevel = 'none' | 'moderate' | 'high';
+
 export interface Conditions {
   coordinates: Coordinates;
   waterType: WaterType;
   species: Species;
   structures: StructureType[];
-  /** True when the water is heavily fished (educated, wary fish). */
-  pressured: boolean;
+  /** How heavily fished / educated the fish are. */
+  pressureLevel: PressureLevel;
   fetchedAt: string;
   weather: WeatherConditions;
   water: WaterConditions;
@@ -131,8 +134,30 @@ export interface Strategy {
   /** Bullet-point factors driving the recommendation. */
   factors: string[];
   picks: LurePick[];
-  /** Finesse "playbook" tips, present only for heavily pressured water. */
-  pressureTips?: string[];
+  /** Categorized finesse playbook, present only for pressured water. */
+  pressurePlaybook?: PressurePlaybookSection[];
   /** Present only when the optional Claude AI layer ran. */
   aiNarrative?: string;
+}
+
+export interface PressurePlaybookSection {
+  title: string;
+  tips: string[];
+}
+
+/** A logged catch. Photos and data are stored on-device. */
+export interface CatchRecord {
+  id: string;
+  dateISO: string;
+  /** Species label (free-form; chosen from a list including "Other"). */
+  species: string;
+  /** Lure/rig/bait name, chosen from the BALURE list (never free text). */
+  lure: string;
+  lureCategory?: 'lure' | 'rig' | 'bait';
+  waterType?: WaterType;
+  /** Free text, e.g. "18 in" or "3.5 lb". */
+  size?: string;
+  notes?: string;
+  /** File URI (native) or data URL (web) for the catch photo. */
+  photoUri?: string;
 }

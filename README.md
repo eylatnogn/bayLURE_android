@@ -24,8 +24,12 @@ Built with **Expo / React Native (TypeScript)**.
    A **target species** selector (largemouth, smallmouth, walleye, panfish,
    trout, catfish, pike / redfish, seatrout, snook, flounder, striper, tarpon,
    Spanish — or "Any") biases the lure ranking toward what that fish eats.
-   A **fishing-pressure** toggle (separate from barometric pressure) flips the
-   whole plan to finesse for heavily-fished, educated water — see below.
+   A **fishing-pressure** selector (Light / Moderate / Heavy — separate from
+   barometric pressure) scales the plan toward finesse for heavily-fished,
+   educated water and adds a categorized playbook — see below.
+4. **Catch Log** — a second tab where you log each fish: pick the **species**
+   and the **lure/rig/bait that caught it from a list** (never free text),
+   add an optional size, notes, and photo. Everything is stored on-device.
 2. **Conditions** — gathers everything the strategy needs:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
@@ -71,16 +75,22 @@ src/
   engine/
     lureDatabase.ts        The knowledge base (lures, rigs, baits + tags)
     species.ts             Target-species list, labels, and tips
+    pressure.ts            Fishing-pressure scaling + finesse playbook
     strategy.ts            Bite-score model + lure ranking (rule-based)
     ai.ts                  Optional Claude enhancement layer
+  storage/catchLog.ts      On-device catch log (AsyncStorage)
   components/
     MapPicker.tsx          Draggable-pin map (native WebView)
     MapPicker.web.tsx      Same map for web (iframe) — Metro auto-selects
     mapHtml.ts             Shared Leaflet/OSM document
     SpeciesPicker.tsx      Target-species chips
     StructurePicker.tsx    Water-type-aware cover chips
+    LureSelect.tsx         Pick-from-list lure selector (catch log)
+    TabBar.tsx             Plan / Catch Log tabs
     ...                    Cards, toggles, sections
-  screens/HomeScreen.tsx   Main screen (4-step flow)
+  screens/
+    HomeScreen.tsx         Planner (5-step flow)
+    CatchLogScreen.tsx     Log + browse catches
 ```
 
 ## Run it
@@ -163,6 +173,27 @@ testing, `npm start` + the **Expo Go** app is fastest — no build required.
 > defaults. Drop a 1024×1024 `icon.png` into `assets/` and reference it under
 > `expo.icon` in `app.json` before a store release.
 
+## Where the recommendations come from
+
+Be clear-eyed about this: the recommendations are **not** pulled from a live
+external service or a scientific dataset. They come from two things in this repo:
+
+1. **A hand-authored knowledge base** (`src/engine/lureDatabase.ts`) — each
+   lure/rig/bait is tagged with the water types, structure/cover, water-temp
+   window, sky preference, presentation style, target species, and
+   pressure-friendliness it's known for.
+2. **A transparent rule engine** (`src/engine/strategy.ts` + `pressure.ts`) that
+   scores conditions and ranks those baits using widely-held angling heuristics
+   — barometric trends, water-temp activity bands, wind, light, tide, target
+   species, and fishing pressure.
+
+These heuristics encode common fishing wisdom (the kind in fishing literature,
+guide tips, and tournament lore). They are **opinionated and not yet validated
+against real catch data**, and the optional Claude layer is a language model, not
+a data source. That's exactly why the **Catch Log** exists — logging real fish
+and the lures that caught them is the first step toward tuning these weights
+against what actually works on your water.
+
 ## How the bite score works
 
 The engine starts at a neutral 50 and adjusts on well-known heuristics:
@@ -176,12 +207,13 @@ The engine starts at a neutral 50 and adjusts on well-known heuristics:
 - **Sky & light** — overcast and dawn/dusk extend the feed; bright sun pins fish
   to cover.
 - **Tide** — moving water feeds; slack water stalls.
-- **Fishing pressure** — when you flag the water as heavily pressured, the bite
-  score drops, the mood shifts one notch toward finesse, subtle/natural baits
-  (Ned, drop-shot, wacky, live bait, light jigheads) get boosted while loud
-  reaction baits get buried, and a **Pressured-Water Playbook** of finesse tips
-  (downsize, natural colors, lighter/longer leaders, longer pauses, fish
-  overlooked water) is added to the result.
+- **Fishing pressure** (Light / Moderate / Heavy) — scales the whole plan: the
+  bite score drops, the mood shifts toward finesse (Moderate = one notch, Heavy
+  = straight to finesse), subtle/natural baits (Ned, drop-shot, wacky, live
+  bait, light jigheads) get boosted while loud reaction baits get buried, and a
+  categorized **Pressured-Water Playbook** (downsize, color, line/leader,
+  cadence, position, timing, bailout baits) is added — with extra measures at
+  the Heavy level.
 
 The resulting mood (aggressive / neutral / finesse) decides whether moving
 reaction baits or subtle finesse presentations get ranked first. Each pick is

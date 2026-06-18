@@ -1,6 +1,7 @@
 import type {
   Conditions,
   Coordinates,
+  PressureLevel,
   Species,
   StructureType,
   WaterType,
@@ -14,7 +15,7 @@ export interface ConditionsRequest {
   waterType: WaterType;
   species: Species;
   structures: StructureType[];
-  pressured: boolean;
+  pressureLevel: PressureLevel;
 }
 
 /**
@@ -39,7 +40,7 @@ export async function gatherConditions(
     waterType: req.waterType,
     species: req.species,
     structures: req.structures,
-    pressured: req.pressured,
+    pressureLevel: req.pressureLevel,
     fetchedAt: new Date().toISOString(),
     weather,
     water,

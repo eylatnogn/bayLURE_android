@@ -11,6 +11,7 @@ import {
 import type {
   Conditions,
   Coordinates,
+  PressureLevel,
   Species,
   StructureType,
   Strategy,
@@ -43,7 +44,7 @@ export function HomeScreen() {
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
   const [species, setSpecies] = useState<Species>('any');
   const [structures, setStructures] = useState<StructureType[]>(['vegetation']);
-  const [pressured, setPressured] = useState(false);
+  const [pressureLevel, setPressureLevel] = useState<PressureLevel>('none');
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,7 +127,7 @@ export function HomeScreen() {
         waterType,
         species,
         structures,
-        pressured,
+        pressureLevel,
       });
       setConditions(next);
       setStrategy(buildStrategy(next));
@@ -135,7 +136,7 @@ export function HomeScreen() {
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, species, structures, pressured]);
+  }, [coordinates, waterType, species, structures, pressureLevel]);
 
   return (
     <ScrollView
@@ -230,19 +231,20 @@ export function HomeScreen() {
       {/* Step 5 — Fishing pressure */}
       <Section title="5 · Fishing Pressure">
         <Text style={styles.helper}>
-          Heavily fished water? Lots of boats, docks, or popular bank spots make
-          fish wary — turn this on for a finesse plan.
+          How heavily fished is this water? More boats, docks, and popular bank
+          spots mean warier fish — BALURE scales the finesse plan to match.
         </Text>
         <View style={styles.toggleRow}>
-          {[
-            { value: false, label: 'Normal' },
-            { value: true, label: 'Heavily pressured' },
-          ].map((opt) => {
-            const active = pressured === opt.value;
+          {([
+            { value: 'none', label: 'Light' },
+            { value: 'moderate', label: 'Moderate' },
+            { value: 'high', label: 'Heavy' },
+          ] as const).map((opt) => {
+            const active = pressureLevel === opt.value;
             return (
               <Pressable
-                key={String(opt.value)}
-                onPress={() => setPressured(opt.value)}
+                key={opt.value}
+                onPress={() => setPressureLevel(opt.value)}
                 style={[styles.togglePill, active && styles.togglePillActive]}
               >
                 <Text

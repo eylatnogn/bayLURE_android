@@ -37,6 +37,12 @@
         {
           "locationWhenInUsePermission": "BALURE uses your location to fetch local weather, water and tide conditions for fishing recommendations."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BALURE lets you attach a photo of your catch to your log."
+        }
       ]
     ]
   }
