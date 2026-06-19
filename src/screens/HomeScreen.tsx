@@ -38,6 +38,7 @@ import {
 import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
+import { APP_VERSION } from '@/version';
 import { colors, radius, spacing } from '@/theme';
 
 interface Props {
@@ -176,7 +177,10 @@ export function HomeScreen({ onSnapshot }: Props) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.brand}>bayLURE</Text>
+      <View style={styles.brandRow}>
+        <Text style={styles.brand}>bayLURE</Text>
+        <Text style={styles.version}>v{APP_VERSION}</Text>
+      </View>
       <Text style={styles.tagline}>Read the water. Tie on the right thing.</Text>
 
       {/* Step 1 — Location */}
@@ -388,11 +392,22 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
     paddingBottom: spacing.xl * 2,
   },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.sm,
+  },
   brand: {
     color: colors.text,
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: 3,
+  },
+  version: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
   },
   tagline: {
     color: colors.textMuted,

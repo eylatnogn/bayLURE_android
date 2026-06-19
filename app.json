@@ -2,7 +2,7 @@
   "expo": {
     "name": "bayLURE",
     "slug": "balure-app",
-    "version": "0.1.0",
+    "version": "0.9.0",
     "orientation": "portrait",
     "scheme": "balure",
     "userInterfaceStyle": "automatic",
