@@ -21,15 +21,17 @@ import type {
 } from '@/types';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
-import { gatherConditions } from '@/api/conditions';
+import { gatherForecast } from '@/api/conditions';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
 import { speciesForWaterType, SPECIES } from '@/engine/species';
 import { buildCatchConditions } from '@/utils/snapshot';
+import { addDays, longDayLabel, dayLabel, dayNumber } from '@/utils/dates';
 import { ConditionsCard } from '@/components/ConditionsCard';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
 import { StrategyCard } from '@/components/StrategyCard';
+import { ForecastStrip } from '@/components/ForecastStrip';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
 import {
   StructurePicker,
@@ -61,10 +63,14 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conditions, setConditions] = useState<Conditions | null>(null);
-  const [strategy, setStrategy] = useState<Strategy | null>(null);
+  const [forecast, setForecast] = useState<Conditions[] | null>(null);
+  const [strategies, setStrategies] = useState<Strategy[] | null>(null);
+  const [selectedDay, setSelectedDay] = useState(0);
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
+
+  const conditions = forecast?.[selectedDay] ?? null;
+  const strategy = strategies?.[selectedDay] ?? null;
 
   // Keep cover and species valid for the chosen water type when it changes.
   const onChangeWaterType = useCallback((next: WaterType) => {
@@ -146,8 +152,8 @@ export function HomeScreen({ onSnapshot }: Props) {
     setAnalyzing(true);
     setError(null);
     try {
-      const [next, fish, reg] = await Promise.all([
-        gatherConditions({
+      const [week, fish, reg] = await Promise.all([
+        gatherForecast({
           coordinates,
           waterType,
           species,
@@ -158,12 +164,16 @@ export function HomeScreen({ onSnapshot }: Props) {
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
         reverseRegion(coordinates).catch(() => null),
       ]);
-      const strat = buildStrategy(next);
-      setConditions(next);
-      setStrategy(strat);
+      const strats = week.map((c) => buildStrategy(c));
+      setForecast(week);
+      setStrategies(strats);
+      setSelectedDay((prev) => (prev < week.length ? prev : 0));
       setAreaFish(fish);
       setRegion(reg);
-      onSnapshot?.(buildCatchConditions(next, strat.biteScore, place));
+      // Catch log always attaches *today's* conditions, not a future forecast.
+      if (week[0] && strats[0]) {
+        onSnapshot?.(buildCatchConditions(week[0], strats[0].biteScore, place));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
     } finally {
@@ -353,6 +363,23 @@ export function HomeScreen({ onSnapshot }: Props) {
         </View>
       ) : null}
 
+      {strategies ? (
+        <ForecastStrip
+          days={strategies.map((s, i) => ({
+            label: dayLabel(addDays(new Date(), i), i),
+            num: dayNumber(addDays(new Date(), i)),
+            score: s.biteScore,
+          }))}
+          selected={selectedDay}
+          onSelect={setSelectedDay}
+        />
+      ) : null}
+
+      {conditions ? (
+        <Text style={styles.dayHeader}>
+          {longDayLabel(addDays(new Date(), selectedDay), selectedDay)}
+        </Text>
+      ) : null}
       {conditions ? <ConditionsCard conditions={conditions} /> : null}
       {strategy ? <StrategyCard strategy={strategy} /> : null}
       {strategy ? <RegulationsCard region={region} /> : null}
@@ -523,6 +550,12 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.errorText,
     fontSize: 13,
+  },
+  dayHeader: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: spacing.sm,
   },
   hint: {
     color: colors.textMuted,

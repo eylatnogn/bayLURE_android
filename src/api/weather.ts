@@ -7,31 +7,28 @@ import {
   weatherCodeLabel,
 } from '@/utils/format';
 import { moonInfo, timeOfDay } from '@/utils/astro';
+import { addDays, localDateStr } from '@/utils/dates';
 
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+export const FORECAST_DAYS = 7;
+
+interface Hourly {
+  time: string[];
+  temperature_2m: number[];
+  surface_pressure: number[];
+  relative_humidity_2m: number[];
+  cloud_cover: number[];
+  wind_speed_10m: number[];
+  wind_gusts_10m: number[];
+  wind_direction_10m: number[];
+  weather_code: number[];
+  is_day: number[];
+}
 
 interface OpenMeteoForecast {
-  current?: {
-    time: string;
-    temperature_2m: number;
-    relative_humidity_2m: number;
-    is_day: number;
-    surface_pressure: number;
-    cloud_cover: number;
-    wind_speed_10m: number;
-    wind_gusts_10m: number;
-    wind_direction_10m: number;
-    weather_code: number;
-  };
-  hourly?: {
-    time: string[];
-    surface_pressure: number[];
-  };
-  daily?: {
-    time: string[];
-    sunrise: string[];
-    sunset: string[];
-  };
+  current?: { time: string };
+  hourly?: Hourly;
+  daily?: { time: string[]; sunrise: string[]; sunset: string[] };
 }
 
 function skyFromCloudCover(pct: number): SkyCondition {
@@ -41,86 +38,94 @@ function skyFromCloudCover(pct: number): SkyCondition {
 }
 
 /**
- * Fetch current weather from Open-Meteo (no API key required).
- * Pressure trend is derived from the hourly surface_pressure series.
+ * Fetch a 7-day weather outlook from Open-Meteo (no API key). Returns one
+ * WeatherConditions per day (index 0 = today). Today uses the live "current"
+ * reading; future days use that day's midday (noon) snapshot, which is a
+ * reasonable single-number stand-in for a day's fishing outlook.
  */
-export async function fetchWeather(
+export async function fetchWeekWeather(
   coords: Coordinates,
-): Promise<WeatherConditions> {
+): Promise<WeatherConditions[]> {
   const params = new URLSearchParams({
     latitude: String(coords.latitude),
     longitude: String(coords.longitude),
-    current:
+    // We only need current.time as the "now" anchor; the value is unused.
+    current: 'temperature_2m',
+    hourly:
       'temperature_2m,relative_humidity_2m,is_day,surface_pressure,cloud_cover,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code',
-    hourly: 'surface_pressure',
     daily: 'sunrise,sunset',
     temperature_unit: 'fahrenheit',
     wind_speed_unit: 'mph',
     timezone: 'auto',
     past_days: '1',
-    forecast_days: '1',
+    forecast_days: String(FORECAST_DAYS),
   });
 
   const res = await fetch(`${FORECAST_URL}?${params.toString()}`);
-  if (!res.ok) {
-    throw new Error(`Weather request failed (${res.status}).`);
-  }
+  if (!res.ok) throw new Error(`Weather request failed (${res.status}).`);
   const data = (await res.json()) as OpenMeteoForecast;
-  const current = data.current;
-  if (!current) {
-    throw new Error('Weather response was missing current conditions.');
+  const hourly = data.hourly;
+  const nowTime = data.current?.time;
+  if (!hourly || !nowTime) {
+    throw new Error('Weather response was missing hourly data.');
   }
 
-  const pressureChangeHpa = computePressureChange(data.hourly, current.time);
-  const pressureChangeInHg = hpaToInHg(pressureChangeHpa);
+  const base = new Date(nowTime);
+  const out: WeatherConditions[] = [];
+  for (let d = 0; d < FORECAST_DAYS; d += 1) {
+    const date = addDays(base, d);
+    const dateStr = localDateStr(date);
+    // Today: anchor on "now"; future days: anchor on noon.
+    const anchorKey = d === 0 ? nowTime : `${dateStr}T12:00`;
+    const idx = nearestTimeIndex(hourly.time, anchorKey);
+    if (idx < 0) continue;
+    out.push(buildDay(hourly, idx, date, dateStr, data.daily));
+  }
+  return out;
+}
 
-  const today = current.time.slice(0, 10);
-  const dayIdx = data.daily?.time.findIndex((t) => t === today) ?? -1;
-  const sunrise = timeOfDay(
-    dayIdx >= 0 ? data.daily?.sunrise[dayIdx] : data.daily?.sunrise[0],
-  );
-  const sunset = timeOfDay(
-    dayIdx >= 0 ? data.daily?.sunset[dayIdx] : data.daily?.sunset[0],
-  );
-  const moon = moonInfo(new Date(current.time));
+function buildDay(
+  h: Hourly,
+  idx: number,
+  date: Date,
+  dateStr: string,
+  daily: OpenMeteoForecast['daily'],
+): WeatherConditions {
+  const pastIdx = Math.max(0, idx - 3);
+  const pressureNow = h.surface_pressure[idx] ?? 1013;
+  const pressurePast = h.surface_pressure[pastIdx] ?? pressureNow;
+  const pressureChangeInHg = hpaToInHg(pressureNow - pressurePast);
+
+  const cloud = h.cloud_cover[idx] ?? 0;
+  const windDir = h.wind_direction_10m[idx] ?? 0;
+  const moon = moonInfo(date);
+
+  const dayIdx = daily?.time.findIndex((t) => t === dateStr) ?? -1;
+  const sunrise = timeOfDay(daily?.sunrise[dayIdx >= 0 ? dayIdx : 0]);
+  const sunset = timeOfDay(daily?.sunset[dayIdx >= 0 ? dayIdx : 0]);
 
   return {
-    airTempF: round(current.temperature_2m),
-    pressureHpa: round(current.surface_pressure, 1),
-    pressureInHg: round(hpaToInHg(current.surface_pressure), 2),
+    airTempF: round(h.temperature_2m[idx] ?? 0),
+    pressureHpa: round(pressureNow, 1),
+    pressureInHg: round(hpaToInHg(pressureNow), 2),
     pressureChangeInHg: round(pressureChangeInHg, 2),
     pressureTrend: pressureTrendFromChange(pressureChangeInHg),
-    windMph: round(current.wind_speed_10m),
-    windGustMph: round(current.wind_gusts_10m),
-    windDirectionDeg: round(current.wind_direction_10m),
-    windDirectionLabel: degreesToCompass(current.wind_direction_10m),
-    cloudCoverPct: round(current.cloud_cover),
-    sky: skyFromCloudCover(current.cloud_cover),
-    humidityPct: round(current.relative_humidity_2m),
-    isDay: current.is_day === 1,
-    weatherCode: current.weather_code,
-    weatherLabel: weatherCodeLabel(current.weather_code),
+    windMph: round(h.wind_speed_10m[idx] ?? 0),
+    windGustMph: round(h.wind_gusts_10m[idx] ?? 0),
+    windDirectionDeg: round(windDir),
+    windDirectionLabel: degreesToCompass(windDir),
+    cloudCoverPct: round(cloud),
+    sky: skyFromCloudCover(cloud),
+    humidityPct: round(h.relative_humidity_2m[idx] ?? 0),
+    isDay: (h.is_day[idx] ?? 1) === 1,
+    weatherCode: h.weather_code[idx] ?? 0,
+    weatherLabel: weatherCodeLabel(h.weather_code[idx] ?? 0),
     sunrise,
     sunset,
     moonPhase: moon.phase,
     moonIllumPct: moon.illuminationPct,
     moonMajor: moon.major,
   };
-}
-
-/** Change in pressure (hPa) over the ~3 hours leading up to `currentTime`. */
-function computePressureChange(
-  hourly: OpenMeteoForecast['hourly'],
-  currentTime: string,
-): number {
-  if (!hourly || hourly.time.length === 0) return NaN;
-  const nowIdx = nearestTimeIndex(hourly.time, currentTime);
-  if (nowIdx < 0) return NaN;
-  const pastIdx = Math.max(0, nowIdx - 3);
-  const now = hourly.surface_pressure[nowIdx];
-  const past = hourly.surface_pressure[pastIdx];
-  if (now == null || past == null) return NaN;
-  return now - past;
 }
 
 function nearestTimeIndex(times: string[], target: string): number {

@@ -1,5 +1,6 @@
 import type { Coordinates, TideConditions, TideEvent } from '@/types';
 import { distanceMiles, round } from '@/utils/format';
+import { addDays, localDateStr, yyyymmdd } from '@/utils/dates';
 
 const STATIONS_URL =
   'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
@@ -54,35 +55,27 @@ function nearestStation(
   return best ? { station: best, distanceMi: bestDist } : null;
 }
 
-function yyyymmdd(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
-}
-
 /**
- * Nearest-station high/low tide predictions for today and derived tide state.
- * Returns null when no usable station is within range (e.g. far inland).
+ * Nearest-station high/low tide predictions for each of the next `days` days.
+ * Each entry's `state` is derived relative to that day's reference time (now
+ * for today, midday for future days). Returns an array of nulls when no usable
+ * station is within range (e.g. far inland).
  */
-export async function fetchTides(
+export async function fetchWeekTides(
   coords: Coordinates,
-): Promise<TideConditions | null> {
+  days: number,
+): Promise<(TideConditions | null)[]> {
+  const empty = new Array<TideConditions | null>(days).fill(null);
   const stations = await loadStations();
   const nearest = nearestStation(coords, stations);
-  if (!nearest) return null;
-  // If the closest tide station is very far, the location is effectively inland.
-  if (nearest.distanceMi > 75) return null;
+  if (!nearest || nearest.distanceMi > 75) return empty;
 
-  const today = new Date();
-  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  const base = new Date();
   const params = new URLSearchParams({
     product: 'predictions',
     application: 'bayLURE',
-    // Fetch through tomorrow so there's always an upcoming high/low to derive
-    // the tide state from, even late in the day.
-    begin_date: yyyymmdd(today),
-    end_date: yyyymmdd(tomorrow),
+    begin_date: yyyymmdd(base),
+    end_date: yyyymmdd(addDays(base, days - 1)),
     datum: 'MLLW',
     station: nearest.station.id,
     time_zone: 'lst_ldt',
@@ -94,9 +87,7 @@ export async function fetchTides(
   const res = await fetch(`${DATA_URL}?${params.toString()}`);
   if (!res.ok) throw new Error(`Tide predictions failed (${res.status}).`);
   const data = (await res.json()) as PredictionsResponse;
-  if (data.error || !data.predictions) {
-    return null;
-  }
+  if (data.error || !data.predictions) return empty;
 
   const events: TideEvent[] = data.predictions.map((p) => ({
     time: p.t,
@@ -104,28 +95,32 @@ export async function fetchTides(
     heightFt: round(Number(p.v), 1),
   }));
 
-  const { state, nextEvent } = deriveTideState(events);
-
-  return {
+  const meta = {
     stationId: nearest.station.id,
     stationName: nearest.station.name,
     stationDistanceMi: round(nearest.distanceMi, 1),
-    events,
-    state,
-    nextEvent,
   };
+
+  const out: (TideConditions | null)[] = [];
+  for (let d = 0; d < days; d += 1) {
+    const dateStr = localDateStr(addDays(base, d));
+    const dayEvents = events.filter((e) => e.time.slice(0, 10) === dateStr);
+    // Reference: "now" for today, this day's noon for future days.
+    const refMs = d === 0 ? Date.now() : new Date(`${dateStr}T12:00`).getTime();
+    const { state, nextEvent } = deriveTideState(events, refMs);
+    out.push({ ...meta, events: dayEvents, state, nextEvent });
+  }
+  return out;
 }
 
-function deriveTideState(events: TideEvent[]): {
-  state: TideConditions['state'];
-  nextEvent: TideEvent | null;
-} {
-  const now = Date.now();
-  const upcoming = events.find((e) => new Date(e.time).getTime() > now) ?? null;
+function deriveTideState(
+  events: TideEvent[],
+  refMs: number,
+): { state: TideConditions['state']; nextEvent: TideEvent | null } {
+  const upcoming = events.find((e) => new Date(e.time).getTime() > refMs) ?? null;
   if (!upcoming) return { state: 'unknown', nextEvent: null };
 
-  const minutesToNext =
-    (new Date(upcoming.time).getTime() - now) / 60000;
+  const minutesToNext = (new Date(upcoming.time).getTime() - refMs) / 60000;
   // Within ~45 minutes of a high or low, water is effectively slack.
   if (minutesToNext < 45) return { state: 'slack', nextEvent: upcoming };
 

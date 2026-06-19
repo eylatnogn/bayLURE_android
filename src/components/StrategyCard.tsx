@@ -49,6 +49,22 @@ function PickRow({ pick }: { pick: LurePick }) {
       </View>
       <Text style={styles.pickDetails}>{pick.details}</Text>
       <Text style={styles.pickReason}>{pick.reason}</Text>
+      {pick.gear ? (
+        <View style={styles.gear}>
+          <GearRow label="Rod" value={pick.gear.rod} />
+          <GearRow label="Line" value={pick.gear.line} />
+          <GearRow label="Hook" value={pick.gear.hook} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function GearRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.gearRow}>
+      <Text style={styles.gearLabel}>{label}</Text>
+      <Text style={styles.gearValue}>{value}</Text>
     </View>
   );
 }
@@ -264,5 +280,27 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     fontStyle: 'italic',
     lineHeight: 17,
+  },
+  gear: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    gap: 2,
+  },
+  gearRow: {
+    flexDirection: 'row',
+  },
+  gearLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    width: 38,
+    textTransform: 'uppercase',
+  },
+  gearValue: {
+    color: colors.text,
+    fontSize: 12,
+    flex: 1,
   },
 });

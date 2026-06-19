@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import type { CatchConditions } from '@/types';
 import { HomeScreen } from '@/screens/HomeScreen';
 import { CatchLogScreen } from '@/screens/CatchLogScreen';
+import { HelpScreen } from '@/screens/HelpScreen';
 import { TabBar, type Tab } from '@/components/TabBar';
 import { colors } from '@/theme';
 
@@ -23,6 +24,9 @@ export default function App() {
         </View>
         <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
           <CatchLogScreen snapshot={snapshot} />
+        </View>
+        <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
+          <HelpScreen />
         </View>
       </View>
       <TabBar tab={tab} onChange={setTab} />

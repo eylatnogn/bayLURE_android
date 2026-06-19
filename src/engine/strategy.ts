@@ -10,6 +10,7 @@ import {
 } from '@/engine/pressure';
 import { buildClarityPlaybook, clarityLureAdjust } from '@/engine/clarity';
 import { buildBehavior } from '@/engine/behavior';
+import { gearFor } from '@/engine/gear';
 
 /**
  * Build a complete fishing strategy from gathered conditions using a
@@ -299,6 +300,7 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
     category: l.category,
     details: l.details,
     reason: cap(reasonText) + '.',
+    gear: gearFor(l.name),
     score: clamp(Math.round(score), 0, 100),
   };
 }

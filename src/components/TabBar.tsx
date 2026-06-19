@@ -1,11 +1,12 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '@/theme';
 
-export type Tab = 'plan' | 'log';
+export type Tab = 'plan' | 'log' | 'guide';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'plan', label: 'Plan', icon: '🎣' },
   { id: 'log', label: 'Catch Log', icon: '📓' },
+  { id: 'guide', label: 'Guide', icon: '🧭' },
 ];
 
 interface Props {

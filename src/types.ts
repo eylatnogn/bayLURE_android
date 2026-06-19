@@ -121,6 +121,10 @@ export interface Conditions {
   pressureLevel: PressureLevel;
   /** Visibility of the water. */
   clarity: WaterClarity;
+  /** The day this forecast is for (YYYY-MM-DD, local). */
+  date: string;
+  /** 0 = today, 1 = tomorrow, … up to 6. */
+  dayOffset: number;
   fetchedAt: string;
   weather: WeatherConditions;
   water: WaterConditions;
@@ -134,8 +138,20 @@ export interface LurePick {
   reason: string;
   /** Suggested colors / sizes. */
   details: string;
+  /** Recommended tackle for this bait. */
+  gear?: GearSpec;
   /** 0-100 confidence the engine assigns this pick right now. */
   score: number;
+}
+
+/** Tackle recommendation for a lure/rig/bait. */
+export interface GearSpec {
+  /** Rod power & action, e.g. "Medium-heavy, fast". */
+  rod: string;
+  /** Line / leader, e.g. "15-20 lb fluoro". */
+  line: string;
+  /** Hook type & size, e.g. "3/0-4/0 EWG worm". */
+  hook: string;
 }
 
 export interface Strategy {

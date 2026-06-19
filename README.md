@@ -39,7 +39,9 @@ Built with **Expo / React Native (TypeScript)**.
    **conditions snapshot** (water temp, pressure trend, wind, tide, bite score)
    is attached to the catch — seeding a dataset of what worked, and when.
    Everything is stored on-device.
-2. **Conditions** — gathers everything the strategy needs:
+2. **7-day forecast** — analyze today or any of the next 6 days. The outlook
+   strip shows a bite score per day; tap a day to see its full plan (today uses
+   live conditions, future days use a midday forecast). **Conditions** gathered:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
      day/night, **sunrise/sunset**, and **moon phase** (major new/full feeding).
@@ -56,7 +58,11 @@ Built with **Expo / React Native (TypeScript)**.
    conditions, so the lures/rigs/bait — the point of the app — lead. A
    **Regulations & Limits** card links to the official state fishing-rules page
    for your location, and **Expected Fish Nearby** shows the top 5 with a
-   tap-to-expand for the full list.
+   tap-to-expand for the full list. Each pick also lists the **rod power/action,
+   line (lb test), and hook size** to use.
+6. **Guide tab** — a complete beginner equipment checklist (rod/reel, line,
+   terminal tackle, lures, bait, tools, license, safety) for someone starting
+   from nothing, plus freshwater vs. saltwater starter notes and a basic rig.
 4. **Optional AI** — if you supply an Anthropic API key, it sends the same
    conditions to Claude for a conversational "guide's take." The app works fully
    without it.
@@ -97,6 +103,7 @@ src/
     clarity.ts             Water-clarity scaling + clarity playbook
     behavior.ts            "What the fish are doing" read from conditions
     regulations.ts         State -> official fishing-regulation links
+    gear.ts                Per-lure rod / line / hook recommendations
     strategy.ts            Bite-score model + lure ranking (rule-based)
     ai.ts                  Optional Claude enhancement layer
   storage/catchLog.ts      On-device catch log (AsyncStorage)
@@ -111,8 +118,9 @@ src/
     TabBar.tsx             Plan / Catch Log tabs
     ...                    Cards, toggles, sections
   screens/
-    HomeScreen.tsx         Planner (5-step flow)
+    HomeScreen.tsx         Planner (5-step flow + 7-day outlook)
     CatchLogScreen.tsx     Log + browse catches
+    HelpScreen.tsx         Beginner equipment guide
 ```
 
 ## Run it
