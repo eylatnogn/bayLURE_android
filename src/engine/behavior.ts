@@ -89,6 +89,11 @@ export function buildBehavior(c: Conditions): string[] {
     }
   }
 
+  // Moon phase: new/full moons drive stronger feeding and bigger tides.
+  if (c.weather.moonMajor) {
+    out.push(`A ${c.weather.moonPhase.toLowerCase()} means stronger feeding activity and bigger tidal swings — fish the major and minor periods around moonrise/overhead.`);
+  }
+
   // Target-species emphasis.
   if (c.species !== 'any') {
     out.push(`Focus on ${speciesLabel(c.species)}: lean into the spots and presentations above that fit how they hunt in these conditions.`);

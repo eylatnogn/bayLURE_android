@@ -45,6 +45,13 @@ export function ConditionsCard({ conditions }: { conditions: Conditions }) {
         <Stat label="Sky" value={skyShort(w.sky)} hint={`${w.cloudCoverPct}% cloud`} />
         <Stat label="Clarity" value={cap(conditions.clarity)} />
         <Stat label="Humidity" value={`${w.humidityPct}%`} hint={w.weatherLabel} />
+        <Stat label="Sunrise" value={w.sunrise} />
+        <Stat label="Sunset" value={w.sunset} />
+        <Stat
+          label="Moon"
+          value={`${w.moonIllumPct}%`}
+          hint={w.moonMajor ? `${w.moonPhase} ◆` : w.moonPhase}
+        />
         {water.waveHeightFt != null ? (
           <Stat label="Waves" value={`${water.waveHeightFt} ft`} />
         ) : null}

@@ -70,6 +70,14 @@ export interface WeatherConditions {
   isDay: boolean;
   weatherCode: number;
   weatherLabel: string;
+  /** Local "HH:MM" sunrise / sunset for the day. */
+  sunrise: string;
+  sunset: string;
+  /** Moon phase name and illuminated percentage. */
+  moonPhase: string;
+  moonIllumPct: number;
+  /** True near a new/full moon — stronger feeding & tides. */
+  moonMajor: boolean;
 }
 
 export interface WaterConditions {

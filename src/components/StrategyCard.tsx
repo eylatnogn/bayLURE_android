@@ -56,6 +56,12 @@ function PickRow({ pick }: { pick: LurePick }) {
 export function StrategyCard({ strategy }: { strategy: Strategy }) {
   return (
     <>
+      <Section title="Throw This">
+        {strategy.picks.map((p, i) => (
+          <PickRow key={`${p.name}-${i}`} pick={p} />
+        ))}
+      </Section>
+
       <Section
         title="Bite Forecast"
         right={
@@ -122,12 +128,6 @@ export function StrategyCard({ strategy }: { strategy: Strategy }) {
           sections={strategy.pressurePlaybook}
         />
       ) : null}
-
-      <Section title="Throw This">
-        {strategy.picks.map((p, i) => (
-          <PickRow key={`${p.name}-${i}`} pick={p} />
-        ))}
-      </Section>
     </>
   );
 }

@@ -6,6 +6,7 @@ import {
   round,
   weatherCodeLabel,
 } from '@/utils/format';
+import { moonInfo, timeOfDay } from '@/utils/astro';
 
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 
@@ -25,6 +26,11 @@ interface OpenMeteoForecast {
   hourly?: {
     time: string[];
     surface_pressure: number[];
+  };
+  daily?: {
+    time: string[];
+    sunrise: string[];
+    sunset: string[];
   };
 }
 
@@ -47,6 +53,7 @@ export async function fetchWeather(
     current:
       'temperature_2m,relative_humidity_2m,is_day,surface_pressure,cloud_cover,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code',
     hourly: 'surface_pressure',
+    daily: 'sunrise,sunset',
     temperature_unit: 'fahrenheit',
     wind_speed_unit: 'mph',
     timezone: 'auto',
@@ -67,6 +74,16 @@ export async function fetchWeather(
   const pressureChangeHpa = computePressureChange(data.hourly, current.time);
   const pressureChangeInHg = hpaToInHg(pressureChangeHpa);
 
+  const today = current.time.slice(0, 10);
+  const dayIdx = data.daily?.time.findIndex((t) => t === today) ?? -1;
+  const sunrise = timeOfDay(
+    dayIdx >= 0 ? data.daily?.sunrise[dayIdx] : data.daily?.sunrise[0],
+  );
+  const sunset = timeOfDay(
+    dayIdx >= 0 ? data.daily?.sunset[dayIdx] : data.daily?.sunset[0],
+  );
+  const moon = moonInfo(new Date(current.time));
+
   return {
     airTempF: round(current.temperature_2m),
     pressureHpa: round(current.surface_pressure, 1),
@@ -83,6 +100,11 @@ export async function fetchWeather(
     isDay: current.is_day === 1,
     weatherCode: current.weather_code,
     weatherLabel: weatherCodeLabel(current.weather_code),
+    sunrise,
+    sunset,
+    moonPhase: moon.phase,
+    moonIllumPct: moon.illuminationPct,
+    moonMajor: moon.major,
   };
 }
 

@@ -1,20 +1,27 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Species } from '@/types';
 import type { AreaFish } from '@/api/areaSpecies';
 import { Section } from '@/components/Section';
 import { colors, radius, spacing } from '@/theme';
 
+const COLLAPSED = 5;
+
 interface Props {
   fish: AreaFish[];
   /** When provided, tapping a bayLURE-supported fish sets it as the target. */
   onPickTarget?: (species: Species) => void;
+  /** Max fish to show when fully expanded. */
   limit?: number;
 }
 
-export function AreaFishCard({ fish, onPickTarget, limit = 15 }: Props) {
+export function AreaFishCard({ fish, onPickTarget, limit = 20 }: Props) {
+  const [expanded, setExpanded] = useState(false);
   if (fish.length === 0) return null;
-  const top = fish.slice(0, limit);
-  const max = Math.max(...top.map((f) => f.count), 1);
+  const all = fish.slice(0, limit);
+  const top = expanded ? all : all.slice(0, COLLAPSED);
+  const max = Math.max(...all.map((f) => f.count), 1);
+  const canExpand = all.length > COLLAPSED;
 
   return (
     <Section title="Expected Fish Nearby">
@@ -55,6 +62,20 @@ export function AreaFishCard({ fish, onPickTarget, limit = 15 }: Props) {
           </View>
         );
       })}
+
+      {canExpand ? (
+        <Pressable
+          onPress={() => setExpanded((v) => !v)}
+          style={styles.expandBtn}
+        >
+          <Text style={styles.expandText}>
+            {expanded
+              ? 'Show less  ▴'
+              : `Show all ${all.length}  ▾`}
+          </Text>
+        </Pressable>
+      ) : null}
+
       <Text style={styles.footnote}>
         Observation data reflects what people have photographed nearby — a guide
         to what swims here, not a stocking survey.
@@ -117,6 +138,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     minWidth: 36,
     textAlign: 'right',
+  },
+  expandBtn: {
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+  },
+  expandText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
   },
   footnote: {
     color: colors.textMuted,

@@ -20,7 +20,7 @@ import type {
   WaterType,
 } from '@/types';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
-import { geocodeQuery } from '@/api/geocode';
+import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
 import { gatherConditions } from '@/api/conditions';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
@@ -28,6 +28,7 @@ import { speciesForWaterType, SPECIES } from '@/engine/species';
 import { buildCatchConditions } from '@/utils/snapshot';
 import { ConditionsCard } from '@/components/ConditionsCard';
 import { AreaFishCard } from '@/components/AreaFishCard';
+import { RegulationsCard } from '@/components/RegulationsCard';
 import { StrategyCard } from '@/components/StrategyCard';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
 import {
@@ -62,6 +63,7 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [conditions, setConditions] = useState<Conditions | null>(null);
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
+  const [region, setRegion] = useState<Region | null>(null);
 
   // Keep cover and species valid for the chosen water type when it changes.
   const onChangeWaterType = useCallback((next: WaterType) => {
@@ -143,7 +145,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     setAnalyzing(true);
     setError(null);
     try {
-      const [next, fish] = await Promise.all([
+      const [next, fish, reg] = await Promise.all([
         gatherConditions({
           coordinates,
           waterType,
@@ -153,11 +155,13 @@ export function HomeScreen({ onSnapshot }: Props) {
           clarity,
         }),
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
+        reverseRegion(coordinates).catch(() => null),
       ]);
       const strat = buildStrategy(next);
       setConditions(next);
       setStrategy(strat);
       setAreaFish(fish);
+      setRegion(reg);
       onSnapshot?.(buildCatchConditions(next, strat.biteScore, place));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
@@ -346,10 +350,11 @@ export function HomeScreen({ onSnapshot }: Props) {
       ) : null}
 
       {conditions ? <ConditionsCard conditions={conditions} /> : null}
+      {strategy ? <StrategyCard strategy={strategy} /> : null}
+      {strategy ? <RegulationsCard region={region} /> : null}
       {areaFish.length > 0 ? (
         <AreaFishCard fish={areaFish} onPickTarget={onPickTarget} />
       ) : null}
-      {strategy ? <StrategyCard strategy={strategy} /> : null}
 
       {!conditions && !analyzing && !error ? (
         <Text style={styles.hint}>

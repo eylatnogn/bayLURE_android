@@ -42,7 +42,7 @@ Built with **Expo / React Native (TypeScript)**.
 2. **Conditions** — gathers everything the strategy needs:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
-     day/night.
+     day/night, **sunrise/sunset**, and **moon phase** (major new/full feeding).
    - **Water temperature** — measured sea-surface temp for saltwater; an estimate
      from air temp for freshwater (clearly labeled).
    - **Tides** — nearest NOAA station's high/low predictions and whether the
@@ -52,7 +52,11 @@ Built with **Expo / React Native (TypeScript)**.
    the lure database against your structure, water temp, sky, tide, clarity,
    target species, and fishing pressure. It also explains **what the fish are
    doing** (a behavior read from the conditions) and gives clarity- and
-   pressure-specific playbooks.
+   pressure-specific playbooks. Picks are shown **first**, right under the
+   conditions, so the lures/rigs/bait — the point of the app — lead. A
+   **Regulations & Limits** card links to the official state fishing-rules page
+   for your location, and **Expected Fish Nearby** shows the top 5 with a
+   tap-to-expand for the full list.
 4. **Optional AI** — if you supply an Anthropic API key, it sends the same
    conditions to Claude for a conversational "guide's take." The app works fully
    without it.
@@ -92,6 +96,7 @@ src/
     pressure.ts            Fishing-pressure scaling + finesse playbook
     clarity.ts             Water-clarity scaling + clarity playbook
     behavior.ts            "What the fish are doing" read from conditions
+    regulations.ts         State -> official fishing-regulation links
     strategy.ts            Bite-score model + lure ranking (rule-based)
     ai.ts                  Optional Claude enhancement layer
   storage/catchLog.ts      On-device catch log (AsyncStorage)

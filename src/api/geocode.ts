@@ -1,10 +1,40 @@
 import type { Coordinates } from '@/types';
 
 const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+const REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
 
 export interface GeocodeResult {
   coordinates: Coordinates;
   label: string;
+}
+
+export interface Region {
+  /** Full state/region name, e.g. "Florida". May be empty. */
+  state: string;
+  /** ISO country code, e.g. "us". May be empty. */
+  countryCode: string;
+}
+
+/** Reverse-geocode coordinates to a state/region (for regulations lookup). */
+export async function reverseRegion(coords: Coordinates): Promise<Region> {
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(coords.latitude),
+    lon: String(coords.longitude),
+    zoom: '8',
+    addressdetails: '1',
+  });
+  const res = await fetch(`${REVERSE_URL}?${params.toString()}`, {
+    headers: { Accept: 'application/json', 'User-Agent': 'bayLURE/0.3 (fishing app)' },
+  });
+  if (!res.ok) throw new Error(`Region lookup failed (${res.status}).`);
+  const data = (await res.json()) as {
+    address?: { state?: string; region?: string; country_code?: string };
+  };
+  return {
+    state: data.address?.state ?? data.address?.region ?? '',
+    countryCode: data.address?.country_code ?? '',
+  };
 }
 
 interface NominatimHit {

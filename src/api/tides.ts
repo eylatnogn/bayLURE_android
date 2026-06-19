@@ -75,11 +75,14 @@ export async function fetchTides(
   if (nearest.distanceMi > 75) return null;
 
   const today = new Date();
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
   const params = new URLSearchParams({
     product: 'predictions',
     application: 'bayLURE',
+    // Fetch through tomorrow so there's always an upcoming high/low to derive
+    // the tide state from, even late in the day.
     begin_date: yyyymmdd(today),
-    end_date: yyyymmdd(today),
+    end_date: yyyymmdd(tomorrow),
     datum: 'MLLW',
     station: nearest.station.id,
     time_zone: 'lst_ldt',
