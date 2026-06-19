@@ -27,6 +27,9 @@ Built with **Expo / React Native (TypeScript)**.
    A **fishing-pressure** selector (Light / Moderate / Heavy — separate from
    barometric pressure) scales the plan toward finesse for heavily-fished,
    educated water and adds a categorized playbook — see below.
+   A **water-clarity** selector (Clear / Stained / Muddy) re-weights the lures
+   (vibration/flash/scent for dirty water, natural/subtle for clear) and adds a
+   clarity playbook of its own.
    After an analysis, an **Expected Fish Nearby** card lists the fish most
    reported around your spot (iNaturalist sightings); tap a 🎣 BALURE-supported
    fish to set it as your target.
@@ -46,7 +49,10 @@ Built with **Expo / React Native (TypeScript)**.
      water is incoming, outgoing, or slack (saltwater only).
 3. **Strategy** — a transparent, rule-based engine scores the bite 0–100 and
    maps it to a presentation "mood" (aggressive / neutral / finesse), then ranks
-   the lure database against your structure, water temp, sky, and tide.
+   the lure database against your structure, water temp, sky, tide, clarity,
+   target species, and fishing pressure. It also explains **what the fish are
+   doing** (a behavior read from the conditions) and gives clarity- and
+   pressure-specific playbooks.
 4. **Optional AI** — if you supply an Anthropic API key, it sends the same
    conditions to Claude for a conversational "guide's take." The app works fully
    without it.
@@ -84,6 +90,8 @@ src/
     lureDatabase.ts        The knowledge base (lures, rigs, baits + tags)
     species.ts             Target-species list, labels, and tips
     pressure.ts            Fishing-pressure scaling + finesse playbook
+    clarity.ts             Water-clarity scaling + clarity playbook
+    behavior.ts            "What the fish are doing" read from conditions
     strategy.ts            Bite-score model + lure ranking (rule-based)
     ai.ts                  Optional Claude enhancement layer
   storage/catchLog.ts      On-device catch log (AsyncStorage)
@@ -216,6 +224,11 @@ The engine starts at a neutral 50 and adjusts on well-known heuristics:
 - **Sky & light** — overcast and dawn/dusk extend the feed; bright sun pins fish
   to cover.
 - **Tide** — moving water feeds; slack water stalls.
+- **Water clarity** (Clear / Stained / Muddy) — re-weights the lure list
+  (vibration, flash, dark/bright silhouettes, and scent for dirty water; natural,
+  translucent, downsized baits for clear) and produces a clarity-specific
+  playbook plus a behavior read (sight-feeding & spooky in clear water; lateral
+  line & scent, tight to cover in muddy water).
 - **Fishing pressure** (Light / Moderate / Heavy) — scales the whole plan: the
   bite score drops, the mood shifts toward finesse (Moderate = one notch, Heavy
   = straight to finesse), subtle/natural baits (Ned, drop-shot, wacky, live

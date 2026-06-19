@@ -101,6 +101,9 @@ export interface TideConditions {
 /** How heavily fished the water is. Drives the finesse playbook. */
 export type PressureLevel = 'none' | 'moderate' | 'high';
 
+/** Water clarity at the spot. Drives color, vibration, and behavior advice. */
+export type WaterClarity = 'clear' | 'stained' | 'muddy';
+
 export interface Conditions {
   coordinates: Coordinates;
   waterType: WaterType;
@@ -108,6 +111,8 @@ export interface Conditions {
   structures: StructureType[];
   /** How heavily fished / educated the fish are. */
   pressureLevel: PressureLevel;
+  /** Visibility of the water. */
+  clarity: WaterClarity;
   fetchedAt: string;
   weather: WeatherConditions;
   water: WaterConditions;
@@ -134,13 +139,17 @@ export interface Strategy {
   /** Bullet-point factors driving the recommendation. */
   factors: string[];
   picks: LurePick[];
+  /** What the fish are likely doing, given the conditions. */
+  behavior: string[];
+  /** Color/vibration/location advice tuned to the water clarity. */
+  clarityPlaybook: PlaybookSection[];
   /** Categorized finesse playbook, present only for pressured water. */
-  pressurePlaybook?: PressurePlaybookSection[];
+  pressurePlaybook?: PlaybookSection[];
   /** Present only when the optional Claude AI layer ran. */
   aiNarrative?: string;
 }
 
-export interface PressurePlaybookSection {
+export interface PlaybookSection {
   title: string;
   tips: string[];
 }
@@ -155,6 +164,7 @@ export interface CatchConditions {
   targetSpecies: Species;
   structures: StructureType[];
   pressureLevel: PressureLevel;
+  clarity: WaterClarity;
   airTempF: number;
   waterTempF: number;
   waterTempEstimated: boolean;

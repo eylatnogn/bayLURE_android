@@ -8,6 +8,8 @@ import {
   pressureBitePenalty,
   pressureFriendlyBonus,
 } from '@/engine/pressure';
+import { buildClarityPlaybook, clarityLureAdjust } from '@/engine/clarity';
+import { buildBehavior } from '@/engine/behavior';
 
 /**
  * Build a complete fishing strategy from gathered conditions using a
@@ -36,6 +38,8 @@ export function buildStrategy(c: Conditions): Strategy {
     summary,
     factors,
     picks,
+    behavior: buildBehavior(c),
+    clarityPlaybook: buildClarityPlaybook(c),
     pressurePlaybook: isPressured(c.pressureLevel)
       ? buildPressurePlaybook(c)
       : undefined,
@@ -281,6 +285,12 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
     }
   }
 
+  // Water clarity: dirty water rewards vibration/flash/scent, clear water
+  // rewards subtle/natural looks.
+  const clarity = clarityLureAdjust(l, c.clarity);
+  score += clarity.delta;
+  if (clarity.reason) reasons.push(clarity.reason);
+
   // Lead with the lure's signature strength, then condition-specific reasons.
   const reasonText = [l.strength, ...reasons].join('; ');
 
@@ -320,7 +330,8 @@ function buildSummary(c: Conditions, score: number, mood: BiteMood): string {
     `${moodWord}. ` +
     `Surface water is ${c.water.waterTempF}°F${c.water.isEstimated ? ' (est.)' : ''}, ` +
     `air ${c.weather.airTempF}°F, ${c.weather.pressureInHg}" and ${c.weather.pressureTrend}, ` +
-    `wind ${c.weather.windMph} mph ${c.weather.windDirectionLabel} under ${skyWord(c.weather.sky)} skies.` +
+    `wind ${c.weather.windMph} mph ${c.weather.windDirectionLabel} under ${skyWord(c.weather.sky)} skies, ` +
+    `${c.clarity} water.` +
     tideBit
   );
 }

@@ -16,6 +16,7 @@ import type {
   Species,
   StructureType,
   Strategy,
+  WaterClarity,
   WaterType,
 } from '@/types';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
@@ -54,6 +55,7 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [species, setSpecies] = useState<Species>('any');
   const [structures, setStructures] = useState<StructureType[]>(['vegetation']);
   const [pressureLevel, setPressureLevel] = useState<PressureLevel>('none');
+  const [clarity, setClarity] = useState<WaterClarity>('stained');
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +150,7 @@ export function HomeScreen({ onSnapshot }: Props) {
           species,
           structures,
           pressureLevel,
+          clarity,
         }),
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
       ]);
@@ -161,7 +164,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, species, structures, pressureLevel, place, onSnapshot]);
+  }, [coordinates, waterType, species, structures, pressureLevel, clarity, place, onSnapshot]);
 
   return (
     <ScrollView
@@ -229,8 +232,41 @@ export function HomeScreen({ onSnapshot }: Props) {
         <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
       </Section>
 
-      {/* Step 3 — Target species */}
-      <Section title="3 · Target Species">
+      {/* Step 3 — Water clarity */}
+      <Section title="3 · Water Clarity">
+        <Text style={styles.helper}>
+          How far can you see into the water? It drives color, vibration, and how
+          the fish hunt.
+        </Text>
+        <View style={styles.toggleRow}>
+          {([
+            { value: 'clear', label: 'Clear' },
+            { value: 'stained', label: 'Stained' },
+            { value: 'muddy', label: 'Muddy' },
+          ] as const).map((opt) => {
+            const active = clarity === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => setClarity(opt.value)}
+                style={[styles.togglePill, active && styles.togglePillActive]}
+              >
+                <Text
+                  style={[
+                    styles.togglePillText,
+                    active && styles.togglePillTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Section>
+
+      {/* Step 4 — Target species */}
+      <Section title="4 · Target Species">
         <Text style={styles.helper}>
           Pick a fish to sharpen the picks, or leave it on Any.
         </Text>
@@ -241,8 +277,8 @@ export function HomeScreen({ onSnapshot }: Props) {
         />
       </Section>
 
-      {/* Step 4 — Structure & cover (filtered to the water type) */}
-      <Section title="4 · Structure & Cover">
+      {/* Step 5 — Structure & cover (filtered to the water type) */}
+      <Section title="5 · Structure & Cover">
         <Text style={styles.helper}>
           Tap everything you can see at your spot.
         </Text>
@@ -253,8 +289,8 @@ export function HomeScreen({ onSnapshot }: Props) {
         />
       </Section>
 
-      {/* Step 5 — Fishing pressure */}
-      <Section title="5 · Fishing Pressure">
+      {/* Step 6 — Fishing pressure */}
+      <Section title="6 · Fishing Pressure">
         <Text style={styles.helper}>
           How heavily fished is this water? More boats, docks, and popular bank
           spots mean warier fish — BALURE scales the finesse plan to match.

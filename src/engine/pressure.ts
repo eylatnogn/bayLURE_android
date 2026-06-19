@@ -1,8 +1,4 @@
-import type {
-  Conditions,
-  PressureLevel,
-  PressurePlaybookSection,
-} from '@/types';
+import type { Conditions, PlaybookSection, PressureLevel } from '@/types';
 import { speciesLabel } from '@/engine/species';
 
 export function isPressured(level: PressureLevel): boolean {
@@ -35,15 +31,13 @@ export function aggressivePenalty(level: PressureLevel): number {
  * level: `moderate` gives the core adjustments, `high` adds the extreme
  * measures and an extra "when it's truly locked up" section.
  */
-export function buildPressurePlaybook(
-  c: Conditions,
-): PressurePlaybookSection[] {
+export function buildPressurePlaybook(c: Conditions): PlaybookSection[] {
   const level = c.pressureLevel;
   if (level === 'none') return [];
   const high = level === 'high';
   const salt = c.waterType === 'saltwater';
 
-  const sections: PressurePlaybookSection[] = [];
+  const sections: PlaybookSection[] = [];
 
   // 1. Downsize & profile
   const downsize: string[] = [

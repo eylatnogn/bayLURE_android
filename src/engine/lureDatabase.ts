@@ -37,6 +37,11 @@ export interface LureEntry {
    * fish. Boosted when the user marks the water as pressured.
    */
   pressureFriendly?: boolean;
+  /**
+   * High-vibration, flashy, loud, or scent-heavy baits fish can find in
+   * stained/muddy water. Boosted in dirty water, downgraded in gin-clear.
+   */
+  dirtyWaterFriendly?: boolean;
 }
 
 /**
@@ -58,6 +63,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.8,
     strength: 'covers water fast and triggers reaction strikes',
+    dirtyWaterFriendly: true,
     species: ['largemouth', 'smallmouth', 'pike'],
   },
   {
@@ -72,6 +78,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.78,
     strength: 'deflects off rock and wood to draw reaction bites',
+    dirtyWaterFriendly: true,
     species: ['largemouth', 'smallmouth'],
   },
   {
@@ -86,6 +93,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.75,
     strength: 'flash and vibration shine in wind and low light',
+    dirtyWaterFriendly: true,
     species: ['largemouth', 'pike', 'smallmouth'],
   },
   {
@@ -130,6 +138,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.72,
     strength: 'vibration through grass at any speed',
+    dirtyWaterFriendly: true,
     species: ['largemouth', 'smallmouth', 'pike'],
   },
   {
@@ -265,6 +274,7 @@ export const LURES: LureEntry[] = [
     presentation: 'aggressive',
     baseScore: 0.7,
     strength: 'flash that calls redfish across grass flats',
+    dirtyWaterFriendly: true,
     species: ['redfish', 'seatrout', 'spanish'],
   },
   {
@@ -279,6 +289,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.78,
     strength: 'the pop calls trout/reds; the cork suspends bait in the strike zone',
+    dirtyWaterFriendly: true,
     species: ['seatrout', 'redfish', 'snook'],
   },
   {
@@ -325,6 +336,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.72,
     strength: 'scent does the work when fish are inactive or water is cold/stained',
+    dirtyWaterFriendly: true,
     species: ['catfish', 'striper', 'redfish', 'snook', 'flounder', 'tarpon', 'spanish'],
     pressureFriendly: true,
   },
@@ -340,6 +352,7 @@ export const LURES: LureEntry[] = [
     presentation: 'finesse',
     baseScore: 0.68,
     strength: 'universal confidence bait when the bite is slow',
+    dirtyWaterFriendly: true,
     species: ['panfish', 'trout', 'walleye', 'catfish'],
     pressureFriendly: true,
   },
@@ -401,6 +414,7 @@ export const LURES: LureEntry[] = [
     presentation: 'neutral',
     baseScore: 0.68,
     strength: 'bottom-bouncing classic that flounder, striper and reds eat year-round',
+    dirtyWaterFriendly: true,
     species: ['flounder', 'striper', 'redfish', 'snook'],
   },
 ];

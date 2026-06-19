@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import type { LurePick, Strategy } from '@/types';
+import type { LurePick, PlaybookSection, Strategy } from '@/types';
 import { Section } from '@/components/Section';
 import { colors, radius, scoreColor, spacing } from '@/theme';
 
@@ -8,6 +8,35 @@ const categoryLabel: Record<LurePick['category'], string> = {
   rig: 'RIG',
   bait: 'BAIT',
 };
+
+/** Renders a list of categorized playbook sections (clarity / pressure). */
+function Playbook({
+  title,
+  intro,
+  sections,
+}: {
+  title: string;
+  intro: string;
+  sections: PlaybookSection[];
+}) {
+  if (sections.length === 0) return null;
+  return (
+    <Section title={title}>
+      <Text style={styles.playbookIntro}>{intro}</Text>
+      {sections.map((section) => (
+        <View key={section.title} style={styles.playbookSection}>
+          <Text style={styles.playbookHeading}>{section.title}</Text>
+          {section.tips.map((t, i) => (
+            <View key={i} style={styles.factorRow}>
+              <Text style={styles.bulletWater}>›</Text>
+              <Text style={styles.factor}>{t}</Text>
+            </View>
+          ))}
+        </View>
+      ))}
+    </Section>
+  );
+}
 
 function PickRow({ pick }: { pick: LurePick }) {
   return (
@@ -60,6 +89,17 @@ export function StrategyCard({ strategy }: { strategy: Strategy }) {
         ) : null}
       </Section>
 
+      {strategy.behavior.length > 0 ? (
+        <Section title="What the Fish Are Doing">
+          {strategy.behavior.map((b, i) => (
+            <View key={i} style={styles.factorRow}>
+              <Text style={styles.bulletFish}>🐟</Text>
+              <Text style={styles.factor}>{b}</Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
+
       <Section title="Why">
         {strategy.factors.map((f, i) => (
           <View key={i} style={styles.factorRow}>
@@ -69,23 +109,18 @@ export function StrategyCard({ strategy }: { strategy: Strategy }) {
         ))}
       </Section>
 
+      <Playbook
+        title="Water Clarity Playbook"
+        intro="Tuned to the water clarity you reported:"
+        sections={strategy.clarityPlaybook}
+      />
+
       {strategy.pressurePlaybook ? (
-        <Section title="Pressured-Water Playbook">
-          <Text style={styles.playbookIntro}>
-            This water is heavily fished — outfinesse the crowd:
-          </Text>
-          {strategy.pressurePlaybook.map((section) => (
-            <View key={section.title} style={styles.playbookSection}>
-              <Text style={styles.playbookHeading}>{section.title}</Text>
-              {section.tips.map((t, i) => (
-                <View key={i} style={styles.factorRow}>
-                  <Text style={styles.bulletWater}>›</Text>
-                  <Text style={styles.factor}>{t}</Text>
-                </View>
-              ))}
-            </View>
-          ))}
-        </Section>
+        <Playbook
+          title="Pressured-Water Playbook"
+          intro="This water is heavily fished — outfinesse the crowd:"
+          sections={strategy.pressurePlaybook}
+        />
       ) : null}
 
       <Section title="Throw This">
@@ -160,6 +195,10 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     fontSize: 16,
     fontWeight: '800',
+  },
+  bulletFish: {
+    marginRight: spacing.sm,
+    fontSize: 13,
   },
   playbookIntro: {
     color: colors.textMuted,

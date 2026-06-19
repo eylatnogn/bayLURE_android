@@ -20,6 +20,7 @@ export function buildCatchConditions(
     targetSpecies: c.species,
     structures: c.structures,
     pressureLevel: c.pressureLevel,
+    clarity: c.clarity,
     airTempF: c.weather.airTempF,
     waterTempF: c.water.waterTempF,
     waterTempEstimated: c.water.isEstimated,
@@ -37,6 +38,7 @@ export function buildCatchConditions(
 export function summarizeCatchConditions(s: CatchConditions): string {
   const parts = [
     `${s.waterTempF}°F water`,
+    `${s.clarity}`,
     `${s.pressureInHg}" ${s.pressureTrend}`,
     `wind ${s.windMph} ${s.windDirectionLabel}`,
   ];
