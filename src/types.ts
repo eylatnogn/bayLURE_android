@@ -1,4 +1,4 @@
-// Core domain types for BALURE.
+// Core domain types for bayLURE.
 
 export type WaterType = 'saltwater' | 'freshwater';
 
@@ -183,7 +183,7 @@ export interface CatchRecord {
   dateISO: string;
   /** Species label (free-form; chosen from a list including "Other"). */
   species: string;
-  /** Lure/rig/bait name, chosen from the BALURE list (never free text). */
+  /** Lure/rig/bait name, chosen from the bayLURE list (never free text). */
   lure: string;
   lureCategory?: 'lure' | 'rig' | 'bait';
   waterType?: WaterType;

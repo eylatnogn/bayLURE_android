@@ -77,7 +77,7 @@ export async function fetchTides(
   const today = new Date();
   const params = new URLSearchParams({
     product: 'predictions',
-    application: 'BALURE',
+    application: 'bayLURE',
     begin_date: yyyymmdd(today),
     end_date: yyyymmdd(today),
     datum: 'MLLW',

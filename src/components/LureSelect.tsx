@@ -16,7 +16,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   bait: 'BAIT',
 };
 
-/** Single-select list of every lure/rig/bait in the BALURE knowledge base. */
+/** Single-select list of every lure/rig/bait in the bayLURE knowledge base. */
 export function LureSelect({ value, onChange, waterType }: Props) {
   const items = LURES.filter(
     (l) => !waterType || l.waterTypes.includes(waterType),

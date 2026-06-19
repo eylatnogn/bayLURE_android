@@ -6,7 +6,7 @@ import { colors, radius, spacing } from '@/theme';
 
 interface Props {
   fish: AreaFish[];
-  /** When provided, tapping a BALURE-supported fish sets it as the target. */
+  /** When provided, tapping a bayLURE-supported fish sets it as the target. */
   onPickTarget?: (species: Species) => void;
   limit?: number;
 }

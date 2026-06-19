@@ -40,7 +40,7 @@ export async function geocodeQuery(query: string): Promise<GeocodeResult | null>
     headers: {
       Accept: 'application/json',
       // Honored on native; browsers drop this and send Origin/Referer instead.
-      'User-Agent': 'BALURE/0.3 (fishing app)',
+      'User-Agent': 'bayLURE/0.3 (fishing app)',
     },
   });
   if (!res.ok) {

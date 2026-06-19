@@ -120,7 +120,7 @@ export function speciesTip(id: Species): string | null {
 
 // Ordered keyword rules: more specific names first (e.g. "sea trout" before
 // the generic "trout"). Used to flag locally-observed fish that map to a
-// BALURE target species.
+// bayLURE target species.
 const MATCHERS: { id: Species; keywords: string[] }[] = [
   { id: 'seatrout', keywords: ['spotted seatrout', 'sea trout', 'seatrout', 'speckled trout', 'spotted weakfish'] },
   { id: 'largemouth', keywords: ['largemouth'] },
@@ -138,7 +138,7 @@ const MATCHERS: { id: Species; keywords: string[] }[] = [
   { id: 'trout', keywords: ['rainbow trout', 'brown trout', 'brook trout', 'cutthroat', 'trout'] },
 ];
 
-/** Map a fish common name to a BALURE target species, or null if unsupported. */
+/** Map a fish common name to a bayLURE target species, or null if unsupported. */
 export function matchSpecies(commonName: string): Species | null {
   const name = commonName.toLowerCase();
   for (const m of MATCHERS) {

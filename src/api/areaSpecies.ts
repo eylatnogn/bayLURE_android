@@ -9,7 +9,7 @@ export interface AreaFish {
   /** Number of nearby observations — a rough "how common is it here" signal. */
   count: number;
   taxonId: number;
-  /** Mapped BALURE target species when the name matches one we plan for. */
+  /** Mapped bayLURE target species when the name matches one we plan for. */
   target: Species | null;
 }
 

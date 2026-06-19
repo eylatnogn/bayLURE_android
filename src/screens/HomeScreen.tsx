@@ -172,7 +172,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.brand}>BALURE</Text>
+      <Text style={styles.brand}>bayLURE</Text>
       <Text style={styles.tagline}>Read the water. Tie on the right thing.</Text>
 
       {/* Step 1 — Location */}
@@ -293,7 +293,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       <Section title="6 · Fishing Pressure">
         <Text style={styles.helper}>
           How heavily fished is this water? More boats, docks, and popular bank
-          spots mean warier fish — BALURE scales the finesse plan to match.
+          spots mean warier fish — bayLURE scales the finesse plan to match.
         </Text>
         <View style={styles.toggleRow}>
           {([
@@ -353,7 +353,7 @@ export function HomeScreen({ onSnapshot }: Props) {
 
       {!conditions && !analyzing && !error ? (
         <Text style={styles.hint}>
-          Set your spot, choose your water, and tell BALURE the cover you see.
+          Set your spot, choose your water, and tell bayLURE the cover you see.
           It pulls live weather, water temperature
           {waterType === 'saltwater' ? ' and NOAA tides ' : ' '}
           for that location and builds a game plan with the lures, rigs, and

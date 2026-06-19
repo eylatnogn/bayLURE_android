@@ -1,8 +1,8 @@
-# BALURE 🎣
+# bayLURE 🎣
 
 **Read the conditions. Tie on the right thing.**
 
-BALURE is a cross-platform (iOS + Android) fishing app. Tell it your water type
+bayLURE is a cross-platform (iOS + Android) fishing app. Tell it your water type
 and the cover you're fishing; it pulls live weather, water temperature, and —
 for saltwater — NOAA tide predictions for your GPS location, then produces a
 **bite forecast** and a ranked list of **lures, rigs, and bait** with the reason
@@ -31,7 +31,7 @@ Built with **Expo / React Native (TypeScript)**.
    (vibration/flash/scent for dirty water, natural/subtle for clear) and adds a
    clarity playbook of its own.
    After an analysis, an **Expected Fish Nearby** card lists the fish most
-   reported around your spot (iNaturalist sightings); tap a 🎣 BALURE-supported
+   reported around your spot (iNaturalist sightings); tap a 🎣 bayLURE-supported
    fish to set it as your target.
 4. **Catch Log** — a second tab where you log each fish: pick the **species**
    and the **lure/rig/bait that caught it from a list** (never free text),
@@ -260,4 +260,4 @@ is provided.
 
 ---
 
-_BALURE — tight lines._
+_bayLURE — tight lines._

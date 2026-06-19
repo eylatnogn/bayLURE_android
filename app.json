@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "BALURE",
+    "name": "bayLURE",
     "slug": "balure-app",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -15,7 +15,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.balure.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "BALURE uses your location to fetch local weather, water and tide conditions for fishing recommendations."
+        "NSLocationWhenInUseUsageDescription": "bayLURE uses your location to fetch local weather, water and tide conditions for fishing recommendations."
       }
     },
     "android": {
@@ -35,13 +35,13 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "BALURE uses your location to fetch local weather, water and tide conditions for fishing recommendations."
+          "locationWhenInUsePermission": "bayLURE uses your location to fetch local weather, water and tide conditions for fishing recommendations."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "BALURE lets you attach a photo of your catch to your log."
+          "photosPermission": "bayLURE lets you attach a photo of your catch to your log."
         }
       ]
     ]
