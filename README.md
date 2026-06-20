@@ -40,9 +40,10 @@ Built with **Expo / React Native (TypeScript)**.
    **conditions snapshot** (water temp, pressure trend, wind, tide, bite score)
    is attached to the catch — seeding a dataset of what worked, and when.
    Everything is stored on-device.
-2. **7-day forecast** — analyze today or any of the next 6 days. The outlook
-   strip shows a bite score per day; tap a day to see its full plan (today uses
-   live conditions, future days use a midday forecast). **Conditions** gathered:
+2. **7-day forecast + hourly bite** — analyze today or any of the next 6 days.
+   The outlook strip shows a bite score per day; tap a day for its full plan.
+   Each day is also graded **hour by hour** with a bite chart and highlighted
+   **best feeding windows** (peaks fall around dawn/dusk). **Conditions** gathered:
    - Air temperature, **barometric pressure + 3-hour trend** (the single biggest
      factor in fish activity), wind speed/direction/gusts, cloud cover, humidity,
      day/night, **sunrise/sunset**, and **moon phase** (major new/full feeding).

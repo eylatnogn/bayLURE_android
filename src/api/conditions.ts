@@ -30,10 +30,10 @@ export async function gatherForecast(
   req: ConditionsRequest,
 ): Promise<Conditions[]> {
   const week = await fetchWeekWeather(req.coordinates);
-  const days = week.length;
+  const days = week.days.length;
 
   const [water, tides] = await Promise.all([
-    fetchWeekWater(req.coordinates, req.waterType, week.map((w) => w.airTempF)),
+    fetchWeekWater(req.coordinates, req.waterType, week.days.map((w) => w.airTempF)),
     req.waterType === 'saltwater'
       ? fetchWeekTides(req.coordinates, days).catch(() =>
           new Array(days).fill(null),
@@ -44,7 +44,7 @@ export async function gatherForecast(
   const base = new Date();
   const fetchedAt = base.toISOString();
 
-  return week.map((weather, d) => ({
+  return week.days.map((weather, d) => ({
     coordinates: req.coordinates,
     waterType: req.waterType,
     species: req.species,
@@ -55,6 +55,7 @@ export async function gatherForecast(
     dayOffset: d,
     fetchedAt,
     weather,
+    hourlyWeather: week.hourly[d] ?? [],
     water: water[d] ?? { waterTempF: 0, isEstimated: true, waveHeightFt: null },
     tide: tides[d] ?? null,
   }));

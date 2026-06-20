@@ -70,6 +70,8 @@ export interface WeatherConditions {
   isDay: boolean;
   weatherCode: number;
   weatherLabel: string;
+  /** ISO local time this snapshot represents (the hour, or "now"). */
+  timeISO: string;
   /** Local "HH:MM" sunrise / sunset for the day. */
   sunrise: string;
   sunset: string;
@@ -127,6 +129,8 @@ export interface Conditions {
   dayOffset: number;
   fetchedAt: string;
   weather: WeatherConditions;
+  /** Per-hour weather for this day, used to grade the bite by the hour. */
+  hourlyWeather: WeatherConditions[];
   water: WaterConditions;
   tide: TideConditions | null;
 }
@@ -163,6 +167,10 @@ export interface Strategy {
   /** Bullet-point factors driving the recommendation. */
   factors: string[];
   picks: LurePick[];
+  /** Bite score by hour for the day, for the hourly chart. */
+  hourly: HourBite[];
+  /** Highlighted best feeding windows of the day. */
+  bestWindows: BestWindow[];
   /** What the fish are likely doing, given the conditions. */
   behavior: string[];
   /** Color/vibration/location advice tuned to the water clarity. */
@@ -176,6 +184,22 @@ export interface Strategy {
 export interface PlaybookSection {
   title: string;
   tips: string[];
+}
+
+export interface HourBite {
+  timeISO: string;
+  /** "6 AM", "1 PM", … */
+  label: string;
+  score: number;
+  isDay: boolean;
+}
+
+export interface BestWindow {
+  /** "5–8 AM" */
+  range: string;
+  /** "Excellent", "Good", … */
+  biteLabel: string;
+  score: number;
 }
 
 /** A saved, user-labeled fishing spot. Stored on-device. */

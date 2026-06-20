@@ -38,3 +38,19 @@ export function longDayLabel(date: Date, offset: number): string {
 export function dayNumber(date: Date): string {
   return String(date.getDate());
 }
+
+/** "2026-06-21T06:00" -> "6 AM". */
+export function hourLabel(iso: string): string {
+  const hStr = iso.split('T')[1]?.slice(0, 2);
+  const h = hStr ? Number(hStr) : NaN;
+  if (Number.isNaN(h)) return '';
+  const ampm = h < 12 ? 'AM' : 'PM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12} ${ampm}`;
+}
+
+/** Hour (0-23) from an ISO local time string. */
+export function hourOf(iso: string): number {
+  const hStr = iso.split('T')[1]?.slice(0, 2);
+  return hStr ? Number(hStr) : NaN;
+}

@@ -37,15 +37,22 @@ function skyFromCloudCover(pct: number): SkyCondition {
   return 'overcast';
 }
 
+export interface WeekWeather {
+  /** One representative snapshot per day (index 0 = today). */
+  days: WeatherConditions[];
+  /** Per-day hourly snapshots (hourly[d] aligns with days[d]). */
+  hourly: WeatherConditions[][];
+}
+
 /**
  * Fetch a 7-day weather outlook from Open-Meteo (no API key). Returns one
- * WeatherConditions per day (index 0 = today). Today uses the live "current"
- * reading; future days use that day's midday (noon) snapshot, which is a
- * reasonable single-number stand-in for a day's fishing outlook.
+ * representative WeatherConditions per day plus the per-hour snapshots used to
+ * grade the bite by the hour. Today's representative snapshot anchors on "now";
+ * future days anchor on midday.
  */
 export async function fetchWeekWeather(
   coords: Coordinates,
-): Promise<WeatherConditions[]> {
+): Promise<WeekWeather> {
   const params = new URLSearchParams({
     latitude: String(coords.latitude),
     longitude: String(coords.longitude),
@@ -71,17 +78,30 @@ export async function fetchWeekWeather(
   }
 
   const base = new Date(nowTime);
-  const out: WeatherConditions[] = [];
+  const nowMs = base.getTime();
+  const days: WeatherConditions[] = [];
+  const hourlyByDay: WeatherConditions[][] = [];
+
   for (let d = 0; d < FORECAST_DAYS; d += 1) {
     const date = addDays(base, d);
     const dateStr = localDateStr(date);
-    // Today: anchor on "now"; future days: anchor on noon.
+    // Representative snapshot: today anchors on "now", future days on noon.
     const anchorKey = d === 0 ? nowTime : `${dateStr}T12:00`;
     const idx = nearestTimeIndex(hourly.time, anchorKey);
     if (idx < 0) continue;
-    out.push(buildDay(hourly, idx, date, dateStr, data.daily));
+    days.push(buildDay(hourly, idx, date, dateStr, data.daily));
+
+    // Per-hour snapshots for this date (today: from the current hour onward).
+    const hours: WeatherConditions[] = [];
+    for (let i = 0; i < hourly.time.length; i += 1) {
+      const t = hourly.time[i];
+      if (!t || t.slice(0, 10) !== dateStr) continue;
+      if (d === 0 && new Date(t).getTime() < nowMs - 30 * 60 * 1000) continue;
+      hours.push(buildDay(hourly, i, date, dateStr, data.daily));
+    }
+    hourlyByDay.push(hours);
   }
-  return out;
+  return { days, hourly: hourlyByDay };
 }
 
 function buildDay(
@@ -120,6 +140,7 @@ function buildDay(
     isDay: (h.is_day[idx] ?? 1) === 1,
     weatherCode: h.weather_code[idx] ?? 0,
     weatherLabel: weatherCodeLabel(h.weather_code[idx] ?? 0),
+    timeISO: h.time[idx] ?? dateStr,
     sunrise,
     sunset,
     moonPhase: moon.phase,

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LurePick, PlaybookSection, Strategy } from '@/types';
 import { Section } from '@/components/Section';
+import { HourlyBiteCard } from '@/components/HourlyBiteCard';
 import { colors, radius, scoreColor, spacing } from '@/theme';
 
 const categoryLabel: Record<LurePick['category'], string> = {
@@ -164,6 +165,8 @@ export function StrategyCard({ strategy }: { strategy: Strategy }) {
           </View>
         ) : null}
       </Section>
+
+      <HourlyBiteCard hourly={strategy.hourly} bestWindows={strategy.bestWindows} />
 
       {strategy.behavior.length > 0 ? (
         <Section title="What the Fish Are Doing">

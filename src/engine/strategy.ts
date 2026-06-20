@@ -11,6 +11,9 @@ import {
 import { buildClarityPlaybook, clarityLureAdjust } from '@/engine/clarity';
 import { buildBehavior } from '@/engine/behavior';
 import { gearFor } from '@/engine/gear';
+import { tideStateAt } from '@/api/tides';
+import { hourLabel, hourOf } from '@/utils/dates';
+import type { HourBite, BestWindow } from '@/types';
 
 /**
  * Build a complete fishing strategy from gathered conditions using a
@@ -33,12 +36,16 @@ export function buildStrategy(c: Conditions): Strategy {
     if (tip) factors.push(`Targeting ${speciesLabel(c.species)}: ${tip}`);
   }
 
+  const hourly = buildHourly(c);
+
   return {
     biteScore,
     biteLabel: biteLabel(biteScore),
     summary,
     factors,
     picks,
+    hourly,
+    bestWindows: computeBestWindows(hourly),
     behavior: buildBehavior(c),
     clarityPlaybook: buildClarityPlaybook(c),
     pressurePlaybook: isPressured(c.pressureLevel)
@@ -185,6 +192,78 @@ function biteMood(score: number): BiteMood {
   if (score >= 66) return 'aggressive';
   if (score >= 45) return 'neutral';
   return 'finesse';
+}
+
+// ---------------------------------------------------------------------------
+// Hourly bite + best windows
+// ---------------------------------------------------------------------------
+
+/** Grade the bite for each available hour of the day. */
+function buildHourly(c: Conditions): HourBite[] {
+  return c.hourlyWeather.map((hw) => {
+    const perHour: Conditions = {
+      ...c,
+      weather: hw,
+      tide: c.tide
+        ? { ...c.tide, state: tideStateAt(c.tide.events, new Date(hw.timeISO).getTime()) }
+        : null,
+    };
+    let score = scoreBite(perHour).score;
+    score += dawnDuskBonus(hw.timeISO, hw.sunrise, hw.sunset);
+    return {
+      timeISO: hw.timeISO,
+      label: hourLabel(hw.timeISO),
+      score: clamp(Math.round(score), 1, 99),
+      isDay: hw.isDay,
+    };
+  });
+}
+
+/** Bonus for the prime change-of-light hours around sunrise and sunset. */
+function dawnDuskBonus(timeISO: string, sunrise: string, sunset: string): number {
+  const h = hourOf(timeISO);
+  const sr = Number(sunrise.slice(0, 2));
+  const ss = Number(sunset.slice(0, 2));
+  if (Number.isNaN(h)) return 0;
+  const nearSunrise = !Number.isNaN(sr) && Math.abs(h - sr) <= 1;
+  const nearSunset = !Number.isNaN(ss) && Math.abs(h - ss) <= 1;
+  return nearSunrise || nearSunset ? 8 : 0;
+}
+
+/** Group the strongest contiguous hours into a few highlighted windows. */
+function computeBestWindows(hourly: HourBite[]): BestWindow[] {
+  if (hourly.length === 0) return [];
+  const peak = Math.max(...hourly.map((h) => h.score));
+  const threshold = Math.max(55, peak - 12);
+
+  const windows: BestWindow[] = [];
+  let start: HourBite | null = null;
+  let prev: HourBite | null = null;
+  let runPeak = 0;
+
+  const close = () => {
+    if (start && prev) {
+      const range =
+        start === prev ? start.label : `${start.label}–${prev.label}`;
+      windows.push({ range, biteLabel: biteLabel(runPeak), score: runPeak });
+    }
+    start = null;
+    prev = null;
+    runPeak = 0;
+  };
+
+  for (const h of hourly) {
+    if (h.score >= threshold) {
+      if (!start) start = h;
+      prev = h;
+      runPeak = Math.max(runPeak, h.score);
+    } else {
+      close();
+    }
+  }
+  close();
+
+  return windows.sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
 // ---------------------------------------------------------------------------

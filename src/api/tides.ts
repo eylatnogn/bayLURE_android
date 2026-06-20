@@ -113,6 +113,14 @@ export async function fetchWeekTides(
   return out;
 }
 
+/** Tide state at an arbitrary moment, from a day's hi/lo events. */
+export function tideStateAt(
+  events: TideEvent[],
+  refMs: number,
+): TideConditions['state'] {
+  return deriveTideState(events, refMs).state;
+}
+
 function deriveTideState(
   events: TideEvent[],
   refMs: number,
