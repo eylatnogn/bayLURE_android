@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WaterType } from '@/types';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   value: WaterType;
@@ -21,7 +21,11 @@ export function WaterTypeToggle({ value, onChange }: Props) {
           <Pressable
             key={opt.value}
             onPress={() => onChange(opt.value)}
-            style={[styles.pill, active && styles.pillActive]}
+            style={({ pressed }) => [
+              styles.pill,
+              active && styles.pillActive,
+              pressed && pressedStyle,
+            ]}
           >
             <Text style={[styles.label, active && styles.labelActive]}>
               {opt.label}

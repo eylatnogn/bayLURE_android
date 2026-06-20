@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import type { Species } from '@/types';
 import type { AreaFish } from '@/api/areaSpecies';
 import { Section } from '@/components/Section';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 const COLLAPSED = 5;
 
@@ -29,7 +30,7 @@ export function AreaFishCard({ fish, onPickTarget, regsUrl, limit = 20 }: Props)
     <Section title="Expected Fish Nearby">
       <Text style={styles.intro}>
         Most-reported fish around this spot (iNaturalist sightings). Tap a
-        🎣 fish to set it as your target.
+        marked fish to set it as your target.
       </Text>
       {top.map((f) => {
         const tappable = !!(f.target && onPickTarget);
@@ -38,7 +39,12 @@ export function AreaFishCard({ fish, onPickTarget, regsUrl, limit = 20 }: Props)
             <View style={styles.nameCol}>
               <Text style={styles.common}>
                 {f.commonName}
-                {f.target ? <Text style={styles.targetMark}>  🎣</Text> : null}
+                {f.target ? (
+                  <Text style={styles.targetMark}>
+                    {'  '}
+                    <Feather name="crosshair" size={12} color={colors.accent} />
+                  </Text>
+                ) : null}
               </Text>
               <Text style={styles.sci}>{f.scientificName}</Text>
               <View style={styles.barTrack}>
@@ -73,7 +79,7 @@ export function AreaFishCard({ fish, onPickTarget, regsUrl, limit = 20 }: Props)
       {canExpand ? (
         <Pressable
           onPress={() => setExpanded((v) => !v)}
-          style={styles.expandBtn}
+          style={({ pressed }) => [styles.expandBtn, pressed && pressedStyle]}
         >
           <Text style={styles.expandText}>
             {expanded

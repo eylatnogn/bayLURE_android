@@ -1,6 +1,7 @@
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { Section } from '@/components/Section';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Item {
   name: string;
@@ -73,7 +74,7 @@ const COMFORT: Item[] = [
 function Row({ item }: { item: Item }) {
   return (
     <View style={styles.row}>
-      <Text style={styles.check}>▢</Text>
+      <Feather name="square" size={16} color={colors.accent} style={styles.check} />
       <View style={styles.rowText}>
         <Text style={styles.name}>{item.name}</Text>
         <Text style={styles.why}>{item.why}</Text>
@@ -136,7 +137,7 @@ export function HelpScreen() {
       </Section>
 
       <Pressable
-        style={styles.linkBtn}
+        style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
         onPress={() =>
           Linking.openURL(
             'https://www.takemefishing.com/how-to-fish/fishing-for-beginners/',

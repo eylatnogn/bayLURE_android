@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LurePick, Strategy } from '@/types';
 import { Section } from '@/components/Section';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 const categoryLabel: Record<LurePick['category'], string> = {
   lure: 'LURE',
@@ -80,7 +80,11 @@ export function PicksCard({ strategy }: { strategy: Strategy }) {
             <Pressable
               key={f.id}
               onPress={() => setFilter(f.id)}
-              style={[styles.filterChip, active && styles.filterChipActive]}
+              style={({ pressed }) => [
+                styles.filterChip,
+                active && styles.filterChipActive,
+                pressed && pressedStyle,
+              ]}
             >
               <Text style={[styles.filterText, active && styles.filterTextActive]}>
                 {f.label}

@@ -1,7 +1,8 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import type { BestWindow, HourBite } from '@/types';
 import { Section } from '@/components/Section';
-import { colors, radius, scoreColor, spacing } from '@/theme';
+import { colors, pressedStyle, radius, scoreColor, spacing } from '@/theme';
 
 const BAR_MAX = 60;
 
@@ -34,7 +35,11 @@ export function OutlookCard({ days, selected, onSelect, hourly, bestWindows }: P
             <Pressable
               key={i}
               onPress={() => onSelect(i)}
-              style={[styles.day, active && styles.dayActive]}
+              style={({ pressed }) => [
+                styles.day,
+                active && styles.dayActive,
+                pressed && pressedStyle,
+              ]}
             >
               <Text style={[styles.dayLabel, active && styles.dayLabelActive]}>
                 {d.label}
@@ -57,7 +62,12 @@ export function OutlookCard({ days, selected, onSelect, hourly, bestWindows }: P
           <Text style={styles.subhead}>Best bite times</Text>
           {bestWindows.map((w, i) => (
             <View key={i} style={styles.window}>
-              <Text style={styles.target}>🎯</Text>
+              <Feather
+                name="crosshair"
+                size={14}
+                color={colors.accent}
+                style={styles.target}
+              />
               <Text style={styles.windowRange}>{w.range}</Text>
               <View style={[styles.windowPill, { backgroundColor: scoreColor(w.score) }]}>
                 <Text style={styles.windowPillText}>{w.biteLabel}</Text>

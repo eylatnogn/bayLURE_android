@@ -1,12 +1,13 @@
+import { Feather } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '@/theme';
+import { colors, pressedStyle, shadow, spacing } from '@/theme';
 
 export type Tab = 'plan' | 'log' | 'guide';
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'plan', label: 'Plan', icon: '🎣' },
-  { id: 'log', label: 'Catch Log', icon: '📓' },
-  { id: 'guide', label: 'Guide', icon: '🧭' },
+const TABS: { id: Tab; label: string; icon: keyof typeof Feather.glyphMap }[] = [
+  { id: 'plan', label: 'Plan', icon: 'target' },
+  { id: 'log', label: 'Catch Log', icon: 'book-open' },
+  { id: 'guide', label: 'Guide', icon: 'compass' },
 ];
 
 interface Props {
@@ -23,11 +24,14 @@ export function TabBar({ tab, onChange }: Props) {
           <Pressable
             key={t.id}
             onPress={() => onChange(t.id)}
-            style={styles.tab}
+            style={({ pressed }) => [styles.tab, pressed && pressedStyle]}
           >
-            <Text style={[styles.icon, !active && styles.inactive]}>
-              {t.icon}
-            </Text>
+            <Feather
+              name={t.icon}
+              size={22}
+              color={active ? colors.accent : colors.textMuted}
+              style={!active && styles.inactive}
+            />
             <Text style={[styles.label, active ? styles.active : styles.inactive]}>
               {t.label}
             </Text>
@@ -46,14 +50,12 @@ const styles = StyleSheet.create({
     borderTopColor: colors.cardBorder,
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
+    ...shadow.bar,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     gap: 2,
-  },
-  icon: {
-    fontSize: 20,
   },
   label: {
     fontSize: 11,

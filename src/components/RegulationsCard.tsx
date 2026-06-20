@@ -2,7 +2,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Region } from '@/api/geocode';
 import { regulationsForState } from '@/engine/regulations';
 import { Section } from '@/components/Section';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   region: Region | null;
@@ -30,7 +30,9 @@ export function RegulationsCard({ region }: Props) {
             <Text style={styles.state}>{reg.state}</Text> are set by the state —
             check the official source before you keep a fish.
           </Text>
-          <Pressable style={styles.btn} onPress={() => open(reg.url)}>
+          <Pressable
+            style={({ pressed }) => [styles.btn, pressed && pressedStyle]}
+            onPress={() => open(reg.url)}>
             <Text style={styles.btnText}>
               Open official {reg.state} fishing regulations  ↗
             </Text>
@@ -44,7 +46,9 @@ export function RegulationsCard({ region }: Props) {
               : 'Set or analyze a location to look up local regulations.'}{' '}
             Always confirm size and bag limits with the local authority.
           </Text>
-          <Pressable style={styles.btn} onPress={() => open(fallbackUrl)}>
+          <Pressable
+            style={({ pressed }) => [styles.btn, pressed && pressedStyle]}
+            onPress={() => open(fallbackUrl)}>
             <Text style={styles.btnText}>Search official regulations  ↗</Text>
           </Pressable>
         </>

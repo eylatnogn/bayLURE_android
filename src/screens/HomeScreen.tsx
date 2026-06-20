@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import type {
   CatchConditions,
   Conditions,
@@ -51,7 +52,7 @@ import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { APP_VERSION } from '@/version';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
@@ -237,12 +238,19 @@ export function HomeScreen({ onSnapshot }: Props) {
         <Pressable
           onPress={useMyLocation}
           disabled={locating}
-          style={[styles.secondaryBtn, locating && styles.btnDisabled]}
+          style={({ pressed }) => [
+            styles.secondaryBtn,
+            locating && styles.btnDisabled,
+            pressed && pressedStyle,
+          ]}
         >
           {locating ? (
             <ActivityIndicator color={colors.accent} />
           ) : (
-            <Text style={styles.secondaryBtnText}>📍 Use my location</Text>
+            <View style={styles.btnRow}>
+              <Feather name="map-pin" size={16} color={colors.text} />
+              <Text style={styles.secondaryBtnText}>Use my location</Text>
+            </View>
           )}
         </Pressable>
 
@@ -261,9 +269,10 @@ export function HomeScreen({ onSnapshot }: Props) {
           <Pressable
             onPress={onFindAddress}
             disabled={geocoding || !query.trim()}
-            style={[
+            style={({ pressed }) => [
               styles.findBtn,
               (geocoding || !query.trim()) && styles.btnDisabled,
+              pressed && pressedStyle,
             ]}
           >
             {geocoding ? (
@@ -285,13 +294,16 @@ export function HomeScreen({ onSnapshot }: Props) {
 
         {coordinates && !savingFav ? (
           <Pressable
-            style={styles.saveFavBtn}
+            style={({ pressed }) => [styles.saveFavBtn, pressed && pressedStyle]}
             onPress={() => {
               setFavLabel(place);
               setSavingFav(true);
             }}
           >
-            <Text style={styles.saveFavText}>☆ Save this spot</Text>
+            <View style={styles.btnRow}>
+              <Feather name="star" size={14} color={colors.accent} />
+              <Text style={styles.saveFavText}>Save this spot</Text>
+            </View>
           </Pressable>
         ) : null}
 
@@ -305,7 +317,10 @@ export function HomeScreen({ onSnapshot }: Props) {
               autoFocus
               style={styles.input}
             />
-            <Pressable style={styles.findBtn} onPress={onSaveFavorite}>
+            <Pressable
+              style={({ pressed }) => [styles.findBtn, pressed && pressedStyle]}
+              onPress={onSaveFavorite}
+            >
               <Text style={styles.findBtnText}>Save</Text>
             </Pressable>
           </View>
@@ -317,14 +332,19 @@ export function HomeScreen({ onSnapshot }: Props) {
             {favorites.map((fav) => (
               <View key={fav.id} style={styles.favRow}>
                 <Pressable
-                  style={styles.favTap}
+                  style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
                   onPress={() => onLoadFavorite(fav)}
                 >
-                  <Text style={styles.favStar}>★</Text>
+                  <Feather
+                    name="star"
+                    size={14}
+                    color={colors.warn}
+                    style={styles.favStar}
+                  />
                   <Text style={styles.favName}>{fav.label}</Text>
                 </Pressable>
                 <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
-                  <Text style={styles.favDelete}>✕</Text>
+                  <Feather name="x" size={16} color={colors.textMuted} />
                 </Pressable>
               </View>
             ))}
@@ -354,7 +374,11 @@ export function HomeScreen({ onSnapshot }: Props) {
               <Pressable
                 key={opt.value}
                 onPress={() => setClarity(opt.value)}
-                style={[styles.togglePill, active && styles.togglePillActive]}
+                style={({ pressed }) => [
+                  styles.togglePill,
+                  active && styles.togglePillActive,
+                  pressed && pressedStyle,
+                ]}
               >
                 <Text
                   style={[
@@ -414,7 +438,11 @@ export function HomeScreen({ onSnapshot }: Props) {
               <Pressable
                 key={opt.value}
                 onPress={() => setDepth(opt.value)}
-                style={[styles.togglePill, active && styles.togglePillActive]}
+                style={({ pressed }) => [
+                  styles.togglePill,
+                  active && styles.togglePillActive,
+                  pressed && pressedStyle,
+                ]}
               >
                 <Text
                   style={[
@@ -447,7 +475,11 @@ export function HomeScreen({ onSnapshot }: Props) {
               <Pressable
                 key={opt.value}
                 onPress={() => setPressureLevel(opt.value)}
-                style={[styles.togglePill, active && styles.togglePillActive]}
+                style={({ pressed }) => [
+                  styles.togglePill,
+                  active && styles.togglePillActive,
+                  pressed && pressedStyle,
+                ]}
               >
                 <Text
                   style={[
@@ -466,9 +498,10 @@ export function HomeScreen({ onSnapshot }: Props) {
       <Pressable
         onPress={onAnalyze}
         disabled={analyzing || !coordinates}
-        style={[
+        style={({ pressed }) => [
           styles.cta,
           (analyzing || !coordinates) && styles.btnDisabled,
+          pressed && pressedStyle,
         ]}
       >
         {analyzing ? (
@@ -583,6 +616,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
   },
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   secondaryBtnText: {
     color: colors.text,
     fontSize: 15,
@@ -694,8 +732,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   favStar: {
-    color: colors.warn,
-    fontSize: 14,
     marginRight: spacing.sm,
   },
   favName: {
@@ -703,12 +739,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     flex: 1,
-  },
-  favDelete: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
-    paddingHorizontal: spacing.sm,
   },
   helper: {
     color: colors.textMuted,

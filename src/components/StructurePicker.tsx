@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StructureType, WaterType } from '@/types';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Option {
   value: StructureType;
@@ -87,7 +87,11 @@ export function StructurePicker({ waterType, selected, onToggle, onClear }: Prop
     <View style={styles.wrap}>
       <Pressable
         onPress={onClear}
-        style={[styles.chip, noneActive && styles.chipActive]}
+        style={({ pressed }) => [
+          styles.chip,
+          noneActive && styles.chipActive,
+          pressed && pressedStyle,
+        ]}
       >
         <Text style={[styles.label, noneActive && styles.labelActive]}>
           None selected
@@ -99,7 +103,11 @@ export function StructurePicker({ waterType, selected, onToggle, onClear }: Prop
           <Pressable
             key={opt.value}
             onPress={() => onToggle(opt.value)}
-            style={[styles.chip, active && styles.chipActive]}
+            style={({ pressed }) => [
+              styles.chip,
+              active && styles.chipActive,
+              pressed && pressedStyle,
+            ]}
           >
             <Text style={[styles.label, active && styles.labelActive]}>
               {labelFor(opt, waterType)}

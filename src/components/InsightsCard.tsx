@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { PlaybookSection, Strategy } from '@/types';
 import { Section } from '@/components/Section';
-import { colors, spacing } from '@/theme';
+import { colors, pressedStyle, spacing } from '@/theme';
 
 /** A collapsible, categorized playbook (collapsed by default to cut clutter). */
 function Playbook({
@@ -24,7 +24,11 @@ function Playbook({
     <Section
       title={title}
       right={
-        <Pressable onPress={() => setOpen((v) => !v)} hitSlop={8}>
+        <Pressable
+          onPress={() => setOpen((v) => !v)}
+          hitSlop={8}
+          style={({ pressed }) => pressed && pressedStyle}
+        >
           <Text style={styles.toggle}>{open ? 'Hide  ▴' : `Show ${tipCount}  ▾`}</Text>
         </Pressable>
       }
@@ -58,7 +62,7 @@ export function InsightsCard({ strategy }: { strategy: Strategy }) {
         <Section title="What the Fish Are Doing">
           {strategy.behavior.map((b, i) => (
             <View key={i} style={styles.row}>
-              <Text style={styles.bulletFish}>🐟</Text>
+              <Text style={styles.bulletFish}>›</Text>
               <Text style={styles.text}>{b}</Text>
             </View>
           ))}
@@ -107,6 +111,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', marginBottom: spacing.sm },
   bullet: { color: colors.accent, marginRight: spacing.sm, fontSize: 14 },
   bulletWater: { color: colors.water, marginRight: spacing.sm, fontSize: 16, fontWeight: '800' },
-  bulletFish: { marginRight: spacing.sm, fontSize: 13 },
+  bulletFish: { color: colors.water, marginRight: spacing.sm, fontSize: 16, fontWeight: '800' },
   text: { color: colors.text, fontSize: 13, lineHeight: 19, flex: 1 },
 });

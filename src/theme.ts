@@ -1,5 +1,6 @@
 // Shared visual tokens. Warm, outdoors "on the bank at sunrise" palette —
 // foliage greens, water teal, sand and bark rather than the old space-y navy.
+import type { ViewStyle } from 'react-native';
 
 export const colors = {
   bg: '#eef1e4', // pale sage paper
@@ -38,4 +39,31 @@ export const radius = {
   sm: 8,
   md: 12,
   lg: 16,
+};
+
+// Soft, foliage-tinted elevation. Cards float just off the sage background
+// instead of relying on a hard border — the single biggest "finished" cue.
+export const shadow: { card: ViewStyle; bar: ViewStyle } = {
+  card: {
+    shadowColor: '#2e3b22',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  // Upward lift for the bottom tab bar so content tucks under it.
+  bar: {
+    shadowColor: '#2e3b22',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 12,
+  },
+};
+
+// Shared pressed-state feedback for tappable surfaces — a subtle dim + shrink
+// so every button and chip feels physical. Use as: pressed && pressedStyle.
+export const pressedStyle: ViewStyle = {
+  opacity: 0.82,
+  transform: [{ scale: 0.98 }],
 };

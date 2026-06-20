@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import type { CatchConditions, CatchRecord } from '@/types';
@@ -18,7 +19,7 @@ import { addCatch, deleteCatch, loadCatches } from '@/storage/catchLog';
 import { summarizeCatchConditions } from '@/utils/snapshot';
 import { LureSelect } from '@/components/LureSelect';
 import { Section } from '@/components/Section';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, shadow, spacing } from '@/theme';
 
 const SPECIES_OPTIONS = [...SPECIES.map((s) => s.label), 'Other'];
 
@@ -180,13 +181,16 @@ export function CatchLogScreen({ snapshot }: Props) {
 
       {!formOpen ? (
         <Pressable
-          style={styles.cta}
+          style={({ pressed }) => [styles.cta, pressed && pressedStyle]}
           onPress={() => {
             setNotice(null);
             setFormOpen(true);
           }}
         >
-          <Text style={styles.ctaText}>＋ Log a catch</Text>
+          <View style={styles.ctaRow}>
+            <Feather name="plus" size={18} color={colors.card} />
+            <Text style={styles.ctaText}>Log a catch</Text>
+          </View>
         </Pressable>
       ) : (
         <Section
@@ -210,7 +214,11 @@ export function CatchLogScreen({ snapshot }: Props) {
                 <Pressable
                   key={label}
                   onPress={() => setSpecies(label)}
-                  style={[styles.chip, active && styles.chipActive]}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    active && styles.chipActive,
+                    pressed && pressedStyle,
+                  ]}
                 >
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {label}
@@ -268,18 +276,26 @@ export function CatchLogScreen({ snapshot }: Props) {
               </Pressable>
             </View>
           ) : (
-            <Pressable style={styles.photoBtn} onPress={pickPhoto}>
-              <Text style={styles.photoBtnText}>📷 Add a photo</Text>
+            <Pressable
+              style={({ pressed }) => [styles.photoBtn, pressed && pressedStyle]}
+              onPress={pickPhoto}
+            >
+              <View style={styles.photoBtnRow}>
+                <Feather name="camera" size={16} color={colors.text} />
+                <Text style={styles.photoBtnText}>Add a photo</Text>
+              </View>
             </Pressable>
           )}
 
           {snapshot ? (
             <Pressable
               onPress={() => setAttachConditions((v) => !v)}
-              style={styles.attachRow}
+              style={({ pressed }) => [styles.attachRow, pressed && pressedStyle]}
             >
               <View style={[styles.check, attachConditions && styles.checkOn]}>
-                {attachConditions ? <Text style={styles.checkMark}>✓</Text> : null}
+                {attachConditions ? (
+                  <Feather name="check" size={14} color={colors.card} />
+                ) : null}
               </View>
               <View style={styles.attachText}>
                 <Text style={styles.attachLabel}>Attach current conditions</Text>
@@ -301,9 +317,10 @@ export function CatchLogScreen({ snapshot }: Props) {
           <Pressable
             onPress={onSave}
             disabled={saving || !resolvedSpecies || !hasGear}
-            style={[
+            style={({ pressed }) => [
               styles.cta,
               (saving || !resolvedSpecies || !hasGear) && styles.disabled,
+              pressed && pressedStyle,
             ]}
           >
             {saving ? (
@@ -403,6 +420,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  ctaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   disabled: { opacity: 0.5 },
   cancel: { color: colors.bad, fontWeight: '700', fontSize: 13 },
   fieldLabel: {
@@ -464,6 +486,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   photoBtnText: { color: colors.text, fontWeight: '700' },
+  photoBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   preview: {
     width: '100%',
     height: 200,
@@ -523,6 +550,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.md,
     marginTop: spacing.md,
+    ...shadow.card,
   },
   thumb: {
     width: 64,

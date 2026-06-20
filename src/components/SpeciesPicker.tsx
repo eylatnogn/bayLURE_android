@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Species, WaterType } from '@/types';
 import { speciesForWaterType } from '@/engine/species';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   waterType: WaterType;
@@ -24,7 +24,11 @@ export function SpeciesPicker({ waterType, value, onChange }: Props) {
           <Pressable
             key={opt.id}
             onPress={() => onChange(opt.id)}
-            style={[styles.chip, active && styles.chipActive]}
+            style={({ pressed }) => [
+              styles.chip,
+              active && styles.chipActive,
+              pressed && pressedStyle,
+            ]}
           >
             <Text style={[styles.label, active && styles.labelActive]}>
               {opt.label}

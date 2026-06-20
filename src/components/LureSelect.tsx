@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WaterType } from '@/types';
 import { LURES } from '@/engine/lureDatabase';
-import { colors, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   value: string | null;
@@ -35,7 +35,11 @@ export function LureSelect({ value, onChange, waterType, category }: Props) {
           <Pressable
             key={l.name}
             onPress={() => onChange(active ? null : l.name)}
-            style={[styles.row, active && styles.rowActive]}
+            style={({ pressed }) => [
+              styles.row,
+              active && styles.rowActive,
+              pressed && pressedStyle,
+            ]}
           >
             <View style={styles.radio}>
               {active ? <View style={styles.radioDot} /> : null}
