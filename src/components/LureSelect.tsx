@@ -5,9 +5,12 @@ import { colors, radius, spacing } from '@/theme';
 
 interface Props {
   value: string | null;
-  onChange: (name: string) => void;
+  /** Tapping the selected item again clears it (pass null). */
+  onChange: (name: string | null) => void;
   /** Optional filter so a saltwater catch only lists saltwater baits. */
   waterType?: WaterType;
+  /** Restrict the list to one category (lure / rig / bait). */
+  category?: 'lure' | 'rig' | 'bait';
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -16,10 +19,12 @@ const CATEGORY_LABEL: Record<string, string> = {
   bait: 'BAIT',
 };
 
-/** Single-select list of every lure/rig/bait in the bayLURE knowledge base. */
-export function LureSelect({ value, onChange, waterType }: Props) {
+/** Single-select list of lures/rigs/bait. Tap again to deselect. */
+export function LureSelect({ value, onChange, waterType, category }: Props) {
   const items = LURES.filter(
-    (l) => !waterType || l.waterTypes.includes(waterType),
+    (l) =>
+      (!waterType || l.waterTypes.includes(waterType)) &&
+      (!category || l.category === category),
   );
 
   return (
@@ -29,7 +34,7 @@ export function LureSelect({ value, onChange, waterType }: Props) {
         return (
           <Pressable
             key={l.name}
-            onPress={() => onChange(l.name)}
+            onPress={() => onChange(active ? null : l.name)}
             style={[styles.row, active && styles.rowActive]}
           >
             <View style={styles.radio}>

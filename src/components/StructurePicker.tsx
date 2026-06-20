@@ -77,12 +77,22 @@ interface Props {
   waterType: WaterType;
   selected: StructureType[];
   onToggle: (value: StructureType) => void;
+  onClear: () => void;
 }
 
-export function StructurePicker({ waterType, selected, onToggle }: Props) {
+export function StructurePicker({ waterType, selected, onToggle, onClear }: Props) {
   const visible = OPTIONS.filter((o) => o.waterTypes.includes(waterType));
+  const noneActive = selected.length === 0;
   return (
     <View style={styles.wrap}>
+      <Pressable
+        onPress={onClear}
+        style={[styles.chip, noneActive && styles.chipActive]}
+      >
+        <Text style={[styles.label, noneActive && styles.labelActive]}>
+          None selected
+        </Text>
+      </Pressable>
       {visible.map((opt) => {
         const active = selected.includes(opt.value);
         return (

@@ -10,6 +10,7 @@ import {
 } from '@/engine/pressure';
 import { buildClarityPlaybook, clarityLureAdjust } from '@/engine/clarity';
 import { buildBehavior } from '@/engine/behavior';
+import { depthLureAdjust } from '@/engine/depth';
 import { gearFor } from '@/engine/gear';
 import { tideStateAt } from '@/api/tides';
 import { hourLabel, hourOf } from '@/utils/dates';
@@ -370,6 +371,11 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
   const clarity = clarityLureAdjust(l, c.clarity);
   score += clarity.delta;
   if (clarity.reason) reasons.push(clarity.reason);
+
+  // Depth zone: favor baits that work the column the user is fishing.
+  const depth = depthLureAdjust(l, c.depth);
+  score += depth.delta;
+  if (depth.reason) reasons.push(depth.reason);
 
   // Lead with the lure's signature strength, then condition-specific reasons.
   const reasonText = [l.strength, ...reasons].join('; ');

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Species } from '@/types';
 import type { AreaFish } from '@/api/areaSpecies';
 import { Section } from '@/components/Section';
@@ -11,11 +11,13 @@ interface Props {
   fish: AreaFish[];
   /** When provided, tapping a bayLURE-supported fish sets it as the target. */
   onPickTarget?: (species: Species) => void;
+  /** Official state regulations URL, if known, for the size/limit link. */
+  regsUrl?: string | null;
   /** Max fish to show when fully expanded. */
   limit?: number;
 }
 
-export function AreaFishCard({ fish, onPickTarget, limit = 20 }: Props) {
+export function AreaFishCard({ fish, onPickTarget, regsUrl, limit = 20 }: Props) {
   const [expanded, setExpanded] = useState(false);
   if (fish.length === 0) return null;
   const all = fish.slice(0, limit);
@@ -44,6 +46,11 @@ export function AreaFishCard({ fish, onPickTarget, limit = 20 }: Props) {
                   style={[styles.barFill, { width: `${(f.count / max) * 100}%` }]}
                 />
               </View>
+              {regsUrl ? (
+                <Pressable onPress={() => void Linking.openURL(regsUrl)} hitSlop={6}>
+                  <Text style={styles.limitsLink}>Size & bag limits  ↗</Text>
+                </Pressable>
+              ) : null}
             </View>
             <Text style={styles.count}>{f.count}</Text>
           </View>
@@ -78,7 +85,10 @@ export function AreaFishCard({ fish, onPickTarget, limit = 20 }: Props) {
 
       <Text style={styles.footnote}>
         Observation data reflects what people have photographed nearby — a guide
-        to what swims here, not a stocking survey.
+        to what swims here, not a stocking survey.{'\n'}
+        {regsUrl
+          ? 'Size & bag limits open your state’s official page — bayLURE links to the source rather than listing numbers, which vary by species, water, and season.'
+          : 'Set a U.S. location to get a link to your state’s size & bag limits.'}
       </Text>
     </Section>
   );
@@ -119,6 +129,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontStyle: 'italic',
     marginTop: 1,
+  },
+  limitsLink: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: spacing.xs,
   },
   barTrack: {
     height: 4,

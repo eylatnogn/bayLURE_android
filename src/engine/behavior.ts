@@ -1,5 +1,6 @@
 import type { Conditions } from '@/types';
 import { speciesLabel } from '@/engine/species';
+import { depthBehavior } from '@/engine/depth';
 
 /**
  * A plain-language read on what the fish are probably doing right now, built
@@ -88,6 +89,10 @@ export function buildBehavior(c: Conditions): string[] {
       out.push('On the slack tide they ease off and scatter — expect the bite to pick back up once the water moves.');
     }
   }
+
+  // Depth focus.
+  const depthNote = depthBehavior(c);
+  if (depthNote) out.push(depthNote);
 
   // Moon phase: new/full moons drive stronger feeding and bigger tides.
   if (c.weather.moonMajor) {

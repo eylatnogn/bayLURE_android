@@ -69,6 +69,7 @@ function buildPrompt(c: Conditions, s: Strategy): string {
     `Fishing pressure: ${c.pressureLevel === 'none' ? 'normal' : `${c.pressureLevel} — educated fish, favor finesse and downsizing`}.`,
     `Structure/cover present: ${c.structures.join(', ') || 'unspecified'}.`,
     `Water clarity: ${c.clarity}.`,
+    `Depth zone: ${c.depth}.`,
     `Air: ${c.weather.airTempF}°F. Water: ${c.water.waterTempF}°F${c.water.isEstimated ? ' (estimated)' : ''}.`,
     `Pressure: ${c.weather.pressureInHg} inHg, trend ${c.weather.pressureTrend}.`,
     `Wind: ${c.weather.windMph} mph from ${c.weather.windDirectionLabel}, gusts ${c.weather.windGustMph}.`,

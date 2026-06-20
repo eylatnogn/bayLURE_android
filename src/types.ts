@@ -114,6 +114,9 @@ export type PressureLevel = 'none' | 'moderate' | 'high';
 /** Water clarity at the spot. Drives color, vibration, and behavior advice. */
 export type WaterClarity = 'clear' | 'stained' | 'muddy';
 
+/** Depth zone being fished. Biases lure choice and behavior advice. */
+export type WaterDepth = 'any' | 'shallow' | 'mid' | 'deep';
+
 export interface Conditions {
   coordinates: Coordinates;
   waterType: WaterType;
@@ -123,6 +126,8 @@ export interface Conditions {
   pressureLevel: PressureLevel;
   /** Visibility of the water. */
   clarity: WaterClarity;
+  /** Depth zone being fished. */
+  depth: WaterDepth;
   /** The day this forecast is for (YYYY-MM-DD, local). */
   date: string;
   /** 0 = today, 1 = tomorrow, … up to 6. */
@@ -222,6 +227,7 @@ export interface CatchConditions {
   structures: StructureType[];
   pressureLevel: PressureLevel;
   clarity: WaterClarity;
+  depth: WaterDepth;
   airTempF: number;
   waterTempF: number;
   waterTempEstimated: boolean;
@@ -238,11 +244,12 @@ export interface CatchConditions {
 export interface CatchRecord {
   id: string;
   dateISO: string;
-  /** Species label (free-form; chosen from a list including "Other"). */
+  /** Species label (free-form; chosen from a list or typed when "Other"). */
   species: string;
-  /** Lure/rig/bait name, chosen from the bayLURE list (never free text). */
-  lure: string;
-  lureCategory?: 'lure' | 'rig' | 'bait';
+  /** Lure / rig / bait used, each chosen from its own list (optional). */
+  lure?: string;
+  rig?: string;
+  bait?: string;
   waterType?: WaterType;
   /** Free text, e.g. "18 in" or "3.5 lb". */
   size?: string;

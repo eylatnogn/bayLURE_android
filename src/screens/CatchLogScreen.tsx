@@ -11,8 +11,8 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import type { CatchConditions, CatchRecord } from '@/types';
-import { LURES } from '@/engine/lureDatabase';
 import { SPECIES } from '@/engine/species';
 import { addCatch, deleteCatch, loadCatches } from '@/storage/catchLog';
 import { summarizeCatchConditions } from '@/utils/snapshot';
@@ -34,13 +34,17 @@ export function CatchLogScreen({ snapshot }: Props) {
 
   // Form state
   const [species, setSpecies] = useState<string | null>(null);
+  const [speciesOther, setSpeciesOther] = useState('');
   const [lure, setLure] = useState<string | null>(null);
+  const [rig, setRig] = useState<string | null>(null);
+  const [bait, setBait] = useState<string | null>(null);
   const [size, setSize] = useState('');
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [attachConditions, setAttachConditions] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     void loadCatches().then((list) => {
@@ -51,12 +55,19 @@ export function CatchLogScreen({ snapshot }: Props) {
 
   const resetForm = useCallback(() => {
     setSpecies(null);
+    setSpeciesOther('');
     setLure(null);
+    setRig(null);
+    setBait(null);
     setSize('');
     setNotes('');
     setPhotoUri(null);
     setError(null);
   }, []);
+
+  const resolvedSpecies =
+    species === 'Other' ? speciesOther.trim() : species ?? '';
+  const hasGear = !!(lure || rig || bait);
 
   const pickPhoto = useCallback(async () => {
     setError(null);
@@ -75,12 +86,24 @@ export function CatchLogScreen({ snapshot }: Props) {
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset) return;
-      // On web, persist a data URL so the photo survives a reload; on native
-      // the file URI in the app sandbox is fine.
-      if (Platform.OS === 'web' && asset.base64) {
-        setPhotoUri(`data:image/jpeg;base64,${asset.base64}`);
+      // Resize down before storing — full-res photos blow past on-device
+      // storage limits (this caused the "quota exceeded" error on web).
+      const wantsBase64 = Platform.OS === 'web';
+      const manipulated = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 700 } }],
+        {
+          compress: 0.4,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: wantsBase64,
+        },
+      );
+      // On web, persist a small data URL so the photo survives a reload; on
+      // native the resized file URI in the app sandbox is fine.
+      if (wantsBase64 && manipulated.base64) {
+        setPhotoUri(`data:image/jpeg;base64,${manipulated.base64}`);
       } else {
-        setPhotoUri(asset.uri);
+        setPhotoUri(manipulated.uri);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open the photo library.');
@@ -88,24 +111,45 @@ export function CatchLogScreen({ snapshot }: Props) {
   }, []);
 
   const onSave = useCallback(async () => {
-    if (!species || !lure) {
-      setError('Pick a species and the lure that caught it.');
+    if (!resolvedSpecies) {
+      setError(
+        species === 'Other'
+          ? 'Type the species name.'
+          : 'Pick a species.',
+      );
+      return;
+    }
+    if (!hasGear) {
+      setError('Pick at least one of lure, rig, or bait.');
       return;
     }
     setSaving(true);
     setError(null);
+
+    const record = {
+      species: resolvedSpecies,
+      lure: lure ?? undefined,
+      rig: rig ?? undefined,
+      bait: bait ?? undefined,
+      size: size.trim() || undefined,
+      notes: notes.trim() || undefined,
+      photoUri: photoUri ?? undefined,
+      conditions: attachConditions && snapshot ? snapshot : undefined,
+    };
+
     try {
-      const entry = LURES.find((l) => l.name === lure);
-      const next = await addCatch({
-        species,
-        lure,
-        lureCategory: entry?.category,
-        waterType: entry?.waterTypes.length === 1 ? entry.waterTypes[0] : undefined,
-        size: size.trim() || undefined,
-        notes: notes.trim() || undefined,
-        photoUri: photoUri ?? undefined,
-        conditions: attachConditions && snapshot ? snapshot : undefined,
-      });
+      let next: CatchRecord[];
+      try {
+        next = await addCatch(record);
+      } catch (storageErr) {
+        // Almost always a storage-quota error from the photo. Retry without it.
+        if (record.photoUri) {
+          next = await addCatch({ ...record, photoUri: undefined });
+          setNotice('Catch saved — the photo was too large for on-device storage, so it wasn\'t kept.');
+        } else {
+          throw storageErr;
+        }
+      }
       setCatches(next);
       resetForm();
       setFormOpen(false);
@@ -114,7 +158,7 @@ export function CatchLogScreen({ snapshot }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [species, lure, size, notes, photoUri, attachConditions, snapshot, resetForm]);
+  }, [resolvedSpecies, species, hasGear, lure, rig, bait, size, notes, photoUri, attachConditions, snapshot, resetForm]);
 
   const onDelete = useCallback(async (id: string) => {
     const next = await deleteCatch(id);
@@ -132,8 +176,16 @@ export function CatchLogScreen({ snapshot }: Props) {
         Log what you catch and the lure that did it. It all stays on your device.
       </Text>
 
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+
       {!formOpen ? (
-        <Pressable style={styles.cta} onPress={() => setFormOpen(true)}>
+        <Pressable
+          style={styles.cta}
+          onPress={() => {
+            setNotice(null);
+            setFormOpen(true);
+          }}
+        >
           <Text style={styles.ctaText}>＋ Log a catch</Text>
         </Pressable>
       ) : (
@@ -167,9 +219,26 @@ export function CatchLogScreen({ snapshot }: Props) {
               );
             })}
           </View>
+          {species === 'Other' ? (
+            <TextInput
+              value={speciesOther}
+              onChangeText={setSpeciesOther}
+              placeholder="Type the species (e.g. Bowfin, Sheepshead)"
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              style={[styles.input, { marginTop: spacing.sm }]}
+            />
+          ) : null}
 
-          <Text style={styles.fieldLabel}>Lure / rig / bait used</Text>
-          <LureSelect value={lure} onChange={setLure} />
+          <Text style={styles.fieldLabel}>What caught it?</Text>
+          <Text style={styles.subLabel}>Pick any that apply — tap again to clear.</Text>
+
+          <Text style={styles.gearHeading}>Lure</Text>
+          <LureSelect value={lure} onChange={setLure} category="lure" />
+          <Text style={styles.gearHeading}>Rig</Text>
+          <LureSelect value={rig} onChange={setRig} category="rig" />
+          <Text style={styles.gearHeading}>Bait</Text>
+          <LureSelect value={bait} onChange={setBait} category="bait" />
 
           <Text style={styles.fieldLabel}>Size (optional)</Text>
           <TextInput
@@ -231,8 +300,11 @@ export function CatchLogScreen({ snapshot }: Props) {
 
           <Pressable
             onPress={onSave}
-            disabled={saving || !species || !lure}
-            style={[styles.cta, (saving || !species || !lure) && styles.disabled]}
+            disabled={saving || !resolvedSpecies || !hasGear}
+            style={[
+              styles.cta,
+              (saving || !resolvedSpecies || !hasGear) && styles.disabled,
+            ]}
           >
             {saving ? (
               <ActivityIndicator color={colors.card} />
@@ -262,10 +334,17 @@ export function CatchLogScreen({ snapshot }: Props) {
                   <Text style={styles.delete}>Delete</Text>
                 </Pressable>
               </View>
-              <Text style={styles.cardLure}>
-                {c.lure}
-                {c.lureCategory ? `  ·  ${c.lureCategory}` : ''}
-              </Text>
+              {[
+                c.lure ? `Lure: ${c.lure}` : null,
+                c.rig ? `Rig: ${c.rig}` : null,
+                c.bait ? `Bait: ${c.bait}` : null,
+              ]
+                .filter(Boolean)
+                .map((line, i) => (
+                  <Text key={i} style={styles.cardLure}>
+                    {line}
+                  </Text>
+                ))}
               <Text style={styles.cardMeta}>
                 {formatDate(c.dateISO)}
                 {c.size ? `  ·  ${c.size}` : ''}
@@ -332,6 +411,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: spacing.lg,
     marginBottom: spacing.sm,
+  },
+  subLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginBottom: spacing.sm,
+  },
+  gearHeading: {
+    color: colors.water,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  notice: {
+    color: colors.warn,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: spacing.md,
   },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {

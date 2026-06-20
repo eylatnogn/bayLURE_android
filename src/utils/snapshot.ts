@@ -21,6 +21,7 @@ export function buildCatchConditions(
     structures: c.structures,
     pressureLevel: c.pressureLevel,
     clarity: c.clarity,
+    depth: c.depth,
     airTempF: c.weather.airTempF,
     waterTempF: c.water.waterTempF,
     waterTempEstimated: c.water.isEstimated,

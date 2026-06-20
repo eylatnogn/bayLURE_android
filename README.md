@@ -240,6 +240,8 @@ The engine starts at a neutral 50 and adjusts on well-known heuristics:
 - **Sky & light** — overcast and dawn/dusk extend the feed; bright sun pins fish
   to cover.
 - **Tide** — moving water feeds; slack water stalls.
+- **Water depth** (Shallow / Mid / Deep) — favors baits that work that part of
+  the column and adds a "where the fish are holding" note.
 - **Water clarity** (Clear / Stained / Muddy) — re-weights the lure list
   (vibration, flash, dark/bright silhouettes, and scent for dirty water; natural,
   translucent, downsized baits for clear) and produces a clarity-specific

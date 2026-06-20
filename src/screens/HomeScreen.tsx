@@ -18,8 +18,10 @@ import type {
   StructureType,
   Strategy,
   WaterClarity,
+  WaterDepth,
   WaterType,
 } from '@/types';
+import { regulationsForState } from '@/engine/regulations';
 import {
   loadFavorites,
   addFavorite,
@@ -36,8 +38,10 @@ import { addDays, longDayLabel, dayLabel, dayNumber } from '@/utils/dates';
 import { ConditionsCard } from '@/components/ConditionsCard';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
-import { StrategyCard } from '@/components/StrategyCard';
-import { ForecastStrip } from '@/components/ForecastStrip';
+import { BiteForecastCard } from '@/components/BiteForecastCard';
+import { OutlookCard } from '@/components/OutlookCard';
+import { PicksCard } from '@/components/PicksCard';
+import { InsightsCard } from '@/components/InsightsCard';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
 import {
   StructurePicker,
@@ -66,9 +70,10 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
   const [species, setSpecies] = useState<Species>('any');
-  const [structures, setStructures] = useState<StructureType[]>(['vegetation']);
+  const [structures, setStructures] = useState<StructureType[]>([]);
   const [pressureLevel, setPressureLevel] = useState<PressureLevel>('none');
   const [clarity, setClarity] = useState<WaterClarity>('stained');
+  const [depth, setDepth] = useState<WaterDepth>('any');
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,15 +85,17 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const conditions = forecast?.[selectedDay] ?? null;
   const strategy = strategies?.[selectedDay] ?? null;
+  const regsUrl =
+    region?.countryCode?.toLowerCase() === 'us'
+      ? regulationsForState(region.state)?.url ?? null
+      : null;
 
   // Keep cover and species valid for the chosen water type when it changes.
   const onChangeWaterType = useCallback((next: WaterType) => {
     setWaterType(next);
     const allowed = structuresForWaterType(next);
-    setStructures((prev) => {
-      const kept = prev.filter((s) => allowed.includes(s));
-      return kept.length > 0 ? kept : allowed.slice(0, 1);
-    });
+    // Keep whatever is still valid; an empty result is fine ("None selected").
+    setStructures((prev) => prev.filter((s) => allowed.includes(s)));
     setSpecies((prev) =>
       prev === 'any' || speciesForWaterType(next).some((s) => s.id === prev)
         ? prev
@@ -191,6 +198,7 @@ export function HomeScreen({ onSnapshot }: Props) {
           structures,
           pressureLevel,
           clarity,
+          depth,
         }),
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
         reverseRegion(coordinates).catch(() => null),
@@ -210,7 +218,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, species, structures, pressureLevel, clarity, place, onSnapshot]);
+  }, [coordinates, waterType, species, structures, pressureLevel, clarity, depth, place, onSnapshot]);
 
   return (
     <ScrollView
@@ -377,17 +385,53 @@ export function HomeScreen({ onSnapshot }: Props) {
       {/* Step 5 — Structure & cover (filtered to the water type) */}
       <Section title="5 · Structure & Cover">
         <Text style={styles.helper}>
-          Tap everything you can see at your spot.
+          Tap everything you can see at your spot, or leave it on “None
+          selected.”
         </Text>
         <StructurePicker
           waterType={waterType}
           selected={structures}
           onToggle={toggleStructure}
+          onClear={() => setStructures([])}
         />
       </Section>
 
-      {/* Step 6 — Fishing pressure */}
-      <Section title="6 · Fishing Pressure">
+      {/* Step 6 — Water depth */}
+      <Section title="6 · Water Depth">
+        <Text style={styles.helper}>
+          Roughly how deep are you fishing? It biases the lures and where the
+          fish are holding.
+        </Text>
+        <View style={styles.toggleRow}>
+          {([
+            { value: 'any', label: 'Any' },
+            { value: 'shallow', label: 'Shallow' },
+            { value: 'mid', label: 'Mid' },
+            { value: 'deep', label: 'Deep' },
+          ] as const).map((opt) => {
+            const active = depth === opt.value;
+            return (
+              <Pressable
+                key={opt.value}
+                onPress={() => setDepth(opt.value)}
+                style={[styles.togglePill, active && styles.togglePillActive]}
+              >
+                <Text
+                  style={[
+                    styles.togglePillText,
+                    active && styles.togglePillTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Section>
+
+      {/* Step 7 — Fishing pressure */}
+      <Section title="7 · Fishing Pressure">
         <Text style={styles.helper}>
           How heavily fished is this water? More boats, docks, and popular bank
           spots mean warier fish — bayLURE scales the finesse plan to match.
@@ -442,8 +486,10 @@ export function HomeScreen({ onSnapshot }: Props) {
         </View>
       ) : null}
 
+      {strategy ? <BiteForecastCard strategy={strategy} /> : null}
+
       {strategies ? (
-        <ForecastStrip
+        <OutlookCard
           days={strategies.map((s, i) => ({
             label: dayLabel(addDays(new Date(), i), i),
             num: dayNumber(addDays(new Date(), i)),
@@ -451,6 +497,8 @@ export function HomeScreen({ onSnapshot }: Props) {
           }))}
           selected={selectedDay}
           onSelect={setSelectedDay}
+          hourly={strategy?.hourly ?? []}
+          bestWindows={strategy?.bestWindows ?? []}
         />
       ) : null}
 
@@ -460,10 +508,17 @@ export function HomeScreen({ onSnapshot }: Props) {
         </Text>
       ) : null}
       {conditions ? <ConditionsCard conditions={conditions} /> : null}
-      {strategy ? <StrategyCard strategy={strategy} /> : null}
-      {strategy ? <RegulationsCard region={region} /> : null}
+      {strategy ? <PicksCard strategy={strategy} /> : null}
+      {strategy ? <InsightsCard strategy={strategy} /> : null}
+      {strategy ? (
+        <RegulationsCard region={region} />
+      ) : null}
       {areaFish.length > 0 ? (
-        <AreaFishCard fish={areaFish} onPickTarget={onPickTarget} />
+        <AreaFishCard
+          fish={areaFish}
+          onPickTarget={onPickTarget}
+          regsUrl={regsUrl}
+        />
       ) : null}
 
       {!conditions && !analyzing && !error ? (

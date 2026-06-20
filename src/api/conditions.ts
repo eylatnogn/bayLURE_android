@@ -5,6 +5,7 @@ import type {
   Species,
   StructureType,
   WaterClarity,
+  WaterDepth,
   WaterType,
 } from '@/types';
 import { fetchWeekWeather, FORECAST_DAYS } from '@/api/weather';
@@ -19,6 +20,7 @@ export interface ConditionsRequest {
   structures: StructureType[];
   pressureLevel: PressureLevel;
   clarity: WaterClarity;
+  depth: WaterDepth;
 }
 
 /**
@@ -51,6 +53,7 @@ export async function gatherForecast(
     structures: req.structures,
     pressureLevel: req.pressureLevel,
     clarity: req.clarity,
+    depth: req.depth,
     date: localDateStr(addDays(base, d)),
     dayOffset: d,
     fetchedAt,
