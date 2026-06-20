@@ -198,9 +198,10 @@ function rankPicks(c: Conditions, mood: BiteMood): LurePick[] {
     .filter((p) => p.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  // Keep variety: surface a couple of baits/rigs alongside lures rather than
-  // an all-crankbait list. Take the top picks but cap per category.
-  const perCategoryCap = 3;
+  // Return a fuller ranked pool (up to 6 per category) so the UI can both show
+  // a varied "All" view and let the user filter to Lures / Rigs / Bait and see
+  // the top choices in each. The "All" curation happens in the UI.
+  const perCategoryCap = 6;
   const counts: Record<string, number> = {};
   const out: LurePick[] = [];
   for (const pick of scored) {
@@ -208,7 +209,6 @@ function rankPicks(c: Conditions, mood: BiteMood): LurePick[] {
     if (n >= perCategoryCap) continue;
     counts[pick.category] = n + 1;
     out.push(pick);
-    if (out.length >= 6) break;
   }
   return out;
 }

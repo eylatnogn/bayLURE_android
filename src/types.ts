@@ -178,6 +178,15 @@ export interface PlaybookSection {
   tips: string[];
 }
 
+/** A saved, user-labeled fishing spot. Stored on-device. */
+export interface FavoriteLocation {
+  id: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+  savedAt: string;
+}
+
 /** A compact, serializable snapshot of conditions saved alongside a catch. */
 export interface CatchConditions {
   capturedAt: string;

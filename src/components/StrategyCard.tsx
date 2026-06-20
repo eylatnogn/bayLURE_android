@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LurePick, PlaybookSection, Strategy } from '@/types';
 import { Section } from '@/components/Section';
 import { colors, radius, scoreColor, spacing } from '@/theme';
@@ -69,11 +70,64 @@ function GearRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+type PickFilter = 'all' | 'lure' | 'rig' | 'bait';
+
+const FILTERS: { id: PickFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'lure', label: 'Lures' },
+  { id: 'rig', label: 'Rigs' },
+  { id: 'bait', label: 'Bait' },
+];
+
+/** Top picks for the selected filter; "all" keeps a varied 3-per-category mix. */
+function displayPicks(picks: LurePick[], filter: PickFilter): LurePick[] {
+  if (filter !== 'all') {
+    return picks.filter((p) => p.category === filter).slice(0, 6);
+  }
+  const counts: Record<string, number> = {};
+  const out: LurePick[] = [];
+  for (const p of picks) {
+    const n = counts[p.category] ?? 0;
+    if (n >= 3) continue;
+    counts[p.category] = n + 1;
+    out.push(p);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 export function StrategyCard({ strategy }: { strategy: Strategy }) {
+  const [filter, setFilter] = useState<PickFilter>('all');
+  const available = new Set(strategy.picks.map((p) => p.category));
+  const shown = displayPicks(strategy.picks, filter);
+
   return (
     <>
       <Section title="Throw This">
-        {strategy.picks.map((p, i) => (
+        <View style={styles.filterRow}>
+          {FILTERS.filter((f) => f.id === 'all' || available.has(f.id)).map(
+            (f) => {
+              const active = filter === f.id;
+              return (
+                <Pressable
+                  key={f.id}
+                  onPress={() => setFilter(f.id)}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      active && styles.filterTextActive,
+                    ]}
+                  >
+                    {f.label}
+                  </Text>
+                </Pressable>
+              );
+            },
+          )}
+        </View>
+        {shown.map((p, i) => (
           <PickRow key={`${p.name}-${i}`} pick={p} />
         ))}
       </Section>
@@ -237,6 +291,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     flex: 1,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  filterChip: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  filterChipActive: {
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+  },
+  filterText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  filterTextActive: {
+    color: colors.text,
   },
   pick: {
     backgroundColor: colors.bgElevated,

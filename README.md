@@ -18,7 +18,8 @@ Built with **Expo / React Native (TypeScript)**.
    device GPS, type an **address or ZIP code** (geocoded via OpenStreetMap
    Nominatim, no key — great when location services are off), or **drop a pin**
    on an interactive map. The map is Leaflet + OpenStreetMap and works on web
-   (iframe) and native (WebView).
+   (iframe) and native (WebView). You can **save favorite spots with your own
+   labels** ("Home lake", "North dock") and reload them with a tap.
    Structure & cover options are **filtered to the water type** — lily pads show
    only for freshwater; oyster bars and mangroves only for saltwater.
    A **target species** selector (largemouth, smallmouth, walleye, panfish,
@@ -59,7 +60,8 @@ Built with **Expo / React Native (TypeScript)**.
    **Regulations & Limits** card links to the official state fishing-rules page
    for your location, and **Expected Fish Nearby** shows the top 5 with a
    tap-to-expand for the full list. Each pick also lists the **rod power/action,
-   line (lb test), and hook size** to use.
+   line (lb test), and hook size** to use, and you can **filter the picks by
+   Lure / Rig / Bait** to see the top choices in each category.
 6. **Guide tab** — a complete beginner equipment checklist (rod/reel, line,
    terminal tackle, lures, bait, tools, license, safety) for someone starting
    from nothing, plus freshwater vs. saltwater starter notes and a basic rig.

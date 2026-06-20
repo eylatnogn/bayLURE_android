@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,6 +12,7 @@ import type {
   CatchConditions,
   Conditions,
   Coordinates,
+  FavoriteLocation,
   PressureLevel,
   Species,
   StructureType,
@@ -19,6 +20,11 @@ import type {
   WaterClarity,
   WaterType,
 } from '@/types';
+import {
+  loadFavorites,
+  addFavorite,
+  deleteFavorite,
+} from '@/storage/favorites';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
 import { gatherForecast } from '@/api/conditions';
@@ -54,6 +60,9 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [locating, setLocating] = useState(false);
   const [query, setQuery] = useState('');
   const [geocoding, setGeocoding] = useState(false);
+  const [favorites, setFavorites] = useState<FavoriteLocation[]>([]);
+  const [savingFav, setSavingFav] = useState(false);
+  const [favLabel, setFavLabel] = useState('');
 
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
   const [species, setSpecies] = useState<Species>('any');
@@ -137,6 +146,28 @@ export function HomeScreen({ onSnapshot }: Props) {
       setGeocoding(false);
     }
   }, [query]);
+
+  useEffect(() => {
+    void loadFavorites().then(setFavorites);
+  }, []);
+
+  const onSaveFavorite = useCallback(async () => {
+    if (!coordinates) return;
+    const next = await addFavorite(favLabel || place || 'Saved spot', coordinates);
+    setFavorites(next);
+    setSavingFav(false);
+    setFavLabel('');
+  }, [coordinates, favLabel, place]);
+
+  const onLoadFavorite = useCallback((fav: FavoriteLocation) => {
+    setCoordinates({ latitude: fav.latitude, longitude: fav.longitude });
+    setPlace(fav.label);
+    setError(null);
+  }, []);
+
+  const onDeleteFavorite = useCallback(async (id: string) => {
+    setFavorites(await deleteFavorite(id));
+  }, []);
 
   const onPickTarget = useCallback(
     (sp: Species) => {
@@ -243,6 +274,54 @@ export function HomeScreen({ onSnapshot }: Props) {
             ? `Spot set — ${place}`
             : 'No spot selected yet.'}
         </Text>
+
+        {coordinates && !savingFav ? (
+          <Pressable
+            style={styles.saveFavBtn}
+            onPress={() => {
+              setFavLabel(place);
+              setSavingFav(true);
+            }}
+          >
+            <Text style={styles.saveFavText}>☆ Save this spot</Text>
+          </Pressable>
+        ) : null}
+
+        {coordinates && savingFav ? (
+          <View style={styles.favSaveRow}>
+            <TextInput
+              value={favLabel}
+              onChangeText={setFavLabel}
+              placeholder="Label (e.g. North dock, Home lake)"
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              style={styles.input}
+            />
+            <Pressable style={styles.findBtn} onPress={onSaveFavorite}>
+              <Text style={styles.findBtnText}>Save</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {favorites.length > 0 ? (
+          <View style={styles.favList}>
+            <Text style={styles.favHeader}>Saved spots</Text>
+            {favorites.map((fav) => (
+              <View key={fav.id} style={styles.favRow}>
+                <Pressable
+                  style={styles.favTap}
+                  onPress={() => onLoadFavorite(fav)}
+                >
+                  <Text style={styles.favStar}>★</Text>
+                  <Text style={styles.favName}>{fav.label}</Text>
+                </Pressable>
+                <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
+                  <Text style={styles.favDelete}>✕</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </Section>
 
       {/* Step 2 — Water type */}
@@ -517,6 +596,64 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginTop: spacing.sm,
+  },
+  saveFavBtn: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+  },
+  saveFavText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  favSaveRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  favList: {
+    marginTop: spacing.md,
+  },
+  favHeader: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: spacing.sm,
+  },
+  favRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  favTap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  favStar: {
+    color: colors.warn,
+    fontSize: 14,
+    marginRight: spacing.sm,
+  },
+  favName: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  favDelete: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingHorizontal: spacing.sm,
   },
   helper: {
     color: colors.textMuted,
