@@ -1,5 +1,6 @@
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Section } from '@/components/Section';
+import { BrandHeader } from '@/components/BrandHeader';
 import { colors, radius, spacing } from '@/theme';
 
 interface Item {
@@ -88,12 +89,13 @@ export function HelpScreen() {
       style={styles.screen}
       contentContainerStyle={styles.content}
     >
-      <Text style={styles.brand}>Guide</Text>
-      <Text style={styles.tagline}>
-        Never fished before? Here's everything you need for a day on the water,
-        starting from nothing.
-      </Text>
+      <BrandHeader
+        heading="Guide"
+        subtitle="Everything for a day on the water, starting from nothing."
+        display
+      />
 
+      <View style={styles.body}>
       <Section title="The Essentials">
         {ESSENTIALS.map((i) => (
           <Row key={i.name} item={i} />
@@ -150,17 +152,15 @@ export function HelpScreen() {
         Buy a license, learn your local size/bag limits, handle fish gently, and
         pack out your trash. Tight lines.
       </Text>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xl * 2,
-  },
+  content: { paddingBottom: spacing.xl * 2 },
+  body: { paddingHorizontal: spacing.lg },
   brand: {
     color: colors.text,
     fontSize: 28,

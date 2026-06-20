@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import type { Strategy } from '@/types';
 import { Section } from '@/components/Section';
-import { colors, scoreColor, spacing } from '@/theme';
+import { colors, fonts, scoreColor, spacing } from '@/theme';
 
 export function BiteForecastCard({ strategy }: { strategy: Strategy }) {
   return (
@@ -41,7 +41,7 @@ export function BiteForecastCard({ strategy }: { strategy: Strategy }) {
 }
 
 const styles = StyleSheet.create({
-  score: { fontSize: 28, fontWeight: '800' },
+  score: { fontFamily: fonts.displayBold, fontSize: 32 },
   scoreMax: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
   biteLabel: { fontSize: 16, fontWeight: '700', marginBottom: spacing.sm },
   bar: {

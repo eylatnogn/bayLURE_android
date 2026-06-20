@@ -50,8 +50,10 @@ import {
 import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
+import { BrandHeader } from '@/components/BrandHeader';
+import { Ionicons } from '@expo/vector-icons';
 import { APP_VERSION } from '@/version';
-import { colors, radius, spacing } from '@/theme';
+import { colors, fonts, radius, spacing } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
@@ -226,12 +228,14 @@ export function HomeScreen({ onSnapshot }: Props) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.brandRow}>
-        <Text style={styles.brand}>bayLURE</Text>
-        <Text style={styles.version}>v{APP_VERSION}</Text>
-      </View>
-      <Text style={styles.tagline}>Read the water. Tie on the right thing.</Text>
+      <BrandHeader
+        heading="bayLURE"
+        subtitle="Read the water. Tie on the right thing."
+        version={APP_VERSION}
+        display
+      />
 
+      <View style={styles.body}>
       {/* Step 1 — Location */}
       <Section title="1 · Location">
         <Pressable
@@ -242,7 +246,10 @@ export function HomeScreen({ onSnapshot }: Props) {
           {locating ? (
             <ActivityIndicator color={colors.accent} />
           ) : (
-            <Text style={styles.secondaryBtnText}>📍 Use my location</Text>
+            <View style={styles.btnRow}>
+              <Ionicons name="location-outline" size={18} color={colors.text} />
+              <Text style={styles.secondaryBtnText}>Use my location</Text>
+            </View>
           )}
         </Pressable>
 
@@ -291,7 +298,8 @@ export function HomeScreen({ onSnapshot }: Props) {
               setSavingFav(true);
             }}
           >
-            <Text style={styles.saveFavText}>☆ Save this spot</Text>
+            <Ionicons name="star-outline" size={15} color={colors.accent} />
+            <Text style={styles.saveFavText}>Save this spot</Text>
           </Pressable>
         ) : null}
 
@@ -320,11 +328,11 @@ export function HomeScreen({ onSnapshot }: Props) {
                   style={styles.favTap}
                   onPress={() => onLoadFavorite(fav)}
                 >
-                  <Text style={styles.favStar}>★</Text>
+                  <Ionicons name="star" size={14} color={colors.warn} style={styles.favStar} />
                   <Text style={styles.favName}>{fav.label}</Text>
                 </Pressable>
                 <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
-                  <Text style={styles.favDelete}>✕</Text>
+                  <Ionicons name="close" size={16} color={colors.textMuted} />
                 </Pressable>
               </View>
             ))}
@@ -535,6 +543,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         Recommendations are guidance from live conditions — local knowledge and
         regulations always win. Tight lines.
       </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -549,9 +558,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   content: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
     paddingBottom: spacing.xl * 2,
+  },
+  body: {
+    paddingHorizontal: spacing.lg,
   },
   brandRow: {
     flexDirection: 'row',
@@ -652,10 +662,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: spacing.sm,
   },
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   saveFavBtn: {
     marginTop: spacing.sm,
     alignSelf: 'flex-start',
     paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   saveFavText: {
     color: colors.accent,
@@ -694,8 +712,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   favStar: {
-    color: colors.warn,
-    fontSize: 14,
     marginRight: spacing.sm,
   },
   favName: {
@@ -744,10 +760,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   dayHeader: {
+    fontFamily: fonts.display,
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 19,
     marginBottom: spacing.sm,
+    marginTop: spacing.xs,
   },
   hint: {
     color: colors.textMuted,

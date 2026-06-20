@@ -1,12 +1,18 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing } from '@/theme';
 
 export type Tab = 'plan' | 'log' | 'guide';
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'plan', label: 'Plan', icon: '🎣' },
-  { id: 'log', label: 'Catch Log', icon: '📓' },
-  { id: 'guide', label: 'Guide', icon: '🧭' },
+const TABS: {
+  id: Tab;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconActive: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { id: 'plan', label: 'Plan', icon: 'fish-outline', iconActive: 'fish' },
+  { id: 'log', label: 'Catch Log', icon: 'journal-outline', iconActive: 'journal' },
+  { id: 'guide', label: 'Guide', icon: 'compass-outline', iconActive: 'compass' },
 ];
 
 interface Props {
@@ -20,14 +26,13 @@ export function TabBar({ tab, onChange }: Props) {
       {TABS.map((t) => {
         const active = t.id === tab;
         return (
-          <Pressable
-            key={t.id}
-            onPress={() => onChange(t.id)}
-            style={styles.tab}
-          >
-            <Text style={[styles.icon, !active && styles.inactive]}>
-              {t.icon}
-            </Text>
+          <Pressable key={t.id} onPress={() => onChange(t.id)} style={styles.tab}>
+            <View style={[styles.indicator, active && styles.indicatorActive]} />
+            <Ionicons
+              name={active ? t.iconActive : t.icon}
+              size={22}
+              color={active ? colors.accent : colors.textMuted}
+            />
             <Text style={[styles.label, active ? styles.active : styles.inactive]}>
               {t.label}
             </Text>
@@ -44,26 +49,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderTopWidth: 1,
     borderTopColor: colors.cardBorder,
-    paddingTop: spacing.sm,
     paddingBottom: spacing.md,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
   },
-  icon: {
-    fontSize: 20,
+  indicator: {
+    height: 3,
+    width: 26,
+    borderRadius: 2,
+    marginBottom: spacing.sm,
+    backgroundColor: 'transparent',
+  },
+  indicatorActive: {
+    backgroundColor: colors.accent,
   },
   label: {
     fontSize: 11,
     fontWeight: '700',
   },
-  active: {
-    color: colors.accent,
-  },
-  inactive: {
-    opacity: 0.55,
-    color: colors.textMuted,
-  },
+  active: { color: colors.accent },
+  inactive: { color: colors.textMuted, opacity: 0.7 },
 });

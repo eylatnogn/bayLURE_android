@@ -16,8 +16,10 @@ import type { CatchConditions, CatchRecord } from '@/types';
 import { SPECIES } from '@/engine/species';
 import { addCatch, deleteCatch, loadCatches } from '@/storage/catchLog';
 import { summarizeCatchConditions } from '@/utils/snapshot';
+import { Ionicons } from '@expo/vector-icons';
 import { LureSelect } from '@/components/LureSelect';
 import { Section } from '@/components/Section';
+import { BrandHeader } from '@/components/BrandHeader';
 import { colors, radius, spacing } from '@/theme';
 
 const SPECIES_OPTIONS = [...SPECIES.map((s) => s.label), 'Other'];
@@ -171,11 +173,13 @@ export function CatchLogScreen({ snapshot }: Props) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.brand}>Catch Log</Text>
-      <Text style={styles.tagline}>
-        Log what you catch and the lure that did it. It all stays on your device.
-      </Text>
+      <BrandHeader
+        heading="Catch Log"
+        subtitle="Log what you catch and what caught it — stays on your device."
+        display
+      />
 
+      <View style={styles.body}>
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
       {!formOpen ? (
@@ -186,7 +190,10 @@ export function CatchLogScreen({ snapshot }: Props) {
             setFormOpen(true);
           }}
         >
-          <Text style={styles.ctaText}>＋ Log a catch</Text>
+          <View style={styles.ctaRow}>
+            <Ionicons name="add" size={20} color={colors.onAccent} />
+            <Text style={styles.ctaText}>Log a catch</Text>
+          </View>
         </Pressable>
       ) : (
         <Section
@@ -269,7 +276,8 @@ export function CatchLogScreen({ snapshot }: Props) {
             </View>
           ) : (
             <Pressable style={styles.photoBtn} onPress={pickPhoto}>
-              <Text style={styles.photoBtnText}>📷 Add a photo</Text>
+              <Ionicons name="camera-outline" size={18} color={colors.text} />
+              <Text style={styles.photoBtnText}>Add a photo</Text>
             </Pressable>
           )}
 
@@ -360,6 +368,7 @@ export function CatchLogScreen({ snapshot }: Props) {
           </View>
         ))
       )}
+      </View>
     </ScrollView>
   );
 }
@@ -375,11 +384,8 @@ function formatDate(iso: string): string {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  content: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xl * 2,
-  },
+  content: { paddingBottom: spacing.xl * 2 },
+  body: { paddingHorizontal: spacing.lg },
   brand: {
     color: colors.text,
     fontSize: 28,
@@ -398,8 +404,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.sm,
   },
+  ctaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   ctaText: {
-    color: colors.card,
+    color: colors.onAccent,
     fontSize: 16,
     fontWeight: '800',
   },
@@ -461,7 +472,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     paddingVertical: spacing.md,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
   },
   photoBtnText: { color: colors.text, fontWeight: '700' },
   preview: {
