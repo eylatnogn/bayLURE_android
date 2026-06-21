@@ -65,7 +65,7 @@ function buildPrompt(c: Conditions, s: Strategy): string {
 
   return [
     `Water type: ${c.waterType}.`,
-    `Target species: ${c.species === 'any' ? 'angler is open to anything' : c.species}.`,
+    `Target species: ${c.species.length === 0 ? 'angler is open to anything' : c.species.join(', ')}.`,
     `Fishing pressure: ${c.pressureLevel === 'none' ? 'normal' : `${c.pressureLevel} — educated fish, favor finesse and downsizing`}.`,
     `Structure/cover present: ${c.structures.join(', ') || 'unspecified'}.`,
     `Water clarity: ${c.clarity}.`,

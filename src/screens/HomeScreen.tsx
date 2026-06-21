@@ -71,7 +71,7 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [favLabel, setFavLabel] = useState('');
 
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
-  const [species, setSpecies] = useState<Species>('any');
+  const [species, setSpecies] = useState<Species[]>([]);
   const [structures, setStructures] = useState<StructureType[]>([]);
   const [pressureLevel, setPressureLevel] = useState<PressureLevel>('none');
   const [clarity, setClarity] = useState<WaterClarity>('stained');
@@ -99,9 +99,13 @@ export function HomeScreen({ onSnapshot }: Props) {
     // Keep whatever is still valid; an empty result is fine ("None selected").
     setStructures((prev) => prev.filter((s) => allowed.includes(s)));
     setSpecies((prev) =>
-      prev === 'any' || speciesForWaterType(next).some((s) => s.id === prev)
-        ? prev
-        : 'any',
+      prev.filter((sp) => speciesForWaterType(next).some((s) => s.id === sp)),
+    );
+  }, []);
+
+  const toggleSpecies = useCallback((sp: Species) => {
+    setSpecies((prev) =>
+      prev.includes(sp) ? prev.filter((s) => s !== sp) : [...prev, sp],
     );
   }, []);
 
@@ -182,7 +186,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     (sp: Species) => {
       const info = SPECIES.find((s) => s.id === sp);
       if (info) onChangeWaterType(info.waterType);
-      setSpecies(sp);
+      setSpecies((prev) => (prev.includes(sp) ? prev : [...prev, sp]));
     },
     [onChangeWaterType],
   );
@@ -381,12 +385,13 @@ export function HomeScreen({ onSnapshot }: Props) {
       {/* Step 4 — Target species */}
       <Section title="4 · Target Species">
         <Text style={styles.helper}>
-          Pick a fish to sharpen the picks, or leave it on Any.
+          Pick one or more fish to sharpen the picks, or leave it on Any.
         </Text>
         <SpeciesPicker
           waterType={waterType}
           value={species}
-          onChange={setSpecies}
+          onToggle={toggleSpecies}
+          onClear={() => setSpecies([])}
         />
       </Section>
 

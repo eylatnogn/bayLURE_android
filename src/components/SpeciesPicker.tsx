@@ -5,25 +5,34 @@ import { colors, radius, spacing } from '@/theme';
 
 interface Props {
   waterType: WaterType;
-  value: Species;
-  onChange: (value: Species) => void;
+  /** Selected species (empty = Any). */
+  value: Species[];
+  onToggle: (value: Species) => void;
+  /** Clear all selections (Any species). */
+  onClear: () => void;
 }
 
-/** Single-select: "Any species" plus the species for the chosen water type. */
-export function SpeciesPicker({ waterType, value, onChange }: Props) {
-  const options: { id: Species; label: string }[] = [
-    { id: 'any', label: 'Any species' },
-    ...speciesForWaterType(waterType).map((s) => ({ id: s.id, label: s.label })),
-  ];
+/** Multi-select: "Any species" plus the species for the chosen water type. */
+export function SpeciesPicker({ waterType, value, onToggle, onClear }: Props) {
+  const options = speciesForWaterType(waterType);
+  const anyActive = value.length === 0;
 
   return (
     <View style={styles.wrap}>
+      <Pressable
+        onPress={onClear}
+        style={[styles.chip, anyActive && styles.chipActive]}
+      >
+        <Text style={[styles.label, anyActive && styles.labelActive]}>
+          Any species
+        </Text>
+      </Pressable>
       {options.map((opt) => {
-        const active = opt.id === value;
+        const active = value.includes(opt.id);
         return (
           <Pressable
             key={opt.id}
-            onPress={() => onChange(opt.id)}
+            onPress={() => onToggle(opt.id)}
             style={[styles.chip, active && styles.chipActive]}
           >
             <Text style={[styles.label, active && styles.labelActive]}>

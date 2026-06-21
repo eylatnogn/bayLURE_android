@@ -41,7 +41,9 @@ export function clarityLureAdjust(
 /** Detailed, clarity-specific color / vibration / location playbook. */
 export function buildClarityPlaybook(c: Conditions): PlaybookSection[] {
   const target =
-    c.species === 'any' ? '' : ` for ${speciesLabel(c.species)}`;
+    c.species.length === 0
+      ? ''
+      : ` for ${c.species.map(speciesLabel).join(', ')}`;
 
   if (c.clarity === 'muddy') {
     return [

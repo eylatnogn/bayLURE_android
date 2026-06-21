@@ -16,7 +16,7 @@ import { addDays, localDateStr } from '@/utils/dates';
 export interface ConditionsRequest {
   coordinates: Coordinates;
   waterType: WaterType;
-  species: Species;
+  species: Species[];
   structures: StructureType[];
   pressureLevel: PressureLevel;
   clarity: WaterClarity;

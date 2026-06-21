@@ -120,7 +120,8 @@ export type WaterDepth = 'any' | 'shallow' | 'mid' | 'deep';
 export interface Conditions {
   coordinates: Coordinates;
   waterType: WaterType;
-  species: Species;
+  /** Target species (0 = no preference / any). */
+  species: Species[];
   structures: StructureType[];
   /** How heavily fished / educated the fish are. */
   pressureLevel: PressureLevel;
@@ -223,7 +224,7 @@ export interface CatchConditions {
   latitude?: number;
   longitude?: number;
   waterType: WaterType;
-  targetSpecies: Species;
+  targetSpecies: Species[];
   structures: StructureType[];
   pressureLevel: PressureLevel;
   clarity: WaterClarity;
