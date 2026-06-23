@@ -121,6 +121,17 @@ export function tideStateAt(
   return deriveTideState(events, refMs).state;
 }
 
+/**
+ * Tide state plus the next hi/lo at an arbitrary moment — used to recompute the
+ * displayed tide when the user scrubs to a specific hour of the day.
+ */
+export function tideAt(
+  events: TideEvent[],
+  refMs: number,
+): { state: TideConditions['state']; nextEvent: TideEvent | null } {
+  return deriveTideState(events, refMs);
+}
+
 function deriveTideState(
   events: TideEvent[],
   refMs: number,

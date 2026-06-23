@@ -91,6 +91,20 @@ export interface WaterConditions {
   waveHeightFt: number | null;
 }
 
+/**
+ * Charted bottom depth at the spot, read from a global bathymetry grid. Present
+ * only where the grid actually maps a below-surface bottom — reliable offshore
+ * and in deeper saltwater bays, sparse on shallow flats and most inland lakes
+ * (which sit above sea level and read as uncharted). The manual depth zone
+ * still applies wherever this is absent.
+ */
+export interface ChartedDepth {
+  /** Depth of the bottom below the surface, in feet. */
+  depthFt: number;
+  /** Attribution for the reading, e.g. "GEBCO 2020". */
+  source: string;
+}
+
 export interface TideEvent {
   /** ISO-ish time string returned by NOAA (local station time). */
   time: string;
@@ -138,6 +152,11 @@ export interface Conditions {
   /** Per-hour weather for this day, used to grade the bite by the hour. */
   hourlyWeather: WeatherConditions[];
   water: WaterConditions;
+  /**
+   * Charted bottom depth at the coordinates, where global bathymetry maps it.
+   * A property of the location, copied onto each day; absent where uncharted.
+   */
+  chartedDepth?: ChartedDepth | null;
   tide: TideConditions | null;
 }
 

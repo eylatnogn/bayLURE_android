@@ -82,6 +82,8 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [forecast, setForecast] = useState<Conditions[] | null>(null);
   const [strategies, setStrategies] = useState<Strategy[] | null>(null);
   const [selectedDay, setSelectedDay] = useState(0);
+  // Index into the selected day's hourlyWeather, or null for the day overview.
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
 
@@ -213,6 +215,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       setForecast(week);
       setStrategies(strats);
       setSelectedDay((prev) => (prev < week.length ? prev : 0));
+      setSelectedHour(null);
       setAreaFish(fish);
       setRegion(reg);
       // Catch log always attaches *today's* conditions, not a future forecast.
@@ -537,7 +540,10 @@ export function HomeScreen({ onSnapshot }: Props) {
             score: s.biteScore,
           }))}
           selected={selectedDay}
-          onSelect={setSelectedDay}
+          onSelect={(day) => {
+            setSelectedDay(day);
+            setSelectedHour(null);
+          }}
           hourly={strategy?.hourly ?? []}
           bestWindows={strategy?.bestWindows ?? []}
         />
@@ -548,7 +554,13 @@ export function HomeScreen({ onSnapshot }: Props) {
           {longDayLabel(addDays(new Date(), selectedDay), selectedDay)}
         </Text>
       ) : null}
-      {conditions ? <ConditionsCard conditions={conditions} /> : null}
+      {conditions ? (
+        <ConditionsCard
+          conditions={conditions}
+          selectedHour={selectedHour}
+          onSelectHour={setSelectedHour}
+        />
+      ) : null}
       {strategy ? <PicksCard strategy={strategy} /> : null}
       {strategy ? <InsightsCard strategy={strategy} /> : null}
       {strategy ? (

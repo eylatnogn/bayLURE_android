@@ -11,6 +11,7 @@ import type {
 import { fetchWeekWeather, FORECAST_DAYS } from '@/api/weather';
 import { fetchWeekWater } from '@/api/marine';
 import { fetchWeekTides } from '@/api/tides';
+import { fetchChartedDepth } from '@/api/bathymetry';
 import { addDays, localDateStr } from '@/utils/dates';
 
 export interface ConditionsRequest {
@@ -34,13 +35,15 @@ export async function gatherForecast(
   const week = await fetchWeekWeather(req.coordinates);
   const days = week.days.length;
 
-  const [water, tides] = await Promise.all([
+  const [water, tides, chartedDepth] = await Promise.all([
     fetchWeekWater(req.coordinates, req.waterType, week.days.map((w) => w.airTempF)),
     req.waterType === 'saltwater'
       ? fetchWeekTides(req.coordinates, days).catch(() =>
           new Array(days).fill(null),
         )
       : Promise.resolve(new Array(days).fill(null)),
+    // A location attribute, not per-day; fetched once and shared across days.
+    fetchChartedDepth(req.coordinates).catch(() => null),
   ]);
 
   const base = new Date();
@@ -60,6 +63,7 @@ export async function gatherForecast(
     weather,
     hourlyWeather: week.hourly[d] ?? [],
     water: water[d] ?? { waterTempF: 0, isEstimated: true, waveHeightFt: null },
+    chartedDepth,
     tide: tides[d] ?? null,
   }));
 }
