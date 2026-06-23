@@ -6,9 +6,9 @@ import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 // Native (iOS / Android) implementation. Metro automatically substitutes
 // MapPicker.web.tsx when bundling for web. react-native-webview ships inside
 // Expo Go, so this works without a custom dev build.
-export function MapPicker({ center, onPick, height = 220 }: MapPickerProps) {
+export function MapPicker({ center, onPick }: MapPickerProps) {
   return (
-    <View style={[styles.frame, { height }]}>
+    <View style={styles.frame}>
       <WebView
         originWhitelist={['*']}
         source={{ html: buildMapHtml(center) }}
@@ -30,6 +30,8 @@ export function MapPicker({ center, onPick, height = 220 }: MapPickerProps) {
 
 const styles = StyleSheet.create({
   frame: {
+    width: '100%',
+    aspectRatio: 1,
     borderRadius: radius.md,
     overflow: 'hidden',
     borderWidth: 1,

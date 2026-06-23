@@ -294,7 +294,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         </View>
 
         <Text style={styles.orLabel}>or drop a pin on the map</Text>
-        <MapPicker center={coordinates} onPick={onPickOnMap} height={220} />
+        <MapPicker center={coordinates} onPick={onPickOnMap} />
 
         <Text style={styles.selected}>
           {coordinates

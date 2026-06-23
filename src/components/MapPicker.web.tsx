@@ -6,7 +6,7 @@ import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 // Web implementation. Renders the shared Leaflet document inside an <iframe>
 // (a real DOM element, since Expo web runs on react-dom) and listens for the
 // coordinates the map posts back to the parent window.
-export function MapPicker({ center, onPick, height = 220 }: MapPickerProps) {
+export function MapPicker({ center, onPick }: MapPickerProps) {
   useEffect(() => {
     function handler(event: MessageEvent) {
       try {
@@ -33,11 +33,13 @@ export function MapPicker({ center, onPick, height = 220 }: MapPickerProps) {
     title: 'Pick your fishing spot',
   });
 
-  return <View style={[styles.frame, { height }]}>{iframe}</View>;
+  return <View style={styles.frame}>{iframe}</View>;
 }
 
 const styles = StyleSheet.create({
   frame: {
+    width: '100%',
+    aspectRatio: 1,
     borderRadius: radius.md,
     overflow: 'hidden',
     borderWidth: 1,
