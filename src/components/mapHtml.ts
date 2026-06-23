@@ -88,6 +88,12 @@ export function buildMapHtml(
       padding: 6px 10px; border-radius: 8px;
     }
     .windtoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
+    .windread {
+      position: absolute; z-index: 1000; left: 8px; bottom: 8px; display: none;
+      background: rgba(34,46,28,0.82); color: #f8faf1;
+      font: 600 12px -apple-system, Roboto, sans-serif;
+      padding: 6px 10px; border-radius: 8px;
+    }
   </style>
 </head>
 <body>
@@ -99,6 +105,7 @@ export function buildMapHtml(
     <div class="legend-bar"></div>
     <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
   </div>
+  <div class="windread" id="windread"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
   <script>
@@ -190,6 +197,30 @@ export function buildMapHtml(
       return out;
     }
 
+    function compass(deg) {
+      var dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+      var idx = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
+      return dirs[idx] || 'N';
+    }
+
+    // Persistent readout of the wind at the pin (nearest grid sample), so a
+    // direction always shows — including on touch, where hover can't fire.
+    function updateSpotReadout(lats, lons, samples) {
+      var wr = document.getElementById('windread');
+      if (!wr) { return; }
+      var ll = marker.getLatLng();
+      var best = -1, bestD = Infinity;
+      for (var i = 0; i < lats.length; i++) {
+        var d = Math.abs(lats[i] - ll.lat) + Math.abs(lons[i] - ll.lng);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0 || !samples[best]) { return; }
+      var s = samples[best];
+      var mph = Math.round(s.speed * 2.23694);
+      wr.textContent = 'Wind at pin: ' + compass(s.dir) + ' ' + mph + ' mph';
+      wr.style.display = 'block';
+    }
+
     function refreshWind() {
       if (!windEnabled) { return; }
       try {
@@ -226,18 +257,17 @@ export function buildMapHtml(
             var data = buildVelocity(nx, ny, north, south, west, east, samples);
             var lg = document.getElementById('legend');
             if (lg) { lg.style.display = 'block'; }
+            updateSpotReadout(lats, lons, samples);
             if (windLayer) {
               windLayer.setData(data);
               if (!map.hasLayer(windLayer)) { windLayer.addTo(map); }
               return;
             }
+            // Our own pin readout (updateSpotReadout) replaces leaflet-velocity's
+            // hover control, which shows "No wind data" until you hover and can't
+            // work on touch at all. displayValues:false keeps that control off.
             windLayer = L.velocityLayer({
-              displayValues: true,
-              displayOptions: {
-                velocityType: 'Wind', position: 'bottomleft',
-                emptyString: 'No wind data', angleConvention: 'bearingCW',
-                showCardinal: true, speedUnit: 'mph'
-              },
+              displayValues: false,
               data: data,
               // Color scale spans 0–30 mph (13.41 m/s); see the on-map legend.
               minVelocity: 0, maxVelocity: 13.41,
@@ -274,6 +304,8 @@ export function buildMapHtml(
         toggleBtn.classList.add('off');
         if (windLayer) { map.removeLayer(windLayer); }
         if (lg) { lg.style.display = 'none'; }
+        var wr = document.getElementById('windread');
+        if (wr) { wr.style.display = 'none'; }
       }
     });
 
