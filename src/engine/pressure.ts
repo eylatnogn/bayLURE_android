@@ -116,7 +116,9 @@ export function buildPressurePlaybook(c: Conditions): PlaybookSection[] {
 
   // 7. Go-to bailout baits (species/water aware)
   const target =
-    c.species === 'any' ? '' : ` dialed in for ${speciesLabel(c.species)}`;
+    c.species.length === 0
+      ? ''
+      : ` dialed in for ${c.species.map(speciesLabel).join(', ')}`;
   const bailout = salt
     ? [
         `Light jighead + small paddletail or a free-lined live shrimp on a long fluoro leader${target}.`,

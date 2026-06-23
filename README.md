@@ -10,6 +10,11 @@ behind each pick.
 
 Built with **Expo / React Native (TypeScript)**.
 
+**Look & feel:** a calm, natural palette (foliage greens, lake teal, sand),
+soft card depth, a gradient header with a fish-over-waves logo mark, the
+*Fraunces* display face for branding/headlines, and clean line icons
+(`@expo/vector-icons`) — appealing but understated.
+
 ---
 
 ## What it does

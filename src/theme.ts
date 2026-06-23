@@ -1,24 +1,36 @@
-// Shared visual tokens. Warm, outdoors "on the bank at sunrise" palette —
-// foliage greens, water teal, sand and bark rather than the old space-y navy.
-import type { ViewStyle } from 'react-native';
+// Shared visual tokens. Warm, natural "morning on the water" palette — foliage
+// greens, lake teal, sand and bark. Calm and understated rather than flashy.
+import type { TextStyle, ViewStyle } from 'react-native';
 
+// Warm, natural "morning on the water" palette — foliage greens, lake teal,
+// sand and bark. Calm and understated rather than flashy.
 export const colors = {
-  bg: '#eef1e4', // pale sage paper
-  bgElevated: '#e3e9d3', // soft moss
-  card: '#f8faf1', // near-white leaf
-  cardBorder: '#ccd6b6', // sage border
-  text: '#222e1c', // deep forest
-  textMuted: '#5d6a4d', // moss gray-green
-  accent: '#3c7a4e', // forest green
-  accentDim: '#cfe0c2', // light leaf (active backgrounds on light theme)
-  water: '#2f7d72', // lake teal (secondary accent)
-  warn: '#bf7f2b', // amber / clay
-  bad: '#b04a34', // rust
-  good: '#3f8f3a', // leaf green
-  chip: '#e3e9d3',
-  errorBg: '#f5e2da',
-  errorBorder: '#c98a78',
+  bg: '#eef2ec', // soft morning-fog paper
+  bgElevated: '#e4ebe1', // soft moss
+  card: '#fbfdf8', // near-white leaf
+  cardBorder: '#d4ddca', // sage border
+  text: '#1f2b22', // deep forest
+  textMuted: '#5b6a58', // moss gray-green
+  accent: '#3a7d52', // foliage green (primary)
+  accentDim: '#d7e6cf', // pale leaf (active backgrounds)
+  water: '#2c7a74', // lake teal (secondary)
+  warn: '#c08433', // warm ochre
+  bad: '#b15240', // terracotta
+  good: '#3f9050', // leaf green
+  chip: '#e4ebe1',
+  errorBg: '#f4e3da',
+  errorBorder: '#cf9a86',
   errorText: '#7a3120',
+  // Gradient header (deep pine -> forest) with light text.
+  headerFrom: '#1e4a3c',
+  headerTo: '#2f6e52',
+  onDark: '#eaf3ea',
+  onDarkMuted: '#bcd2c2',
+  onAccent: '#f7faf3', // text on the accent green
+};
+
+export const gradients = {
+  header: [colors.headerFrom, colors.headerTo] as const,
 };
 
 export const scoreColor = (score: number): string => {
@@ -38,7 +50,8 @@ export const spacing = {
 export const radius = {
   sm: 8,
   md: 12,
-  lg: 16,
+  lg: 18,
+  xl: 26,
 };
 
 // Soft, foliage-tinted elevation. Cards float just off the sage background
@@ -67,3 +80,15 @@ export const pressedStyle: ViewStyle = {
   opacity: 0.82,
   transform: [{ scale: 0.98 }],
 };
+
+// Display (serif) for branding & key numbers; body stays the system sans.
+export const fonts = {
+  display: 'Fraunces_600SemiBold',
+  displayBold: 'Fraunces_700Bold',
+};
+
+export const displayText = (size: number, color = colors.text): TextStyle => ({
+  fontFamily: fonts.display,
+  fontSize: size,
+  color,
+});

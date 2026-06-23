@@ -100,8 +100,9 @@ export function buildBehavior(c: Conditions): string[] {
   }
 
   // Target-species emphasis.
-  if (c.species !== 'any') {
-    out.push(`Focus on ${speciesLabel(c.species)}: lean into the spots and presentations above that fit how they hunt in these conditions.`);
+  if (c.species.length > 0) {
+    const names = c.species.map(speciesLabel).join(', ');
+    out.push(`Focus on ${names}: lean into the spots and presentations above that fit how they hunt in these conditions.`);
   }
 
   return out;

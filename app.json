@@ -2,14 +2,14 @@
   "expo": {
     "name": "bayLURE",
     "slug": "balure-app",
-    "version": "0.13.0",
+    "version": "0.15.0",
     "orientation": "portrait",
     "scheme": "balure",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "resizeMode": "contain",
-      "backgroundColor": "#3c7a4e"
+      "backgroundColor": "#1e4a3c"
     },
     "ios": {
       "supportsTablet": true,
@@ -21,7 +21,7 @@
     "android": {
       "package": "com.balure.app",
       "adaptiveIcon": {
-        "backgroundColor": "#3c7a4e"
+        "backgroundColor": "#1e4a3c"
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",

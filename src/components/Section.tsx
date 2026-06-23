@@ -12,7 +12,10 @@ export function Section({ title, right, children }: Props) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
+        <View style={styles.titleRow}>
+          <View style={styles.tick} />
+          <Text style={styles.title}>{title}</Text>
+        </View>
         {right}
       </View>
       {children}
@@ -35,6 +38,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.md,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  tick: {
+    width: 3,
+    height: 13,
+    borderRadius: 2,
+    backgroundColor: colors.accent,
+    marginRight: spacing.sm,
   },
   title: {
     color: colors.textMuted,

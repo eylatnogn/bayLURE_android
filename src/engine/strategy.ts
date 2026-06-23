@@ -32,9 +32,9 @@ export function buildStrategy(c: Conditions): Strategy {
   const picks = rankPicks(c, mood);
   const summary = buildSummary(c, biteScore, mood);
 
-  if (c.species !== 'any') {
-    const tip = speciesTip(c.species);
-    if (tip) factors.push(`Targeting ${speciesLabel(c.species)}: ${tip}`);
+  for (const sp of c.species) {
+    const tip = speciesTip(sp);
+    if (tip) factors.push(`Targeting ${speciesLabel(sp)}: ${tip}`);
   }
 
   const hourly = buildHourly(c);
@@ -343,12 +343,13 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
     score -= 4;
   }
 
-  // Target species bias. Lures that name the species get a strong boost;
-  // species-specific lures that don't name it get pushed down.
-  if (c.species !== 'any' && l.species) {
-    if (l.species.includes(c.species)) {
+  // Target species bias. Lures that name any selected species get a strong
+  // boost; species-specific lures that match none get pushed down.
+  if (c.species.length > 0 && l.species) {
+    const match = c.species.find((s) => l.species!.includes(s));
+    if (match) {
       score += 20;
-      reasons.unshift(`a go-to for ${speciesLabel(c.species)}`);
+      reasons.unshift(`a go-to for ${speciesLabel(match)}`);
     } else {
       score -= 12;
     }
@@ -396,7 +397,9 @@ function scoreLure(l: LureEntry, c: Conditions, mood: BiteMood): LurePick {
 
 function buildSummary(c: Conditions, score: number, mood: BiteMood): string {
   const target =
-    c.species === 'any' ? '' : ` for ${speciesLabel(c.species)}`;
+    c.species.length === 0
+      ? ''
+      : ` for ${c.species.map(speciesLabel).join(', ')}`;
   const place = `${c.waterType === 'saltwater' ? 'Inshore salt' : 'Freshwater'}${target}`;
   const moodWord =
     mood === 'aggressive'

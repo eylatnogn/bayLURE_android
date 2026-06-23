@@ -51,8 +51,9 @@ import {
 import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
+import { BrandHeader } from '@/components/BrandHeader';
 import { APP_VERSION } from '@/version';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { colors, fonts, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
@@ -70,7 +71,7 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [favLabel, setFavLabel] = useState('');
 
   const [waterType, setWaterType] = useState<WaterType>('freshwater');
-  const [species, setSpecies] = useState<Species>('any');
+  const [species, setSpecies] = useState<Species[]>([]);
   const [structures, setStructures] = useState<StructureType[]>([]);
   const [pressureLevel, setPressureLevel] = useState<PressureLevel>('none');
   const [clarity, setClarity] = useState<WaterClarity>('stained');
@@ -98,9 +99,13 @@ export function HomeScreen({ onSnapshot }: Props) {
     // Keep whatever is still valid; an empty result is fine ("None selected").
     setStructures((prev) => prev.filter((s) => allowed.includes(s)));
     setSpecies((prev) =>
-      prev === 'any' || speciesForWaterType(next).some((s) => s.id === prev)
-        ? prev
-        : 'any',
+      prev.filter((sp) => speciesForWaterType(next).some((s) => s.id === sp)),
+    );
+  }, []);
+
+  const toggleSpecies = useCallback((sp: Species) => {
+    setSpecies((prev) =>
+      prev.includes(sp) ? prev.filter((s) => s !== sp) : [...prev, sp],
     );
   }, []);
 
@@ -181,7 +186,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     (sp: Species) => {
       const info = SPECIES.find((s) => s.id === sp);
       if (info) onChangeWaterType(info.waterType);
-      setSpecies(sp);
+      setSpecies((prev) => (prev.includes(sp) ? prev : [...prev, sp]));
     },
     [onChangeWaterType],
   );
@@ -227,12 +232,14 @@ export function HomeScreen({ onSnapshot }: Props) {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.brandRow}>
-        <Text style={styles.brand}>bayLURE</Text>
-        <Text style={styles.version}>v{APP_VERSION}</Text>
-      </View>
-      <Text style={styles.tagline}>Read the water. Tie on the right thing.</Text>
+      <BrandHeader
+        heading="bayLURE"
+        subtitle="Read the water. Tie on the right thing."
+        version={APP_VERSION}
+        display
+      />
 
+      <View style={styles.body}>
       {/* Step 1 — Location */}
       <Section title="1 · Location">
         <Pressable
@@ -397,12 +404,13 @@ export function HomeScreen({ onSnapshot }: Props) {
       {/* Step 4 — Target species */}
       <Section title="4 · Target Species">
         <Text style={styles.helper}>
-          Pick a fish to sharpen the picks, or leave it on Any.
+          Pick one or more fish to sharpen the picks, or leave it on Any.
         </Text>
         <SpeciesPicker
           waterType={waterType}
           value={species}
-          onChange={setSpecies}
+          onToggle={toggleSpecies}
+          onClear={() => setSpecies([])}
         />
       </Section>
 
@@ -568,6 +576,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         Recommendations are guidance from live conditions — local knowledge and
         regulations always win. Tight lines.
       </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -582,9 +591,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   content: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
     paddingBottom: spacing.xl * 2,
+  },
+  body: {
+    paddingHorizontal: spacing.lg,
   },
   brandRow: {
     flexDirection: 'row',
@@ -690,10 +700,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: spacing.sm,
   },
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   saveFavBtn: {
     marginTop: spacing.sm,
     alignSelf: 'flex-start',
     paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   saveFavText: {
     color: colors.accent,
@@ -774,10 +792,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   dayHeader: {
+    fontFamily: fonts.display,
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 19,
     marginBottom: spacing.sm,
+    marginTop: spacing.xs,
   },
   hint: {
     color: colors.textMuted,

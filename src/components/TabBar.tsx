@@ -26,6 +26,7 @@ export function TabBar({ tab, onChange }: Props) {
             onPress={() => onChange(t.id)}
             style={({ pressed }) => [styles.tab, pressed && pressedStyle]}
           >
+            <View style={[styles.indicator, active && styles.indicatorActive]} />
             <Feather
               name={t.icon}
               size={22}
@@ -48,24 +49,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderTopWidth: 1,
     borderTopColor: colors.cardBorder,
-    paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     ...shadow.bar,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
+  },
+  indicator: {
+    height: 3,
+    width: 26,
+    borderRadius: 2,
+    marginBottom: spacing.sm,
+    backgroundColor: 'transparent',
+  },
+  indicatorActive: {
+    backgroundColor: colors.accent,
   },
   label: {
     fontSize: 11,
     fontWeight: '700',
   },
-  active: {
-    color: colors.accent,
-  },
-  inactive: {
-    opacity: 0.55,
-    color: colors.textMuted,
-  },
+  active: { color: colors.accent },
+  inactive: { color: colors.textMuted, opacity: 0.7 },
 });

@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { SafeAreaView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import {
+  useFonts,
+  Fraunces_600SemiBold,
+  Fraunces_700Bold,
+} from '@expo-google-fonts/fraunces';
 import type { CatchConditions } from '@/types';
 import { HomeScreen } from '@/screens/HomeScreen';
 import { CatchLogScreen } from '@/screens/CatchLogScreen';
@@ -12,6 +17,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('plan');
   // The most recent analyzed conditions, offered to the catch log to attach.
   const [snapshot, setSnapshot] = useState<CatchConditions | null>(null);
+  const [fontsLoaded] = useFonts({
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return <View style={styles.root} />;
+  }
 
   return (
     <SafeAreaView style={styles.root}>
