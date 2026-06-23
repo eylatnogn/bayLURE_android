@@ -46,11 +46,29 @@ export function buildMapHtml(center: Coordinates | null): string {
       padding: 6px 10px; border-radius: 8px;
     }
     .leaflet-velocity-control { font: 11px -apple-system, Roboto, sans-serif; }
+    .legend {
+      position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
+      background: rgba(34,46,28,0.82); color: #f8faf1;
+      font: 11px -apple-system, Roboto, sans-serif;
+      padding: 6px 8px; border-radius: 8px; width: 132px;
+    }
+    .legend-title { font-weight: 700; margin-bottom: 4px; }
+    .legend-bar {
+      height: 8px; border-radius: 4px;
+      background: linear-gradient(to right,
+        #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240);
+    }
+    .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div class="hint">Tap the map or drag the pin to set your spot</div>
+  <div class="legend" id="legend">
+    <div class="legend-title">Wind speed (mph)</div>
+    <div class="legend-bar"></div>
+    <div class="legend-scale"><span>0</span><span>15</span><span>30+</span></div>
+  </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
   <script>
@@ -135,16 +153,19 @@ export function buildMapHtml(center: Coordinates | null): string {
           .then(function (json) {
             var results = Array.isArray(json) ? json : [json];
             var data = buildVelocity(nx, ny, north, south, west, east, results);
+            var lg = document.getElementById('legend');
+            if (lg) { lg.style.display = 'block'; }
             if (windLayer) { windLayer.setData(data); return; }
             windLayer = L.velocityLayer({
               displayValues: true,
               displayOptions: {
                 velocityType: 'Wind', position: 'bottomleft',
                 emptyString: 'No wind data', angleConvention: 'bearingCW',
-                showCardinal: true, speedUnit: 'kt'
+                showCardinal: true, speedUnit: 'mph'
               },
               data: data,
-              minVelocity: 0, maxVelocity: 15,
+              // Color scale spans 0–30 mph (13.41 m/s); see the on-map legend.
+              minVelocity: 0, maxVelocity: 13.41,
               velocityScale: 0.01, opacity: 0.85,
               colorScale: ['#5b8f8a', '#3a7d52', '#6f9e3f', '#c0a233', '#c08433', '#b15240']
             });
