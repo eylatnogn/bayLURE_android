@@ -39,6 +39,11 @@ export function MapPicker({ center, onPick }: MapPickerProps) {
 const styles = StyleSheet.create({
   frame: {
     width: '100%',
+    // Phone-width browsers stay below this, so mobile is unchanged; on a wide
+    // desktop viewport the square stops growing and centers instead of
+    // spanning the whole page.
+    maxWidth: 460,
+    alignSelf: 'center',
     aspectRatio: 1,
     borderRadius: radius.md,
     overflow: 'hidden',
