@@ -59,11 +59,19 @@ export function buildMapHtml(center: Coordinates | null): string {
         #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240);
     }
     .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
+    .windtoggle {
+      position: absolute; z-index: 1000; right: 8px; top: 8px; border: none;
+      background: #3a7d52; color: #f7faf3; cursor: pointer;
+      font: 600 12px -apple-system, Roboto, sans-serif;
+      padding: 6px 10px; border-radius: 8px;
+    }
+    .windtoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <div class="hint">Tap the map or drag the pin to set your spot</div>
+  <div class="hint">Tap or drag to set your spot</div>
+  <button class="windtoggle" id="windtoggle">Wind: on</button>
   <div class="legend" id="legend">
     <div class="legend-title">Wind speed (mph)</div>
     <div class="legend-bar"></div>
@@ -90,6 +98,7 @@ export function buildMapHtml(center: Coordinates | null): string {
     var GRID = 8;           // GRID x GRID sample points over the view
     var windLayer = null;
     var windTimer = null;
+    var windEnabled = true; // toggled by the on-map Wind button
 
     // Meteorological wind direction is the bearing the wind blows FROM, so the
     // motion vector is the negative: u east-ward, v north-ward, both m/s.
@@ -126,6 +135,7 @@ export function buildMapHtml(center: Coordinates | null): string {
     }
 
     function refreshWind() {
+      if (!windEnabled) { return; }
       try {
         var b = map.getBounds();
         var north = b.getNorth(), south = b.getSouth();
@@ -151,11 +161,16 @@ export function buildMapHtml(center: Coordinates | null): string {
         fetch(url)
           .then(function (res) { return res.json(); })
           .then(function (json) {
+            if (!windEnabled) { return; }
             var results = Array.isArray(json) ? json : [json];
             var data = buildVelocity(nx, ny, north, south, west, east, results);
             var lg = document.getElementById('legend');
             if (lg) { lg.style.display = 'block'; }
-            if (windLayer) { windLayer.setData(data); return; }
+            if (windLayer) {
+              windLayer.setData(data);
+              if (!map.hasLayer(windLayer)) { windLayer.addTo(map); }
+              return;
+            }
             windLayer = L.velocityLayer({
               displayValues: true,
               displayOptions: {
@@ -179,6 +194,28 @@ export function buildMapHtml(center: Coordinates | null): string {
       if (windTimer) { clearTimeout(windTimer); }
       windTimer = setTimeout(refreshWind, 700);
     }
+
+    // Wind on/off toggle. disableClickPropagation keeps a button tap from
+    // also dropping the spot pin on the map underneath.
+    var toggleBtn = document.getElementById('windtoggle');
+    if (L.DomEvent) {
+      L.DomEvent.disableClickPropagation(toggleBtn);
+      L.DomEvent.disableScrollPropagation(toggleBtn);
+    }
+    toggleBtn.addEventListener('click', function () {
+      windEnabled = !windEnabled;
+      var lg = document.getElementById('legend');
+      if (windEnabled) {
+        toggleBtn.textContent = 'Wind: on';
+        toggleBtn.classList.remove('off');
+        refreshWind(); // re-fetches for the current view, re-adds the layer, shows the legend
+      } else {
+        toggleBtn.textContent = 'Wind: off';
+        toggleBtn.classList.add('off');
+        if (windLayer) { map.removeLayer(windLayer); }
+        if (lg) { lg.style.display = 'none'; }
+      }
+    });
 
     map.whenReady(function () { refreshWind(); });
     map.on('moveend', scheduleWind);
