@@ -35,7 +35,7 @@ import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
 import { speciesForWaterType, SPECIES } from '@/engine/species';
 import { buildCatchConditions } from '@/utils/snapshot';
-import { addDays, longDayLabel, dayLabel, dayNumber } from '@/utils/dates';
+import { addDays, longDayLabel, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
 import { ConditionsCard } from '@/components/ConditionsCard';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
@@ -93,6 +93,18 @@ export function HomeScreen({ onSnapshot }: Props) {
     region?.countryCode?.toLowerCase() === 'us'
       ? regulationsForState(region.state)?.url ?? null
       : null;
+
+  // Which hour the map's wind overlay should show. Null = live "current" wind,
+  // used before an analysis and for "today / day overview"; otherwise it tracks
+  // the day + hour chosen in the Conditions card.
+  let windTargetISO: string | null = null;
+  let windTargetLabel = 'Now';
+  if (conditions && !(selectedDay === 0 && selectedHour === null)) {
+    const wx = selectedHour != null ? conditions.hourlyWeather[selectedHour] : null;
+    const iso = wx ? wx.timeISO : conditions.weather.timeISO;
+    windTargetISO = iso;
+    windTargetLabel = `${dayLabel(addDays(new Date(), selectedDay), selectedDay)} ${hourLabel(iso)}`;
+  }
 
   // Keep cover and species valid for the chosen water type when it changes.
   const onChangeWaterType = useCallback((next: WaterType) => {
@@ -294,7 +306,12 @@ export function HomeScreen({ onSnapshot }: Props) {
         </View>
 
         <Text style={styles.orLabel}>or drop a pin on the map</Text>
-        <MapPicker center={coordinates} onPick={onPickOnMap} />
+        <MapPicker
+          center={coordinates}
+          onPick={onPickOnMap}
+          windTargetISO={windTargetISO}
+          windTargetLabel={windTargetLabel}
+        />
 
         <Text style={styles.selected}>
           {coordinates

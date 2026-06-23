@@ -5,6 +5,13 @@ export interface MapPickerProps {
   center: Coordinates | null;
   /** Called whenever the user drops or drags the pin. */
   onPick: (coords: Coordinates) => void;
+  /**
+   * Local ISO hour the wind overlay should show (e.g. "2026-06-22T14:00").
+   * Null shows live "current" wind. Comes from the Conditions hour/day picker.
+   */
+  windTargetISO?: string | null;
+  /** Human label for that time, shown on the map (e.g. "Sat 2 PM" or "Now"). */
+  windTargetLabel?: string;
 }
 
 /** Sensible fallback when we have no location yet (continental US). */
@@ -13,6 +20,13 @@ export const DEFAULT_CENTER: Coordinates = {
   longitude: -98.35,
 };
 
+/** Minimal HTML-escape for the few label characters that could matter. */
+function esc(s: string): string {
+  return s.replace(/[<>&"]/g, (ch) =>
+    ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '&' ? '&amp;' : '&quot;',
+  );
+}
+
 /**
  * A self-contained Leaflet + OpenStreetMap document with a draggable pin and an
  * animated wind overlay (leaflet-velocity). No API key required.
@@ -20,16 +34,24 @@ export const DEFAULT_CENTER: Coordinates = {
  * The pin posts the selected coordinates back to its host:
  * `window.ReactNativeWebView` on native, the parent window on web.
  *
- * The wind layer samples a coarse grid of Open-Meteo surface wind over the
- * current view, converts speed+direction to U/V components, and animates the
- * flow. It is best-effort: any failure (offline, rate limit) is swallowed so
- * the map still works as a plain spot-picker.
+ * The wind layer samples a coarse grid of Open-Meteo wind over the current
+ * view, converts speed+direction to U/V components, and animates the flow. It
+ * shows the hour given by `windTargetISO` (from the Conditions picker), or live
+ * "current" wind when that is null. The on-map legend states which time it is
+ * for. Best-effort: any failure (offline, rate limit) is swallowed so the map
+ * still works as a plain spot-picker.
  *
  * The same HTML drives both the native WebView and the web <iframe>.
  */
-export function buildMapHtml(center: Coordinates | null): string {
+export function buildMapHtml(
+  center: Coordinates | null,
+  windTargetISO: string | null = null,
+  windTargetLabel = 'Now',
+): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = center ? 12 : 4;
+  const isoLiteral = windTargetISO ? JSON.stringify(windTargetISO) : 'null';
+  const whenText = esc(`Wind · ${windTargetLabel}`);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -52,7 +74,7 @@ export function buildMapHtml(center: Coordinates | null): string {
       font: 11px -apple-system, Roboto, sans-serif;
       padding: 6px 8px; border-radius: 8px; width: 132px;
     }
-    .legend-title { font-weight: 700; margin-bottom: 4px; }
+    .legend-when { font-weight: 700; margin-bottom: 4px; }
     .legend-bar {
       height: 8px; border-radius: 4px;
       background: linear-gradient(to right,
@@ -73,9 +95,9 @@ export function buildMapHtml(center: Coordinates | null): string {
   <div class="hint">Tap or drag to set your spot</div>
   <button class="windtoggle" id="windtoggle">Wind: on</button>
   <div class="legend" id="legend">
-    <div class="legend-title">Wind speed (mph)</div>
+    <div class="legend-when">${whenText}</div>
     <div class="legend-bar"></div>
-    <div class="legend-scale"><span>0</span><span>15</span><span>30+</span></div>
+    <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
@@ -95,6 +117,8 @@ export function buildMapHtml(center: Coordinates | null): string {
     map.on('click', function (e) { marker.setLatLng(e.latlng); send(e.latlng); });
 
     // ---- Animated wind overlay (leaflet-velocity) ----
+    // The hour to show, baked in from the Conditions picker. null = current.
+    var windTargetISO = ${isoLiteral};
     var GRID = 8;           // GRID x GRID sample points over the view
     var windLayer = null;
     var windTimer = null;
@@ -107,16 +131,14 @@ export function buildMapHtml(center: Coordinates | null): string {
       return { u: -speed * Math.sin(r), v: -speed * Math.cos(r) };
     }
 
-    function buildVelocity(nx, ny, north, south, west, east, results) {
+    function buildVelocity(nx, ny, north, south, west, east, samples) {
       var dx = nx > 1 ? (east - west) / (nx - 1) : 0;
       var dy = ny > 1 ? (north - south) / (ny - 1) : 0;
       var ref = new Date().toISOString();
       var u = new Array(nx * ny), v = new Array(nx * ny);
       for (var i = 0; i < nx * ny; i++) {
-        var cur = results[i] && results[i].current ? results[i].current : null;
-        var spd = cur && cur.wind_speed_10m != null ? cur.wind_speed_10m : 0;
-        var dir = cur && cur.wind_direction_10m != null ? cur.wind_direction_10m : 0;
-        var comp = toUV(spd, dir);
+        var s = samples[i] || { speed: 0, dir: 0 };
+        var comp = toUV(s.speed, s.dir);
         u[i] = comp.u; v[i] = comp.v;
       }
       function header(num, name) {
@@ -132,6 +154,40 @@ export function buildMapHtml(center: Coordinates | null): string {
         { header: header(2, 'eastward_wind'), data: u },
         { header: header(3, 'northward_wind'), data: v }
       ];
+    }
+
+    function nearestTimeIndex(times, iso) {
+      var target = new Date(iso).getTime();
+      var best = -1, bestDiff = Infinity;
+      for (var i = 0; i < times.length; i++) {
+        var d = Math.abs(new Date(times[i]).getTime() - target);
+        if (d < bestDiff) { bestDiff = d; best = i; }
+      }
+      return best;
+    }
+
+    // Pull one {speed,dir} per grid point. Hourly mode picks the target hour
+    // (matched once from the first point's time axis); else uses live current.
+    function extractSamples(results) {
+      var idx = -1;
+      if (windTargetISO && results[0] && results[0].hourly && results[0].hourly.time) {
+        var times = results[0].hourly.time;
+        idx = times.indexOf(windTargetISO);
+        if (idx < 0) { idx = nearestTimeIndex(times, windTargetISO); }
+      }
+      var out = [];
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i], spd = 0, dir = 0;
+        if (windTargetISO && r && r.hourly && idx >= 0) {
+          spd = r.hourly.wind_speed_10m[idx];
+          dir = r.hourly.wind_direction_10m[idx];
+        } else if (r && r.current) {
+          spd = r.current.wind_speed_10m;
+          dir = r.current.wind_direction_10m;
+        }
+        out.push({ speed: spd == null ? 0 : spd, dir: dir == null ? 0 : dir });
+      }
+      return out;
     }
 
     function refreshWind() {
@@ -154,16 +210,20 @@ export function buildMapHtml(center: Coordinates | null): string {
             lons.push(Math.round((west + col * dx) * 1e4) / 1e4);
           }
         }
-        var url = 'https://api.open-meteo.com/v1/forecast'
+        var base = 'https://api.open-meteo.com/v1/forecast'
           + '?latitude=' + lats.join(',')
           + '&longitude=' + lons.join(',')
-          + '&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms';
+          + '&wind_speed_unit=ms';
+        var url = windTargetISO
+          ? base + '&hourly=wind_speed_10m,wind_direction_10m&timezone=auto&forecast_days=8'
+          : base + '&current=wind_speed_10m,wind_direction_10m';
         fetch(url)
           .then(function (res) { return res.json(); })
           .then(function (json) {
             if (!windEnabled) { return; }
             var results = Array.isArray(json) ? json : [json];
-            var data = buildVelocity(nx, ny, north, south, west, east, results);
+            var samples = extractSamples(results);
+            var data = buildVelocity(nx, ny, north, south, west, east, samples);
             var lg = document.getElementById('legend');
             if (lg) { lg.style.display = 'block'; }
             if (windLayer) {
