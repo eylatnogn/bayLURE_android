@@ -29,6 +29,12 @@ import {
   deleteFavorite,
 } from '@/storage/favorites';
 import { loadSettings, saveSettings } from '@/storage/settings';
+import {
+  loadPresets,
+  addPreset,
+  deletePreset,
+  type ConditionPreset,
+} from '@/storage/presets';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
 import { gatherForecast } from '@/api/conditions';
@@ -86,9 +92,13 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
-  // The refinements (water type, clarity, depth, etc.) live in a collapsible
-  // panel so the fast path is just: set a spot and Analyze.
-  const [fineTuneOpen, setFineTuneOpen] = useState(false);
+  // Presets are tucked away (collapsed); the refinements stay open by default.
+  const [quickStartOpen, setQuickStartOpen] = useState(false);
+  const [fineTuneOpen, setFineTuneOpen] = useState(true);
+  // The angler's own saved condition configurations.
+  const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetLabel, setPresetLabel] = useState('');
   // True once the angler has chosen a water type by hand/preset — auto-detect
   // then leaves it alone.
   const userSetWaterType = useRef(false);
@@ -148,6 +158,35 @@ export function HomeScreen({ onSnapshot }: Props) {
     setWaterType(p.waterType);
     setSpecies(p.species);
     setStructures(p.structures);
+  }, []);
+
+  // Custom presets carry the full config (clarity/depth/pressure too).
+  const applyCustomPreset = useCallback((p: ConditionPreset) => {
+    userSetWaterType.current = true;
+    setWaterType(p.waterType);
+    setSpecies(p.species);
+    setStructures(p.structures);
+    setClarity(p.clarity);
+    setDepth(p.depth);
+    setPressureLevel(p.pressureLevel);
+  }, []);
+
+  const onSavePreset = useCallback(async () => {
+    const next = await addPreset(presetLabel, {
+      waterType,
+      species,
+      structures,
+      clarity,
+      depth,
+      pressureLevel,
+    });
+    setCustomPresets(next);
+    setSavingPreset(false);
+    setPresetLabel('');
+  }, [presetLabel, waterType, species, structures, clarity, depth, pressureLevel]);
+
+  const onDeletePreset = useCallback(async (id: string) => {
+    setCustomPresets(await deletePreset(id));
   }, []);
 
   const toggleSpecies = useCallback((sp: Species) => {
@@ -222,6 +261,10 @@ export function HomeScreen({ onSnapshot }: Props) {
       setDepth(s.depth);
       setPressureLevel(s.pressureLevel);
     });
+  }, []);
+
+  useEffect(() => {
+    void loadPresets().then(setCustomPresets);
   }, []);
 
   // Auto-pick water type from the spot (coastal → saltwater) unless the angler
@@ -437,24 +480,84 @@ export function HomeScreen({ onSnapshot }: Props) {
         ) : null}
       </Section>
 
-      {/* Quick-start presets — one tap sets water type, species, and cover */}
-      <Section title="Quick Start">
-        <Text style={styles.helper}>
-          Tap a profile to set water type, species, and cover at once — or
-          fine-tune below. It's all optional; a spot is all you need.
-        </Text>
-        <View style={styles.presetWrap}>
-          {PRESETS.map((p) => (
+      {/* Presets — collapsed by default, optional */}
+      <Pressable
+        onPress={() => setQuickStartOpen((v) => !v)}
+        style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
+      >
+        <Text style={styles.collapseTitle}>Presets (optional)</Text>
+        <Feather
+          name={quickStartOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.textMuted}
+        />
+      </Pressable>
+
+      {quickStartOpen ? (
+        <Section title="Quick Start">
+          <Text style={styles.helper}>
+            Tap a starter profile, or save your own setup below to reuse it.
+          </Text>
+          <View style={styles.presetWrap}>
+            {PRESETS.map((p) => (
+              <Pressable
+                key={p.label}
+                onPress={() => applyPreset(p)}
+                style={({ pressed }) => [styles.preset, pressed && pressedStyle]}
+              >
+                <Text style={styles.presetText}>{p.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {customPresets.length > 0 ? (
+            <View style={styles.favList}>
+              <Text style={styles.favHeader}>Your saved setups</Text>
+              {customPresets.map((p) => (
+                <View key={p.id} style={styles.favRow}>
+                  <Pressable
+                    style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
+                    onPress={() => applyCustomPreset(p)}
+                  >
+                    <Feather name="bookmark" size={14} color={colors.accent} style={styles.favStar} />
+                    <Text style={styles.favName}>{p.label}</Text>
+                  </Pressable>
+                  <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
+                    <Feather name="x" size={16} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {!savingPreset ? (
             <Pressable
-              key={p.label}
-              onPress={() => applyPreset(p)}
-              style={({ pressed }) => [styles.preset, pressed && pressedStyle]}
+              style={styles.saveFavBtn}
+              onPress={() => {
+                setPresetLabel('');
+                setSavingPreset(true);
+              }}
             >
-              <Text style={styles.presetText}>{p.label}</Text>
+              <Feather name="plus" size={15} color={colors.accent} />
+              <Text style={styles.saveFavText}>Save current setup as a preset</Text>
             </Pressable>
-          ))}
-        </View>
-      </Section>
+          ) : (
+            <View style={styles.favSaveRow}>
+              <TextInput
+                value={presetLabel}
+                onChangeText={setPresetLabel}
+                placeholder="Name it (e.g. My home lake)"
+                placeholderTextColor={colors.textMuted}
+                autoFocus
+                style={styles.input}
+              />
+              <Pressable style={styles.findBtn} onPress={onSavePreset}>
+                <Text style={styles.findBtnText}>Save</Text>
+              </Pressable>
+            </View>
+          )}
+        </Section>
+      ) : null}
 
       {/* Refinements, collapsed by default so the fast path stays short */}
       <Pressable
