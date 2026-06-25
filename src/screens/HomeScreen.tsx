@@ -35,12 +35,10 @@ import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
 import { speciesForWaterType, SPECIES } from '@/engine/species';
 import { buildCatchConditions } from '@/utils/snapshot';
-import { addDays, longDayLabel, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
-import { ConditionsCard } from '@/components/ConditionsCard';
+import { addDays, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
+import { ForecastCard } from '@/components/ForecastCard';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
-import { BiteForecastCard } from '@/components/BiteForecastCard';
-import { OutlookCard } from '@/components/OutlookCard';
 import { PicksCard } from '@/components/PicksCard';
 import { InsightsCard } from '@/components/InsightsCard';
 import { WaterTypeToggle } from '@/components/WaterTypeToggle';
@@ -53,7 +51,7 @@ import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
 import { APP_VERSION } from '@/version';
-import { colors, fonts, pressedStyle, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
@@ -547,33 +545,20 @@ export function HomeScreen({ onSnapshot }: Props) {
         </View>
       ) : null}
 
-      {strategy ? <BiteForecastCard strategy={strategy} /> : null}
-
-      {strategies ? (
-        <OutlookCard
+      {strategy && conditions && strategies ? (
+        <ForecastCard
+          strategy={strategy}
+          conditions={conditions}
           days={strategies.map((s, i) => ({
             label: dayLabel(addDays(new Date(), i), i),
             num: dayNumber(addDays(new Date(), i)),
             score: s.biteScore,
           }))}
-          selected={selectedDay}
-          onSelect={(day) => {
+          selectedDay={selectedDay}
+          onSelectDay={(day) => {
             setSelectedDay(day);
             setSelectedHour(null);
           }}
-          hourly={strategy?.hourly ?? []}
-          bestWindows={strategy?.bestWindows ?? []}
-        />
-      ) : null}
-
-      {conditions ? (
-        <Text style={styles.dayHeader}>
-          {longDayLabel(addDays(new Date(), selectedDay), selectedDay)}
-        </Text>
-      ) : null}
-      {conditions ? (
-        <ConditionsCard
-          conditions={conditions}
           selectedHour={selectedHour}
           onSelectHour={setSelectedHour}
         />
@@ -819,13 +804,6 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.errorText,
     fontSize: 13,
-  },
-  dayHeader: {
-    fontFamily: fonts.display,
-    color: colors.text,
-    fontSize: 19,
-    marginBottom: spacing.sm,
-    marginTop: spacing.xs,
   },
   hint: {
     color: colors.textMuted,
