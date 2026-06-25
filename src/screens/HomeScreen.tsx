@@ -564,7 +564,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         onPress={() => setFineTuneOpen((v) => !v)}
         style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
       >
-        <Text style={styles.collapseTitle}>Fine-tune your read (optional)</Text>
+        <Text style={styles.collapseTitle}>Fine-tune your read</Text>
         <Feather
           name={fineTuneOpen ? 'chevron-up' : 'chevron-down'}
           size={18}
