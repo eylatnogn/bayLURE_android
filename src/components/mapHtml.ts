@@ -226,7 +226,7 @@ export function buildMapHtml(
     // ---- Animated wind overlay (leaflet-velocity) ----
     // The hour to show, baked in from the Conditions picker. null = current.
     var windTargetISO = ${isoLiteral};
-    var GRID = 6;           // GRID x GRID sample points over the view
+    var GRID = 5;           // GRID x GRID sample points over the view
     var windLayer = null;
     var windTimer = null;
     var windEnabled = true; // toggled by the on-map Wind button
@@ -405,7 +405,7 @@ export function buildMapHtml(
 
     function scheduleWind() {
       if (windTimer) { clearTimeout(windTimer); }
-      windTimer = setTimeout(refreshWind, 1500);
+      windTimer = setTimeout(refreshWind, 2500);
     }
 
     // Wind on/off toggle. disableClickPropagation keeps a button tap from

@@ -115,7 +115,7 @@ export function HomeScreen({ onSnapshot }: Props) {
   // Auto-analyze plumbing: the signature of the last setup we analyzed, and a
   // live ref to onAnalyze so the debounced effect always calls the latest one.
   const lastSigRef = useRef('');
-  const onAnalyzeRef = useRef<() => void>(() => {});
+  const onAnalyzeRef = useRef<(silent?: boolean) => void>(() => {});
 
   const conditions = forecast?.[selectedDay] ?? null;
   const strategy = strategies?.[selectedDay] ?? null;
@@ -318,7 +318,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     [onChangeWaterType],
   );
 
-  const onAnalyze = useCallback(async () => {
+  const onAnalyze = useCallback(async (silent = false) => {
     if (!coordinates) return;
     // Mark this exact setup as analyzed so the auto-analyze effect doesn't
     // immediately fire again for the same inputs.
@@ -328,7 +328,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     // Remember this setup so the next session starts pre-filled.
     void saveSettings({ waterType, species, structures, clarity, depth, pressureLevel });
     setAnalyzing(true);
-    setError(null);
+    if (!silent) setError(null);
     try {
       const [week, fish, reg] = await Promise.all([
         gatherForecast({
@@ -350,12 +350,18 @@ export function HomeScreen({ onSnapshot }: Props) {
       setSelectedHour(null);
       setAreaFish(fish);
       setRegion(reg);
+      setError(null); // a successful run clears any earlier failure
       // Catch log always attaches *today's* conditions, not a future forecast.
       if (week[0] && strats[0]) {
         onSnapshot?.(buildCatchConditions(week[0], strats[0].biteScore, place));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
+      // An automatic run shouldn't nag with a banner the angler didn't trigger
+      // (usually a transient rate limit). Surface errors only for a manual tap;
+      // the Analyze button stays available to retry and see what's wrong.
+      if (!silent) {
+        setError(e instanceof Error ? e.message : 'Something went wrong.');
+      }
     } finally {
       setAnalyzing(false);
     }
@@ -375,7 +381,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     if (sig === lastSigRef.current) return; // already analyzed this exact setup
     const timer = setTimeout(() => {
       if (sig === lastSigRef.current) return; // a manual Analyze beat us to it
-      void onAnalyzeRef.current();
+      void onAnalyzeRef.current(true); // silent: don't show a banner on auto-runs
     }, 800);
     return () => clearTimeout(timer);
   }, [coordinates, waterType, species, structures, clarity, depth, pressureLevel, analyzing]);
@@ -724,7 +730,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       <Text style={styles.summaryLine}>{configSummary}</Text>
 
       <Pressable
-        onPress={onAnalyze}
+        onPress={() => onAnalyze()}
         disabled={analyzing || !coordinates}
         style={({ pressed }) => [
           styles.cta,
