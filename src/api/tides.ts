@@ -56,6 +56,23 @@ function nearestStation(
 }
 
 /**
+ * Best-effort guess of whether a spot is saltwater: NOAA tide-prediction
+ * stations sit on coasts and tidal rivers, so a station within ~12 mi means
+ * the water is tidal (salt/brackish). Lakes and inland rivers have none nearby.
+ * Great Lakes have no tide predictions, so they correctly read as freshwater.
+ * Falls back to false (freshwater) on any error or outside the US.
+ */
+export async function isLikelySaltwater(coords: Coordinates): Promise<boolean> {
+  try {
+    const stations = await loadStations();
+    const nearest = nearestStation(coords, stations);
+    return !!nearest && nearest.distanceMi <= 12;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Nearest-station high/low tide predictions for each of the next `days` days.
  * Each entry's `state` is derived relative to that day's reference time (now
  * for today, midday for future days). Returns an array of nulls when no usable

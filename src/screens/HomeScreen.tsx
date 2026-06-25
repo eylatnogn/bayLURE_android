@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -28,9 +28,11 @@ import {
   addFavorite,
   deleteFavorite,
 } from '@/storage/favorites';
+import { loadSettings, saveSettings } from '@/storage/settings';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
 import { gatherForecast } from '@/api/conditions';
+import { isLikelySaltwater } from '@/api/tides';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
 import { speciesForWaterType, SPECIES } from '@/engine/species';
@@ -51,7 +53,7 @@ import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
 import { APP_VERSION } from '@/version';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { colors, pressedStyle, radius, shadow, spacing } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
@@ -84,6 +86,12 @@ export function HomeScreen({ onSnapshot }: Props) {
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
+  // The refinements (water type, clarity, depth, etc.) live in a collapsible
+  // panel so the fast path is just: set a spot and Analyze.
+  const [fineTuneOpen, setFineTuneOpen] = useState(false);
+  // True once the angler has chosen a water type by hand/preset — auto-detect
+  // then leaves it alone.
+  const userSetWaterType = useRef(false);
 
   const conditions = forecast?.[selectedDay] ?? null;
   const strategy = strategies?.[selectedDay] ?? null;
@@ -104,8 +112,19 @@ export function HomeScreen({ onSnapshot }: Props) {
     windTargetLabel = `${dayLabel(addDays(new Date(), selectedDay), selectedDay)} ${hourLabel(iso)}`;
   }
 
-  // Keep cover and species valid for the chosen water type when it changes.
-  const onChangeWaterType = useCallback((next: WaterType) => {
+  // One-line recap of the current setup, shown by the Analyze button so the
+  // angler can see what will be analyzed without opening the fine-tune panel.
+  const configSummary = [
+    waterType === 'saltwater' ? 'Saltwater' : 'Freshwater',
+    species.length ? `${species.length} target${species.length > 1 ? 's' : ''}` : 'Any species',
+    `${cap(clarity)} water`,
+    depth === 'any' ? 'Any depth' : `${cap(depth)} depth`,
+    `${PRESSURE_WORD[pressureLevel]} pressure`,
+  ].join('  ·  ');
+
+  // Set the water type and drop any cover/species that don't fit it. Shared by
+  // the manual toggle, presets, and the location auto-detect.
+  const setWaterTypeFiltered = useCallback((next: WaterType) => {
     setWaterType(next);
     const allowed = structuresForWaterType(next);
     // Keep whatever is still valid; an empty result is fine ("None selected").
@@ -113,6 +132,22 @@ export function HomeScreen({ onSnapshot }: Props) {
     setSpecies((prev) =>
       prev.filter((sp) => speciesForWaterType(next).some((s) => s.id === sp)),
     );
+  }, []);
+
+  // Manual toggle: remember that the angler chose, so auto-detect won't override.
+  const onChangeWaterType = useCallback(
+    (next: WaterType) => {
+      userSetWaterType.current = true;
+      setWaterTypeFiltered(next);
+    },
+    [setWaterTypeFiltered],
+  );
+
+  const applyPreset = useCallback((p: Preset) => {
+    userSetWaterType.current = true;
+    setWaterType(p.waterType);
+    setSpecies(p.species);
+    setStructures(p.structures);
   }, []);
 
   const toggleSpecies = useCallback((sp: Species) => {
@@ -176,6 +211,29 @@ export function HomeScreen({ onSnapshot }: Props) {
     void loadFavorites().then(setFavorites);
   }, []);
 
+  // Pre-fill the form with the angler's last-used settings.
+  useEffect(() => {
+    void loadSettings().then((s) => {
+      if (!s) return;
+      setWaterType(s.waterType);
+      setSpecies(s.species);
+      setStructures(s.structures);
+      setClarity(s.clarity);
+      setDepth(s.depth);
+      setPressureLevel(s.pressureLevel);
+    });
+  }, []);
+
+  // Auto-pick water type from the spot (coastal → saltwater) unless the angler
+  // has already set it by hand or via a preset.
+  useEffect(() => {
+    if (!coordinates || userSetWaterType.current) return;
+    void isLikelySaltwater(coordinates).then((salt) => {
+      if (userSetWaterType.current) return;
+      setWaterTypeFiltered(salt ? 'saltwater' : 'freshwater');
+    });
+  }, [coordinates, setWaterTypeFiltered]);
+
   const onSaveFavorite = useCallback(async () => {
     if (!coordinates) return;
     const next = await addFavorite(favLabel || place || 'Saved spot', coordinates);
@@ -205,6 +263,8 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const onAnalyze = useCallback(async () => {
     if (!coordinates) return;
+    // Remember this setup so the next session starts pre-filled.
+    void saveSettings({ waterType, species, structures, clarity, depth, pressureLevel });
     setAnalyzing(true);
     setError(null);
     try {
@@ -254,7 +314,7 @@ export function HomeScreen({ onSnapshot }: Props) {
 
       <View style={styles.body}>
       {/* Step 1 — Location */}
-      <Section title="1 · Location">
+      <Section title="Location">
         <Pressable
           onPress={useMyLocation}
           disabled={locating}
@@ -377,149 +437,111 @@ export function HomeScreen({ onSnapshot }: Props) {
         ) : null}
       </Section>
 
-      {/* Step 2 — Water type */}
-      <Section title="2 · Water Type">
-        <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
-      </Section>
-
-      {/* Step 3 — Water clarity */}
-      <Section title="3 · Water Clarity">
+      {/* Quick-start presets — one tap sets water type, species, and cover */}
+      <Section title="Quick Start">
         <Text style={styles.helper}>
-          How far can you see into the water? It drives color, vibration, and how
-          the fish hunt.
+          Tap a profile to set water type, species, and cover at once — or
+          fine-tune below. It's all optional; a spot is all you need.
         </Text>
-        <View style={styles.toggleRow}>
-          {([
-            { value: 'clear', label: 'Clear' },
-            { value: 'stained', label: 'Stained' },
-            { value: 'muddy', label: 'Muddy' },
-          ] as const).map((opt) => {
-            const active = clarity === opt.value;
-            return (
-              <Pressable
-                key={opt.value}
-                onPress={() => setClarity(opt.value)}
-                style={({ pressed }) => [
-                  styles.togglePill,
-                  active && styles.togglePillActive,
-                  pressed && pressedStyle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.togglePillText,
-                    active && styles.togglePillTextActive,
-                  ]}
-                >
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.presetWrap}>
+          {PRESETS.map((p) => (
+            <Pressable
+              key={p.label}
+              onPress={() => applyPreset(p)}
+              style={({ pressed }) => [styles.preset, pressed && pressedStyle]}
+            >
+              <Text style={styles.presetText}>{p.label}</Text>
+            </Pressable>
+          ))}
         </View>
       </Section>
 
-      {/* Step 4 — Target species */}
-      <Section title="4 · Target Species">
-        <Text style={styles.helper}>
-          Pick one or more fish to sharpen the picks, or leave it on Any.
-        </Text>
-        <SpeciesPicker
-          waterType={waterType}
-          value={species}
-          onToggle={toggleSpecies}
-          onClear={() => setSpecies([])}
+      {/* Refinements, collapsed by default so the fast path stays short */}
+      <Pressable
+        onPress={() => setFineTuneOpen((v) => !v)}
+        style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
+      >
+        <Text style={styles.collapseTitle}>Fine-tune your read (optional)</Text>
+        <Feather
+          name={fineTuneOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.textMuted}
         />
-      </Section>
+      </Pressable>
 
-      {/* Step 5 — Structure & cover (filtered to the water type) */}
-      <Section title="5 · Structure & Cover">
-        <Text style={styles.helper}>
-          Tap everything you can see at your spot, or leave it on “None
-          selected.”
-        </Text>
-        <StructurePicker
-          waterType={waterType}
-          selected={structures}
-          onToggle={toggleStructure}
-          onClear={() => setStructures([])}
-        />
-      </Section>
+      {fineTuneOpen ? (
+        <View>
+          <Section title="Water Type">
+            <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
+            <Text style={[styles.helper, styles.helperGap]}>
+              Auto-set from your spot when possible — tap to override.
+            </Text>
+          </Section>
 
-      {/* Step 6 — Water depth */}
-      <Section title="6 · Water Depth">
-        <Text style={styles.helper}>
-          Roughly how deep are you fishing? It biases the lures and where the
-          fish are holding.
-        </Text>
-        <View style={styles.toggleRow}>
-          {([
-            { value: 'any', label: 'Any' },
-            { value: 'shallow', label: 'Shallow' },
-            { value: 'mid', label: 'Mid' },
-            { value: 'deep', label: 'Deep' },
-          ] as const).map((opt) => {
-            const active = depth === opt.value;
-            return (
-              <Pressable
-                key={opt.value}
-                onPress={() => setDepth(opt.value)}
-                style={({ pressed }) => [
-                  styles.togglePill,
-                  active && styles.togglePillActive,
-                  pressed && pressedStyle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.togglePillText,
-                    active && styles.togglePillTextActive,
-                  ]}
-                >
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+          <Section title="Water & Spot">
+            <Text style={styles.helper}>Water clarity — how far you can see in.</Text>
+            <OptionRow
+              value={clarity}
+              onChange={setClarity}
+              options={[
+                { value: 'clear', label: 'Clear' },
+                { value: 'stained', label: 'Stained' },
+                { value: 'muddy', label: 'Muddy' },
+              ]}
+            />
+            <Text style={[styles.helper, styles.helperGap]}>Depth you're fishing.</Text>
+            <OptionRow
+              value={depth}
+              onChange={setDepth}
+              options={[
+                { value: 'any', label: 'Any' },
+                { value: 'shallow', label: 'Shallow' },
+                { value: 'mid', label: 'Mid' },
+                { value: 'deep', label: 'Deep' },
+              ]}
+            />
+            <Text style={[styles.helper, styles.helperGap]}>
+              Fishing pressure — busier water means warier fish.
+            </Text>
+            <OptionRow
+              value={pressureLevel}
+              onChange={setPressureLevel}
+              options={[
+                { value: 'none', label: 'Light' },
+                { value: 'moderate', label: 'Moderate' },
+                { value: 'high', label: 'Heavy' },
+              ]}
+            />
+          </Section>
+
+          <Section title="Target Species">
+            <Text style={styles.helper}>
+              Pick one or more fish to sharpen the picks, or leave it on Any.
+            </Text>
+            <SpeciesPicker
+              waterType={waterType}
+              value={species}
+              onToggle={toggleSpecies}
+              onClear={() => setSpecies([])}
+            />
+          </Section>
+
+          <Section title="Structure & Cover">
+            <Text style={styles.helper}>
+              Tap everything you can see at your spot, or leave it on “None
+              selected.”
+            </Text>
+            <StructurePicker
+              waterType={waterType}
+              selected={structures}
+              onToggle={toggleStructure}
+              onClear={() => setStructures([])}
+            />
+          </Section>
         </View>
-      </Section>
+      ) : null}
 
-      {/* Step 7 — Fishing pressure */}
-      <Section title="7 · Fishing Pressure">
-        <Text style={styles.helper}>
-          How heavily fished is this water? More boats, docks, and popular bank
-          spots mean warier fish — bayLURE scales the finesse plan to match.
-        </Text>
-        <View style={styles.toggleRow}>
-          {([
-            { value: 'none', label: 'Light' },
-            { value: 'moderate', label: 'Moderate' },
-            { value: 'high', label: 'Heavy' },
-          ] as const).map((opt) => {
-            const active = pressureLevel === opt.value;
-            return (
-              <Pressable
-                key={opt.value}
-                onPress={() => setPressureLevel(opt.value)}
-                style={({ pressed }) => [
-                  styles.togglePill,
-                  active && styles.togglePillActive,
-                  pressed && pressedStyle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.togglePillText,
-                    active && styles.togglePillTextActive,
-                  ]}
-                >
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </Section>
+      <Text style={styles.summaryLine}>{configSummary}</Text>
 
       <Pressable
         onPress={onAnalyze}
@@ -597,6 +619,74 @@ export function HomeScreen({ onSnapshot }: Props) {
 
 function formatCoords(c: Coordinates): string {
   return `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`;
+}
+
+function cap(s: string): string {
+  return s.length ? s[0]!.toUpperCase() + s.slice(1) : s;
+}
+
+const PRESSURE_WORD: Record<PressureLevel, string> = {
+  none: 'Light',
+  moderate: 'Moderate',
+  high: 'Heavy',
+};
+
+interface Preset {
+  label: string;
+  waterType: WaterType;
+  species: Species[];
+  structures: StructureType[];
+}
+
+/** One-tap profiles that set water type + likely species + typical cover. */
+const PRESETS: Preset[] = [
+  { label: 'Lake bass', waterType: 'freshwater', species: ['largemouth'], structures: ['vegetation', 'wood'] },
+  { label: 'River smallmouth', waterType: 'freshwater', species: ['smallmouth'], structures: ['rock', 'current'] },
+  { label: 'Trout stream', waterType: 'freshwater', species: ['trout'], structures: ['rock', 'current'] },
+  { label: 'Panfish', waterType: 'freshwater', species: ['panfish'], structures: ['wood', 'vegetation'] },
+  { label: 'Catfish', waterType: 'freshwater', species: ['catfish'], structures: ['current', 'dropoff'] },
+  { label: 'Inshore slam', waterType: 'saltwater', species: ['redfish', 'seatrout'], structures: ['vegetation', 'oyster'] },
+  { label: 'Snook & docks', waterType: 'saltwater', species: ['snook'], structures: ['mangrove', 'wood'] },
+  { label: 'Surf / stripers', waterType: 'saltwater', species: ['striper'], structures: ['current', 'open'] },
+];
+
+interface PillOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+/** A single-choice row of pills (used for clarity, depth, and pressure). */
+function OptionRow<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: PillOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <View style={styles.toggleRow}>
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => onChange(opt.value)}
+            style={({ pressed }) => [
+              styles.togglePill,
+              active && styles.togglePillActive,
+              pressed && pressedStyle,
+            ]}
+          >
+            <Text style={[styles.togglePillText, active && styles.togglePillTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -775,6 +865,37 @@ const styles = StyleSheet.create({
   helper: {
     color: colors.textMuted,
     fontSize: 12,
+    marginBottom: spacing.md,
+  },
+  helperGap: { marginTop: spacing.md },
+  presetWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  preset: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.accentDim,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  presetText: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  collapse: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    ...shadow.card,
+  },
+  collapseTitle: { color: colors.text, fontSize: 14, fontWeight: '700', letterSpacing: 0.3 },
+  summaryLine: {
+    color: colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
     marginBottom: spacing.md,
   },
   cta: {
