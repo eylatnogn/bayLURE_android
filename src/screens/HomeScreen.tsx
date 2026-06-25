@@ -95,6 +95,7 @@ export function HomeScreen({ onSnapshot }: Props) {
   // Presets are tucked away (collapsed); the refinements stay open by default.
   const [quickStartOpen, setQuickStartOpen] = useState(false);
   const [fineTuneOpen, setFineTuneOpen] = useState(true);
+  const [savedSpotsOpen, setSavedSpotsOpen] = useState(false);
   // The angler's own saved condition configurations.
   const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);
   const [savingPreset, setSavingPreset] = useState(false);
@@ -456,26 +457,40 @@ export function HomeScreen({ onSnapshot }: Props) {
 
         {favorites.length > 0 ? (
           <View style={styles.favList}>
-            <Text style={styles.favHeader}>Saved spots</Text>
-            {favorites.map((fav) => (
-              <View key={fav.id} style={styles.favRow}>
-                <Pressable
-                  style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
-                  onPress={() => onLoadFavorite(fav)}
-                >
-                  <Feather
-                    name="star"
-                    size={14}
-                    color={colors.warn}
-                    style={styles.favStar}
-                  />
-                  <Text style={styles.favName}>{fav.label}</Text>
-                </Pressable>
-                <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
-                  <Feather name="x" size={16} color={colors.textMuted} />
-                </Pressable>
-              </View>
-            ))}
+            <Pressable
+              onPress={() => setSavedSpotsOpen((v) => !v)}
+              style={({ pressed }) => [styles.favDropdown, pressed && pressedStyle]}
+            >
+              <Text style={styles.favDropdownLabel}>
+                Saved spots ({favorites.length})
+              </Text>
+              <Feather
+                name={savedSpotsOpen ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={colors.textMuted}
+              />
+            </Pressable>
+            {savedSpotsOpen
+              ? favorites.map((fav) => (
+                  <View key={fav.id} style={styles.favRow}>
+                    <Pressable
+                      style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
+                      onPress={() => onLoadFavorite(fav)}
+                    >
+                      <Feather
+                        name="star"
+                        size={14}
+                        color={colors.warn}
+                        style={styles.favStar}
+                      />
+                      <Text style={styles.favName}>{fav.label}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
+                      <Feather name="x" size={16} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                ))
+              : null}
           </View>
         ) : null}
       </Section>
@@ -485,7 +500,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         onPress={() => setQuickStartOpen((v) => !v)}
         style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
       >
-        <Text style={styles.collapseTitle}>Presets (optional)</Text>
+        <Text style={styles.collapseTitle}>Presets</Text>
         <Feather
           name={quickStartOpen ? 'chevron-up' : 'chevron-down'}
           size={18}
@@ -938,6 +953,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginBottom: spacing.sm,
+  },
+  favDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  favDropdownLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
   },
   favRow: {
     flexDirection: 'row',

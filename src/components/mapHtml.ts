@@ -49,6 +49,7 @@ export function buildMapHtml(
   center: Coordinates | null,
   windTargetISO: string | null = null,
   windTargetLabel = 'Now',
+  fullscreen = false,
 ): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = center ? 12 : 4;
@@ -63,11 +64,13 @@ export function buildMapHtml(
   <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css" />
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
+    /* Move the +/- zoom control to the vertical middle of the left edge. */
+    .leaflet-top.leaflet-left { top: 50%; transform: translateY(-50%); }
     .hint {
-      position: absolute; z-index: 1000; left: 8px; top: 8px;
+      position: absolute; z-index: 1000; left: 50%; top: 8px; transform: translateX(-50%);
       background: rgba(34,46,28,0.82); color: #f8faf1;
       font: 12px -apple-system, Roboto, sans-serif;
-      padding: 6px 10px; border-radius: 8px;
+      padding: 6px 10px; border-radius: 8px; white-space: nowrap;
     }
     .maptoggle {
       position: absolute; z-index: 1000; right: 8px; border: none;
@@ -78,12 +81,25 @@ export function buildMapHtml(
     .maptoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
     #windtoggle { top: 8px; }
     #depthtoggle { top: 42px; }
+    .mapicon { padding: 6px; line-height: 0; }
+    #fsbtn { top: 8px; left: 8px; right: auto; }
     .legendbox {
       position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
       background: rgba(34,46,28,0.82); color: #f8faf1;
       font: 11px -apple-system, Roboto, sans-serif;
       padding: 6px 8px; border-radius: 8px; width: 140px;
     }
+    .legendbox.min { width: auto; }
+    .legend-head { display: flex; align-items: center; justify-content: flex-end; }
+    .legendbox.min .legend-head { justify-content: space-between; gap: 10px; }
+    .legend-title { font-weight: 700; display: none; }
+    .legendbox.min .legend-title { display: block; }
+    .legend-min {
+      cursor: pointer; font-weight: 700; font-size: 15px; line-height: 1;
+      padding: 0 4px; color: #cdd8c4; -webkit-user-select: none; user-select: none;
+    }
+    .legend-body { margin-top: 5px; }
+    .legendbox.min .legend-body { display: none; }
     .legendsec { display: none; }
     .legendsec + .legendsec { margin-top: 6px; }
     .legend-when { font-weight: 700; margin-bottom: 4px; }
@@ -104,18 +120,25 @@ export function buildMapHtml(
 <body>
   <div id="map"></div>
   <div class="hint">Tap or drag to set your spot</div>
+  <button class="maptoggle mapicon" id="fsbtn" aria-label="Full screen"></button>
   <button class="maptoggle" id="windtoggle">Wind: on</button>
   <button class="maptoggle off" id="depthtoggle">Depth: off</button>
   <div class="legendbox" id="legendbox">
-    <div class="legendsec" id="windlegend">
-      <div class="legend-when">${whenText}</div>
-      <div class="legend-bar windgrad"></div>
-      <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
+    <div class="legend-head">
+      <span class="legend-title">Map key</span>
+      <span class="legend-min" id="legendmin">–</span>
     </div>
-    <div class="legendsec" id="depthlegend">
-      <div class="legend-when">Depth (ft)</div>
-      <div class="legend-bar depthgrad"></div>
-      <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
+    <div class="legend-body">
+      <div class="legendsec" id="windlegend">
+        <div class="legend-when">${whenText}</div>
+        <div class="legend-bar windgrad"></div>
+        <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
+      </div>
+      <div class="legendsec" id="depthlegend">
+        <div class="legend-when">Depth (ft)</div>
+        <div class="legend-bar depthgrad"></div>
+        <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
+      </div>
     </div>
   </div>
   <div class="windread" id="windread"></div>
@@ -133,13 +156,50 @@ export function buildMapHtml(
     map.createPane('charts'); map.getPane('charts').style.zIndex = 360;
 
     var marker = L.marker([${c.latitude}, ${c.longitude}], { draggable: true }).addTo(map);
-    function send(ll) {
-      var msg = JSON.stringify({ latitude: ll.lat, longitude: ll.lng });
+    // Post any object back to the host (React Native or the parent window).
+    function postHost(obj) {
+      var msg = JSON.stringify(obj);
       if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); }
       else if (window.parent) { window.parent.postMessage(msg, '*'); }
     }
+    function send(ll) { postHost({ latitude: ll.lat, longitude: ll.lng }); }
     marker.on('dragend', function () { var ll = marker.getLatLng(); send(ll); updatePinDepth(ll, true); });
     map.on('click', function (e) { marker.setLatLng(e.latlng); send(e.latlng); updatePinDepth(e.latlng, true); });
+
+    // Full-screen toggle. The button lives in the map (like Wind/Depth) rather
+    // than as a React overlay, so the WebView can't swallow the tap. The host
+    // (RN Modal / browser fullscreen) does the actual resizing.
+    var SVG_EXPAND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+    var SVG_SHRINK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+    var fsBtn = document.getElementById('fsbtn');
+    if (fsBtn) {
+      fsBtn.innerHTML = ${fullscreen ? 'true' : 'false'} ? SVG_SHRINK : SVG_EXPAND;
+      if (L.DomEvent) {
+        L.DomEvent.disableClickPropagation(fsBtn);
+        L.DomEvent.disableScrollPropagation(fsBtn);
+      }
+      fsBtn.addEventListener('click', function () {
+        if (window.ReactNativeWebView) {
+          // Native: let React Native present the map in a full-screen Modal.
+          postHost({ type: 'fullscreen' });
+          return;
+        }
+        // Web: fullscreen this document straight from the user gesture (a
+        // postMessage round-trip would lose the gesture and the browser blocks
+        // it). The iframe carries allowfullscreen so this is permitted.
+        try {
+          if (document.fullscreenElement) {
+            document.exitFullscreen();
+          } else if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen();
+          }
+        } catch (e) { /* fullscreen unavailable */ }
+      });
+      // On web the iframe itself goes fullscreen, so reflect that on the icon.
+      document.addEventListener('fullscreenchange', function () {
+        fsBtn.innerHTML = document.fullscreenElement ? SVG_SHRINK : SVG_EXPAND;
+      });
+    }
 
     // Show/hide a legend section and the box around it.
     function setLegend(id, on) {
@@ -151,6 +211,23 @@ export function buildMapHtml(
       var d = document.getElementById('depthlegend');
       var any = (w && w.style.display === 'block') || (d && d.style.display === 'block');
       box.style.display = any ? 'block' : 'none';
+    }
+
+    // Let the angler collapse the legend to a small chip when it crowds the map.
+    var legendMin = false;
+    var legendMinBtn = document.getElementById('legendmin');
+    if (legendMinBtn) {
+      if (L.DomEvent) {
+        L.DomEvent.disableClickPropagation(legendMinBtn);
+        L.DomEvent.disableScrollPropagation(legendMinBtn);
+      }
+      legendMinBtn.addEventListener('click', function () {
+        legendMin = !legendMin;
+        var box = document.getElementById('legendbox');
+        // className only — the inline display is owned by setLegend (layer on/off).
+        if (box) { box.className = legendMin ? 'legendbox min' : 'legendbox'; }
+        legendMinBtn.textContent = legendMin ? '+' : '–';
+      });
     }
 
     // ---- Animated wind overlay (leaflet-velocity) ----
@@ -440,6 +517,23 @@ export function buildMapHtml(
         if (noaaLayer) { map.removeLayer(noaaLayer); }
         map.removeLayer(depthShade);
         setLegend('depthlegend', false);
+      }
+    });
+
+    // Host hook: move the pin from outside (saved spot, geolocation, search)
+    // WITHOUT snapping the zoom. Only zooms in from the wide default view the
+    // first time a real location arrives; after that it keeps the angler's zoom.
+    window.__moveSpot = function (lat, lng) {
+      var ll = L.latLng(lat, lng);
+      marker.setLatLng(ll);
+      if (map.getZoom() < 10) { map.setView(ll, 12); } else { map.panTo(ll); }
+      updatePinDepth(ll, false);
+    };
+    // On web the host can't inject JS, so it posts the move in as a message.
+    window.addEventListener('message', function (e) {
+      var d = e.data;
+      if (d && d.type === 'balure:moveSpot' && typeof d.lat === 'number') {
+        window.__moveSpot(d.lat, d.lng);
       }
     });
 

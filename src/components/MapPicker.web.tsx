@@ -1,4 +1,4 @@
-import { createElement, useEffect } from 'react';
+import { createElement, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors, radius } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
@@ -12,11 +12,22 @@ export function MapPicker({
   windTargetISO = null,
   windTargetLabel = 'Now',
 }: MapPickerProps) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Latest center — read when the srcDoc is rebuilt for a wind-time change.
+  const centerRef = useRef(center);
+  centerRef.current = center;
+  // True when a pin move came from a click/drag inside the map: the map already
+  // moved the view, so we must NOT post it back (which could disturb the zoom).
+  const internalPick = useRef(false);
+
   useEffect(() => {
     function handler(event: MessageEvent) {
       try {
         const data = JSON.parse(event.data);
+        // The in-map full-screen button handles itself on web (it fullscreens
+        // the iframe directly from the user gesture), so we only need picks here.
         if (typeof data?.latitude === 'number') {
+          internalPick.current = true;
           onPick({ latitude: data.latitude, longitude: data.longitude });
         }
       } catch {
@@ -27,8 +38,32 @@ export function MapPicker({
     return () => window.removeEventListener('message', handler);
   }, [onPick]);
 
+  // Move the pin without reloading the iframe, so the zoom is preserved.
+  useEffect(() => {
+    if (internalPick.current) {
+      internalPick.current = false; // the map already placed this pin
+      return;
+    }
+    if (!center) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'balure:moveSpot', lat: center.latitude, lng: center.longitude },
+      '*',
+    );
+  }, [center]);
+
+  // Rebuild the document only when the wind hour changes (to re-time the
+  // overlay). Center changes are pushed via postMessage instead, so selecting a
+  // spot never reloads the iframe or resets the zoom.
+  const srcDoc = useMemo(
+    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [windTargetISO, windTargetLabel],
+  );
+
   const iframe = createElement('iframe', {
-    srcDoc: buildMapHtml(center, windTargetISO, windTargetLabel),
+    ref: iframeRef,
+    srcDoc,
+    allowFullScreen: true,
     style: {
       width: '100%',
       height: '100%',
