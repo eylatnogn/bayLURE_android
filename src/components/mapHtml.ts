@@ -64,6 +64,12 @@ export function buildMapHtml(
   <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css" />
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
+    /* Stop iOS from flashing a tap highlight / selecting text on every tap,
+       which otherwise makes the map feel stuck. The pin still drops normally. */
+    * { -webkit-tap-highlight-color: transparent; }
+    html, body {
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
     /* Move the +/- zoom control to the vertical middle of the left edge. */
     .leaflet-top.leaflet-left { top: 50%; transform: translateY(-50%); }
     .hint {
@@ -171,7 +177,7 @@ export function buildMapHtml(
 
     // Full-screen toggle. The button lives in the map (like Wind/Depth) rather
     // than as a React overlay, so the WebView can't swallow the tap. The host
-    // (RN Modal / browser fullscreen) does the actual resizing.
+    // does the resizing: native a full-screen Modal, web a full-viewport overlay.
     var SVG_EXPAND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
     var SVG_SHRINK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
     var fsBtn = document.getElementById('fsbtn');
@@ -181,27 +187,11 @@ export function buildMapHtml(
         L.DomEvent.disableClickPropagation(fsBtn);
         L.DomEvent.disableScrollPropagation(fsBtn);
       }
-      fsBtn.addEventListener('click', function () {
-        if (window.ReactNativeWebView) {
-          // Native: let React Native present the map in a full-screen Modal.
-          postHost({ type: 'fullscreen' });
-          return;
-        }
-        // Web: fullscreen this document straight from the user gesture (a
-        // postMessage round-trip would lose the gesture and the browser blocks
-        // it). The iframe carries allowfullscreen so this is permitted.
-        try {
-          if (document.fullscreenElement) {
-            document.exitFullscreen();
-          } else if (document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen();
-          }
-        } catch (e) { /* fullscreen unavailable */ }
-      });
-      // On web the iframe itself goes fullscreen, so reflect that on the icon.
-      document.addEventListener('fullscreenchange', function () {
-        fsBtn.innerHTML = document.fullscreenElement ? SVG_SHRINK : SVG_EXPAND;
-      });
+      // The host does the resizing: native presents a full-screen Modal, web
+      // grows the iframe to a full-viewport overlay (iPhone Safari has no real
+      // Fullscreen API, so we never call requestFullscreen). The host echoes the
+      // new state back via a 'balure:fullscreen' message to flip this icon.
+      fsBtn.addEventListener('click', function () { postHost({ type: 'fullscreen' }); });
     }
 
     // Show/hide a legend section and the box around it.
@@ -558,11 +548,15 @@ export function buildMapHtml(
       if (map.getZoom() < 10) { map.setView(ll, 12); } else { map.panTo(ll); }
       updatePinDepth(ll, false);
     };
-    // On web the host can't inject JS, so it posts the move in as a message.
+    // On web the host can't inject JS, so it posts messages in instead.
     window.addEventListener('message', function (e) {
       var d = e.data;
-      if (d && d.type === 'balure:moveSpot' && typeof d.lat === 'number') {
+      if (!d) { return; }
+      if (d.type === 'balure:moveSpot' && typeof d.lat === 'number') {
         window.__moveSpot(d.lat, d.lng);
+      } else if (d.type === 'balure:fullscreen') {
+        var fb = document.getElementById('fsbtn');
+        if (fb) { fb.innerHTML = d.value ? SVG_SHRINK : SVG_EXPAND; }
       }
     });
 

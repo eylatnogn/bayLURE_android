@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useRef } from 'react';
+import { createElement, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { colors, radius } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
@@ -19,13 +19,18 @@ export function MapPicker({
   // True when a pin move came from a click/drag inside the map: the map already
   // moved the view, so we must NOT post it back (which could disturb the zoom).
   const internalPick = useRef(false);
+  // Full-screen via a CSS overlay (the iframe grows to fill the viewport). We
+  // avoid the Fullscreen API because iPhone Safari doesn't support it.
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     function handler(event: MessageEvent) {
       try {
         const data = JSON.parse(event.data);
-        // The in-map full-screen button handles itself on web (it fullscreens
-        // the iframe directly from the user gesture), so we only need picks here.
+        if (data?.type === 'fullscreen') {
+          setExpanded((v) => !v);
+          return;
+        }
         if (typeof data?.latitude === 'number') {
           internalPick.current = true;
           onPick({ latitude: data.latitude, longitude: data.longitude });
@@ -51,6 +56,14 @@ export function MapPicker({
     );
   }, [center]);
 
+  // Tell the in-map button which icon (expand vs shrink) to show.
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'balure:fullscreen', value: expanded },
+      '*',
+    );
+  }, [expanded]);
+
   // Rebuild the document only when the wind hour changes (to re-time the
   // overlay). Center changes are pushed via postMessage instead, so selecting a
   // spot never reloads the iframe or resets the zoom.
@@ -60,16 +73,24 @@ export function MapPicker({
     [windTargetISO, windTargetLabel],
   );
 
+  // Only the style changes between inline and full screen — React keeps the same
+  // iframe element, so the map (and its zoom) is preserved across the toggle.
   const iframe = createElement('iframe', {
     ref: iframeRef,
     srcDoc,
-    allowFullScreen: true,
-    style: {
-      width: '100%',
-      height: '100%',
-      border: 'none',
-      display: 'block',
-    },
+    style: expanded
+      ? {
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 9999,
+          border: 'none',
+          display: 'block',
+          background: colors.bgElevated,
+        }
+      : { width: '100%', height: '100%', border: 'none', display: 'block' },
     title: 'Pick your fishing spot',
   });
 

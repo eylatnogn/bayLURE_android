@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { SafeAreaView, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Platform, SafeAreaView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
   useFonts,
@@ -21,6 +21,22 @@ export default function App() {
     Fraunces_600SemiBold,
     Fraunces_700Bold,
   });
+
+  // On the web build, mobile Safari flashes a tap highlight and selects text on
+  // every tap, which makes the UI feel stuck. Suppress it app-wide while still
+  // allowing selection inside text fields. No-op on native.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const style = document.createElement('style');
+    style.textContent =
+      '* { -webkit-tap-highlight-color: transparent; }' +
+      'body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }' +
+      'input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }';
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
 
   if (!fontsLoaded) {
     return <View style={styles.root} />;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -103,6 +105,17 @@ export function HomeScreen({ onSnapshot }: Props) {
   // True once the angler has chosen a water type by hand/preset — auto-detect
   // then leaves it alone.
   const userSetWaterType = useRef(false);
+
+  // Scroll plumbing for the floating jump button (top <-> bite forecast).
+  const scrollRef = useRef<ScrollView>(null);
+  const bodyY = useRef(0); // body offset within the scroll content
+  const forecastRelY = useRef(0); // forecast card offset within the body
+  const [nearForecast, setNearForecast] = useState(false);
+
+  // Auto-analyze plumbing: the signature of the last setup we analyzed, and a
+  // live ref to onAnalyze so the debounced effect always calls the latest one.
+  const lastSigRef = useRef('');
+  const onAnalyzeRef = useRef<() => void>(() => {});
 
   const conditions = forecast?.[selectedDay] ?? null;
   const strategy = strategies?.[selectedDay] ?? null;
@@ -307,6 +320,11 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const onAnalyze = useCallback(async () => {
     if (!coordinates) return;
+    // Mark this exact setup as analyzed so the auto-analyze effect doesn't
+    // immediately fire again for the same inputs.
+    lastSigRef.current = analyzeSig(
+      coordinates, waterType, species, structures, clarity, depth, pressureLevel,
+    );
     // Remember this setup so the next session starts pre-filled.
     void saveSettings({ waterType, species, structures, clarity, depth, pressureLevel });
     setAnalyzing(true);
@@ -343,11 +361,50 @@ export function HomeScreen({ onSnapshot }: Props) {
     }
   }, [coordinates, waterType, species, structures, pressureLevel, clarity, depth, place, onSnapshot]);
 
+  // Keep a live ref to the latest onAnalyze for the debounced auto-run.
+  onAnalyzeRef.current = onAnalyze;
+
+  // Auto-run the analysis once a location is set, and again whenever the setup
+  // changes — so the angler never has to tap Analyze. Debounced so rapid edits
+  // (toggling species/cover) settle into a single run and don't hammer the API.
+  useEffect(() => {
+    if (!coordinates || analyzing) return; // hold off until any run finishes
+    const sig = analyzeSig(
+      coordinates, waterType, species, structures, clarity, depth, pressureLevel,
+    );
+    if (sig === lastSigRef.current) return; // already analyzed this exact setup
+    const timer = setTimeout(() => {
+      if (sig === lastSigRef.current) return; // a manual Analyze beat us to it
+      void onAnalyzeRef.current();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [coordinates, waterType, species, structures, clarity, depth, pressureLevel, analyzing]);
+
+  // Floating jump button: hop between the top of the form and the bite forecast.
+  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const near = y >= bodyY.current + forecastRelY.current - 120;
+    setNearForecast((prev) => (prev === near ? prev : near));
+  }, []);
+
+  const jumpToForecast = useCallback(() => {
+    if (nearForecast) {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    } else {
+      const target = Math.max(0, bodyY.current + forecastRelY.current - 8);
+      scrollRef.current?.scrollTo({ y: target, animated: true });
+    }
+  }, [nearForecast]);
+
   return (
+    <View style={styles.root}>
     <ScrollView
+      ref={scrollRef}
       style={styles.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      onScroll={onScroll}
+      scrollEventThrottle={16}
     >
       <BrandHeader
         heading="bayLURE"
@@ -356,7 +413,12 @@ export function HomeScreen({ onSnapshot }: Props) {
         display
       />
 
-      <View style={styles.body}>
+      <View
+        style={styles.body}
+        onLayout={(e) => {
+          bodyY.current = e.nativeEvent.layout.y;
+        }}
+      >
       {/* Step 1 — Location */}
       <Section title="Location">
         <Pressable
@@ -685,24 +747,30 @@ export function HomeScreen({ onSnapshot }: Props) {
         </View>
       ) : null}
 
-      {strategy && conditions && strategies ? (
-        <ForecastCard
-          strategy={strategy}
-          conditions={conditions}
-          days={strategies.map((s, i) => ({
-            label: dayLabel(addDays(new Date(), i), i),
-            num: dayNumber(addDays(new Date(), i)),
-            score: s.biteScore,
-          }))}
-          selectedDay={selectedDay}
-          onSelectDay={(day) => {
-            setSelectedDay(day);
-            setSelectedHour(null);
-          }}
-          selectedHour={selectedHour}
-          onSelectHour={setSelectedHour}
-        />
-      ) : null}
+      <View
+        onLayout={(e) => {
+          forecastRelY.current = e.nativeEvent.layout.y;
+        }}
+      >
+        {strategy && conditions && strategies ? (
+          <ForecastCard
+            strategy={strategy}
+            conditions={conditions}
+            days={strategies.map((s, i) => ({
+              label: dayLabel(addDays(new Date(), i), i),
+              num: dayNumber(addDays(new Date(), i)),
+              score: s.biteScore,
+            }))}
+            selectedDay={selectedDay}
+            onSelectDay={(day) => {
+              setSelectedDay(day);
+              setSelectedHour(null);
+            }}
+            selectedHour={selectedHour}
+            onSelectHour={setSelectedHour}
+          />
+        ) : null}
+      </View>
       {strategy ? <PicksCard strategy={strategy} /> : null}
       {strategy ? <InsightsCard strategy={strategy} /> : null}
       {strategy ? (
@@ -732,11 +800,52 @@ export function HomeScreen({ onSnapshot }: Props) {
       </Text>
       </View>
     </ScrollView>
+
+      {/* Quick hop between the form and the bite forecast, once results exist. */}
+      {conditions ? (
+        <Pressable
+          onPress={jumpToForecast}
+          hitSlop={8}
+          style={({ pressed }) => [styles.jumpBtn, pressed && pressedStyle]}
+          accessibilityLabel={nearForecast ? 'Jump to top' : 'Jump to bite forecast'}
+        >
+          <Feather
+            name={nearForecast ? 'chevron-up' : 'chevron-down'}
+            size={26}
+            color={colors.onAccent}
+          />
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
 function formatCoords(c: Coordinates): string {
   return `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`;
+}
+
+// Stable fingerprint of the inputs that change the analysis result, used to
+// skip auto-analyzing a setup we've already run. Empty string = not analyzable.
+function analyzeSig(
+  coordinates: Coordinates | null,
+  waterType: WaterType,
+  species: Species[],
+  structures: StructureType[],
+  clarity: WaterClarity,
+  depth: WaterDepth,
+  pressureLevel: PressureLevel,
+): string {
+  if (!coordinates) return '';
+  return JSON.stringify([
+    coordinates.latitude.toFixed(3),
+    coordinates.longitude.toFixed(3),
+    waterType,
+    [...species].sort(),
+    [...structures].sort(),
+    clarity,
+    depth,
+    pressureLevel,
+  ]);
 }
 
 function cap(s: string): string {
@@ -808,12 +917,28 @@ function OptionRow<T extends string>({
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
   },
   content: {
     paddingBottom: spacing.xl * 2,
+  },
+  jumpBtn: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.card,
   },
   body: {
     paddingHorizontal: spacing.lg,

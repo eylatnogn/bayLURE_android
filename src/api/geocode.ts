@@ -15,8 +15,17 @@ export interface Region {
   countryCode: string;
 }
 
+// A point's state/country doesn't change, so cache it indefinitely (for the
+// session). Nominatim asks for <= 1 req/sec, and auto-analyze would otherwise
+// call this on every re-run.
+const regionCache = new Map<string, Region>();
+
 /** Reverse-geocode coordinates to a state/region (for regulations lookup). */
 export async function reverseRegion(coords: Coordinates): Promise<Region> {
+  const key = `${coords.latitude.toFixed(2)},${coords.longitude.toFixed(2)}`;
+  const cached = regionCache.get(key);
+  if (cached) return cached;
+
   const params = new URLSearchParams({
     format: 'jsonv2',
     lat: String(coords.latitude),
@@ -31,10 +40,12 @@ export async function reverseRegion(coords: Coordinates): Promise<Region> {
   const data = (await res.json()) as {
     address?: { state?: string; region?: string; country_code?: string };
   };
-  return {
+  const region: Region = {
     state: data.address?.state ?? data.address?.region ?? '',
     countryCode: data.address?.country_code ?? '',
   };
+  regionCache.set(key, region);
+  return region;
 }
 
 interface NominatimHit {

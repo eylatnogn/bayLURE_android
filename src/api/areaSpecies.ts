@@ -13,6 +13,11 @@ export interface AreaFish {
   target: Species | null;
 }
 
+// Nearby fish barely change, so cache by location to spare the API on repeat
+// (now automatic) analyses.
+const AREA_TTL_MS = 30 * 60 * 1000;
+const areaCache = new Map<string, { at: number; fish: AreaFish[] }>();
+
 /**
  * What fish are actually observed near a location, via the free iNaturalist
  * species-counts API (no key). Filtered to ray-finned fishes (Actinopterygii)
@@ -26,6 +31,10 @@ export async function fetchAreaFish(
   coords: Coordinates,
   radiusKm = 50,
 ): Promise<AreaFish[]> {
+  const key = `${coords.latitude.toFixed(3)},${coords.longitude.toFixed(3)},${radiusKm}`;
+  const hit = areaCache.get(key);
+  if (hit && Date.now() - hit.at < AREA_TTL_MS) return hit.fish;
+
   const params = new URLSearchParams({
     lat: String(coords.latitude),
     lng: String(coords.longitude),
@@ -50,7 +59,7 @@ export async function fetchAreaFish(
     }>;
   };
 
-  return (data.results ?? [])
+  const fish = (data.results ?? [])
     .map((r) => {
       const scientificName = r.taxon?.name ?? '';
       const commonName = r.taxon?.preferred_common_name || scientificName;
@@ -63,6 +72,9 @@ export async function fetchAreaFish(
       };
     })
     .filter((f) => f.scientificName.length > 0);
+
+  areaCache.set(key, { at: Date.now(), fish });
+  return fish;
 }
 
 function titleCase(s: string): string {
