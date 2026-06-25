@@ -28,18 +28,20 @@ function esc(s: string): string {
 }
 
 /**
- * A self-contained Leaflet + OpenStreetMap document with a draggable pin and an
- * animated wind overlay (leaflet-velocity). No API key required.
+ * A self-contained Leaflet + OpenStreetMap document with a draggable pin, an
+ * animated wind overlay (leaflet-velocity), and an optional depth view. No API
+ * key required.
  *
  * The pin posts the selected coordinates back to its host:
  * `window.ReactNativeWebView` on native, the parent window on web.
  *
- * The wind layer samples a coarse grid of Open-Meteo wind over the current
- * view, converts speed+direction to U/V components, and animates the flow. It
- * shows the hour given by `windTargetISO` (from the Conditions picker), or live
- * "current" wind when that is null. The on-map legend states which time it is
- * for. Best-effort: any failure (offline, rate limit) is swallowed so the map
- * still works as a plain spot-picker.
+ * Wind: samples a coarse grid of Open-Meteo wind over the view and animates the
+ * flow for the hour given by `windTargetISO` (or live "current" when null).
+ *
+ * Depth (toggle, off by default): NOAA nautical charts (real soundings/contours,
+ * US coastal + Great Lakes) over a coarse GEBCO depth shading; tapping the pin
+ * reads the GEBCO depth at that point. All best-effort — failures are swallowed
+ * so the map still works as a plain spot-picker.
  *
  * The same HTML drives both the native WebView and the web <iframe>.
  */
@@ -67,27 +69,30 @@ export function buildMapHtml(
       font: 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
     }
-    .leaflet-velocity-control { font: 11px -apple-system, Roboto, sans-serif; }
-    .legend {
-      position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
-      background: rgba(34,46,28,0.82); color: #f8faf1;
-      font: 11px -apple-system, Roboto, sans-serif;
-      padding: 6px 8px; border-radius: 8px; width: 132px;
-    }
-    .legend-when { font-weight: 700; margin-bottom: 4px; }
-    .legend-bar {
-      height: 8px; border-radius: 4px;
-      background: linear-gradient(to right,
-        #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240);
-    }
-    .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
-    .windtoggle {
-      position: absolute; z-index: 1000; right: 8px; top: 8px; border: none;
+    .maptoggle {
+      position: absolute; z-index: 1000; right: 8px; border: none;
       background: #3a7d52; color: #f7faf3; cursor: pointer;
       font: 600 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
     }
-    .windtoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
+    .maptoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
+    #windtoggle { top: 8px; }
+    #depthtoggle { top: 42px; }
+    .legendbox {
+      position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
+      background: rgba(34,46,28,0.82); color: #f8faf1;
+      font: 11px -apple-system, Roboto, sans-serif;
+      padding: 6px 8px; border-radius: 8px; width: 140px;
+    }
+    .legendsec { display: none; }
+    .legendsec + .legendsec { margin-top: 6px; }
+    .legend-when { font-weight: 700; margin-bottom: 4px; }
+    .legend-bar { height: 8px; border-radius: 4px; }
+    .windgrad { background: linear-gradient(to right,
+      #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240); }
+    .depthgrad { background: linear-gradient(to right,
+      #cfe8f5, #7fc4e8, #3e8fc4, #2c6aa0, #1d4373, #0e2647); }
+    .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
     .windread {
       position: absolute; z-index: 1000; left: 8px; bottom: 8px; display: none;
       background: rgba(34,46,28,0.82); color: #f8faf1;
@@ -99,11 +104,19 @@ export function buildMapHtml(
 <body>
   <div id="map"></div>
   <div class="hint">Tap or drag to set your spot</div>
-  <button class="windtoggle" id="windtoggle">Wind: on</button>
-  <div class="legend" id="legend">
-    <div class="legend-when">${whenText}</div>
-    <div class="legend-bar"></div>
-    <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
+  <button class="maptoggle" id="windtoggle">Wind: on</button>
+  <button class="maptoggle off" id="depthtoggle">Depth: off</button>
+  <div class="legendbox" id="legendbox">
+    <div class="legendsec" id="windlegend">
+      <div class="legend-when">${whenText}</div>
+      <div class="legend-bar windgrad"></div>
+      <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
+    </div>
+    <div class="legendsec" id="depthlegend">
+      <div class="legend-when">Depth (ft)</div>
+      <div class="legend-bar depthgrad"></div>
+      <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
+    </div>
   </div>
   <div class="windread" id="windread"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -114,14 +127,31 @@ export function buildMapHtml(
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
+
+    // Panes so the stack is OSM < GEBCO shading < NOAA charts < wind < markers.
+    map.createPane('depthshade'); map.getPane('depthshade').style.zIndex = 350;
+    map.createPane('charts'); map.getPane('charts').style.zIndex = 360;
+
     var marker = L.marker([${c.latitude}, ${c.longitude}], { draggable: true }).addTo(map);
     function send(ll) {
       var msg = JSON.stringify({ latitude: ll.lat, longitude: ll.lng });
       if (window.ReactNativeWebView) { window.ReactNativeWebView.postMessage(msg); }
       else if (window.parent) { window.parent.postMessage(msg, '*'); }
     }
-    marker.on('dragend', function () { send(marker.getLatLng()); });
-    map.on('click', function (e) { marker.setLatLng(e.latlng); send(e.latlng); });
+    marker.on('dragend', function () { var ll = marker.getLatLng(); send(ll); updatePinDepth(ll, true); });
+    map.on('click', function (e) { marker.setLatLng(e.latlng); send(e.latlng); updatePinDepth(e.latlng, true); });
+
+    // Show/hide a legend section and the box around it.
+    function setLegend(id, on) {
+      var sec = document.getElementById(id);
+      if (sec) { sec.style.display = on ? 'block' : 'none'; }
+      var box = document.getElementById('legendbox');
+      if (!box) { return; }
+      var w = document.getElementById('windlegend');
+      var d = document.getElementById('depthlegend');
+      var any = (w && w.style.display === 'block') || (d && d.style.display === 'block');
+      box.style.display = any ? 'block' : 'none';
+    }
 
     // ---- Animated wind overlay (leaflet-velocity) ----
     // The hour to show, baked in from the Conditions picker. null = current.
@@ -255,8 +285,7 @@ export function buildMapHtml(
             var results = Array.isArray(json) ? json : [json];
             var samples = extractSamples(results);
             var data = buildVelocity(nx, ny, north, south, west, east, samples);
-            var lg = document.getElementById('legend');
-            if (lg) { lg.style.display = 'block'; }
+            setLegend('windlegend', true);
             updateSpotReadout(lats, lons, samples);
             if (windLayer) {
               windLayer.setData(data);
@@ -294,7 +323,6 @@ export function buildMapHtml(
     }
     toggleBtn.addEventListener('click', function () {
       windEnabled = !windEnabled;
-      var lg = document.getElementById('legend');
       if (windEnabled) {
         toggleBtn.textContent = 'Wind: on';
         toggleBtn.classList.remove('off');
@@ -303,14 +331,123 @@ export function buildMapHtml(
         toggleBtn.textContent = 'Wind: off';
         toggleBtn.classList.add('off');
         if (windLayer) { map.removeLayer(windLayer); }
-        if (lg) { lg.style.display = 'none'; }
+        setLegend('windlegend', false);
         var wr = document.getElementById('windread');
         if (wr) { wr.style.display = 'none'; }
       }
     });
 
-    map.whenReady(function () { refreshWind(); });
-    map.on('moveend', scheduleWind);
+    // ---- Depth: NOAA charts + GEBCO shading + tap-to-read ----
+    var depthEnabled = false; // off by default
+    var noaaLayer = null;
+    var depthShade = L.layerGroup();
+    var depthTimer = null;
+
+    // Stepped shallow→deep blue scale (0–200 ft+), matching the depth legend.
+    function depthColorFt(ft) {
+      var stops = ['#cfe8f5', '#7fc4e8', '#3e8fc4', '#2c6aa0', '#1d4373', '#0e2647'];
+      var t = Math.max(0, Math.min(0.999, ft / 200));
+      return stops[Math.floor(t * stops.length)];
+    }
+
+    // Coarse GEBCO depth shading over the view (cells below sea level only).
+    function refreshDepthShading() {
+      if (!depthEnabled) { return; }
+      try {
+        var b = map.getBounds();
+        var north = b.getNorth(), south = b.getSouth();
+        var west = b.getWest(), east = b.getEast();
+        if (east - west > 30) { var mx = (east + west) / 2; west = mx - 15; east = mx + 15; }
+        if (north - south > 30) { var my = (north + south) / 2; south = my - 15; north = my + 15; }
+        var n = 8;
+        var dLat = (north - south) / (n - 1), dLon = (east - west) / (n - 1);
+        var locs = [], cells = [];
+        for (var r = 0; r < n; r++) {
+          var lat = north - r * dLat;
+          for (var c = 0; c < n; c++) {
+            var lon = west + c * dLon;
+            locs.push(lat.toFixed(4) + ',' + lon.toFixed(4));
+            cells.push([lat, lon]);
+          }
+        }
+        fetch('https://api.opentopodata.org/v1/gebco2020?locations=' + locs.join('|'))
+          .then(function (res) { return res.json(); })
+          .then(function (j) {
+            if (!depthEnabled) { return; }
+            depthShade.clearLayers();
+            var results = j.results || [];
+            for (var i = 0; i < results.length; i++) {
+              var el = results[i] ? results[i].elevation : null;
+              if (el == null || el >= 0) { continue; } // at/above sea level: no depth
+              var ft = -el * 3.28084;
+              var cl = cells[i];
+              depthShade.addLayer(L.rectangle(
+                [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
+                { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
+              ));
+            }
+          })
+          .catch(function () { /* depth shading is optional */ });
+      } catch (e) { /* optional */ }
+    }
+
+    function scheduleDepth() {
+      if (!depthEnabled) { return; }
+      if (depthTimer) { clearTimeout(depthTimer); }
+      depthTimer = setTimeout(refreshDepthShading, 700);
+    }
+
+    // Charted depth at the pin (GEBCO single point), shown in the marker popup.
+    function updatePinDepth(ll, autoOpen) {
+      fetch('https://api.opentopodata.org/v1/gebco2020?locations=' + ll.lat + ',' + ll.lng)
+        .then(function (res) { return res.json(); })
+        .then(function (j) {
+          var el = j.results && j.results[0] ? j.results[0].elevation : null;
+          var txt = (el != null && el < 0)
+            ? '≈' + Math.round(-el * 3.28084) + ' ft deep (GEBCO)'
+            : 'Bottom depth not charted here';
+          marker.bindPopup(txt);
+          if (autoOpen) { marker.openPopup(); }
+        })
+        .catch(function () { /* optional */ });
+    }
+
+    var depthBtn = document.getElementById('depthtoggle');
+    if (L.DomEvent) {
+      L.DomEvent.disableClickPropagation(depthBtn);
+      L.DomEvent.disableScrollPropagation(depthBtn);
+    }
+    depthBtn.addEventListener('click', function () {
+      depthEnabled = !depthEnabled;
+      if (depthEnabled) {
+        depthBtn.textContent = 'Depth: on';
+        depthBtn.classList.remove('off');
+        if (!noaaLayer) {
+          // NOAA Chart Display Service (MCS WMS): 1 features, 2 depths,
+          // 3 seabed, 6 aids, 11 shallow-water pattern. US coastal + Great Lakes.
+          noaaLayer = L.tileLayer.wms(
+            'https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/NOAAChartDisplay/MapServer/exts/MaritimeChartService/WMSServer',
+            { layers: '1,2,3,6,11', format: 'image/png', transparent: true, version: '1.3.0', opacity: 0.9, pane: 'charts' }
+          );
+        }
+        noaaLayer.addTo(map);
+        depthShade.addTo(map);
+        setLegend('depthlegend', true);
+        refreshDepthShading();
+      } else {
+        depthBtn.textContent = 'Depth: off';
+        depthBtn.classList.add('off');
+        if (noaaLayer) { map.removeLayer(noaaLayer); }
+        map.removeLayer(depthShade);
+        setLegend('depthlegend', false);
+      }
+    });
+
+    map.whenReady(function () {
+      refreshWind();
+      updatePinDepth(marker.getLatLng(), false);
+    });
+    map.on('moveend', function () { scheduleWind(); scheduleDepth(); });
   </script>
 </body>
 </html>`;
