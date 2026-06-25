@@ -120,6 +120,7 @@ export function buildMapHtml(
     .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
     .windread {
       position: absolute; z-index: 1000; left: 8px; bottom: 8px; display: none;
+      max-width: calc(100% - 16px);
       background: rgba(34,46,28,0.82); color: #f8faf1;
       font: 600 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
@@ -235,6 +236,15 @@ export function buildMapHtml(
     // pause wind requests for a while to let the quota recover.
     var lastWindKey = '';
     var windCooldownUntil = 0;
+    var windRetryTimer = null;
+
+    // Surface why the wind overlay is blank (rate limit, offline, etc.) in the
+    // pin-readout box instead of failing silently. A successful fetch overwrites
+    // this with the real reading.
+    function windStatus(msg) {
+      var wr = document.getElementById('windread');
+      if (wr) { wr.textContent = msg; wr.style.display = 'block'; }
+    }
 
     // Meteorological wind direction is the bearing the wind blows FROM, so the
     // motion vector is the negative: u east-ward, v north-ward, both m/s.
@@ -371,7 +381,8 @@ export function buildMapHtml(
         fetch(url)
           .then(function (res) {
             // On a rate-limit, pause wind fetching for a minute and bail.
-            if (res.status === 429) { windCooldownUntil = Date.now() + 60000; lastWindKey = ''; throw new Error('429'); }
+            if (res.status === 429) { windCooldownUntil = Date.now() + 60000; lastWindKey = ''; throw new Error('rate-limited'); }
+            if (!res.ok) { throw new Error('http-' + res.status); }
             return res.json();
           })
           .then(function (json) {
@@ -381,6 +392,12 @@ export function buildMapHtml(
             var data = buildVelocity(nx, ny, north, south, west, east, samples);
             setLegend('windlegend', true);
             updateSpotReadout(lats, lons, samples);
+            // leaflet-velocity loads from a CDN; if it didn't, still show the
+            // pin reading above and say the animation is missing.
+            if (typeof L.velocityLayer !== 'function') {
+              windStatus('Wind animation failed to load (CDN/offline)');
+              return;
+            }
             if (windLayer) {
               windLayer.setData(data);
               if (!map.hasLayer(windLayer)) { windLayer.addTo(map); }
@@ -399,7 +416,19 @@ export function buildMapHtml(
             });
             windLayer.addTo(map);
           })
-          .catch(function () { /* wind is optional */ });
+          .catch(function (err) {
+            var msg = (err && err.message) || '';
+            if (msg === 'rate-limited') {
+              windStatus('Wind paused — weather service busy (rate limited)');
+              // Auto-recover: retry once the cooldown passes.
+              if (windRetryTimer) { clearTimeout(windRetryTimer); }
+              windRetryTimer = setTimeout(function () {
+                windRetryTimer = null; lastWindKey = ''; refreshWind();
+              }, 61000);
+            } else {
+              windStatus('Wind data unavailable right now (' + (msg || 'error') + ')');
+            }
+          });
       } catch (e) { /* wind is optional */ }
     }
 
