@@ -4,13 +4,9 @@ import type { LurePick, Strategy } from '@/types';
 import { Section } from '@/components/Section';
 import { colors, pressedStyle, radius, spacing } from '@/theme';
 
-const categoryLabel: Record<LurePick['category'], string> = {
-  lure: 'LURE',
-  rig: 'RIG',
-  bait: 'BAIT',
-};
-
 type PickFilter = 'all' | 'lure' | 'rig' | 'bait';
+
+const CATEGORY_ORDER: LurePick['category'][] = ['lure', 'rig', 'bait'];
 
 const FILTERS: { id: PickFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -19,21 +15,13 @@ const FILTERS: { id: PickFilter; label: string }[] = [
   { id: 'bait', label: 'Bait' },
 ];
 
-function displayPicks(picks: LurePick[], filter: PickFilter): LurePick[] {
-  if (filter !== 'all') {
-    return picks.filter((p) => p.category === filter).slice(0, 6);
-  }
-  const counts: Record<string, number> = {};
-  const out: LurePick[] = [];
-  for (const p of picks) {
-    const n = counts[p.category] ?? 0;
-    if (n >= 3) continue;
-    counts[p.category] = n + 1;
-    out.push(p);
-    if (out.length >= 6) break;
-  }
-  return out;
-}
+// A short, plain-language explainer per type so it's clear at a glance what
+// each group is and how it's meant to be used.
+const groupMeta: Record<LurePick['category'], { title: string; blurb: string }> = {
+  lure: { title: 'Lures', blurb: 'Artificial — cast and work them.' },
+  rig: { title: 'Rigs', blurb: 'How to set up the hook + weight.' },
+  bait: { title: 'Bait', blurb: 'Live or natural offerings.' },
+};
 
 function GearRow({ label, value }: { label: string; value: string }) {
   return (
@@ -47,12 +35,7 @@ function GearRow({ label, value }: { label: string; value: string }) {
 function PickRow({ pick }: { pick: LurePick }) {
   return (
     <View style={styles.pick}>
-      <View style={styles.pickHead}>
-        <Text style={styles.pickName}>{pick.name}</Text>
-        <View style={styles.tag}>
-          <Text style={styles.tagText}>{categoryLabel[pick.category]}</Text>
-        </View>
-      </View>
+      <Text style={styles.pickName}>{pick.name}</Text>
       <Text style={styles.pickDetails}>{pick.details}</Text>
       <Text style={styles.pickReason}>{pick.reason}</Text>
       {pick.gear ? (
@@ -69,7 +52,18 @@ function PickRow({ pick }: { pick: LurePick }) {
 export function PicksCard({ strategy }: { strategy: Strategy }) {
   const [filter, setFilter] = useState<PickFilter>('all');
   const available = new Set(strategy.picks.map((p) => p.category));
-  const shown = displayPicks(strategy.picks, filter);
+
+  // Always render grouped under a labeled header so lures, rigs, and bait never
+  // blur together. "All" shows the top few of each type; picking one type shows
+  // more of just that one.
+  const perGroup = filter === 'all' ? 3 : 6;
+  const groups = CATEGORY_ORDER
+    .filter((c) => filter === 'all' || c === filter)
+    .map((category) => ({
+      category,
+      items: strategy.picks.filter((p) => p.category === category).slice(0, perGroup),
+    }))
+    .filter((g) => g.items.length > 0);
 
   return (
     <Section title="Throw This">
@@ -93,8 +87,17 @@ export function PicksCard({ strategy }: { strategy: Strategy }) {
           );
         })}
       </View>
-      {shown.map((p, i) => (
-        <PickRow key={`${p.name}-${i}`} pick={p} />
+
+      {groups.map((g) => (
+        <View key={g.category} style={styles.group}>
+          <View style={styles.groupHead}>
+            <Text style={styles.groupTitle}>{groupMeta[g.category].title}</Text>
+            <Text style={styles.groupBlurb}>{groupMeta[g.category].blurb}</Text>
+          </View>
+          {g.items.map((p, i) => (
+            <PickRow key={`${p.name}-${i}`} pick={p} />
+          ))}
+        </View>
       ))}
     </Section>
   );
@@ -113,22 +116,29 @@ const styles = StyleSheet.create({
   filterChipActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
   filterText: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   filterTextActive: { color: colors.text },
+  group: { marginBottom: spacing.md },
+  groupHead: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  groupTitle: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  groupBlurb: { color: colors.textMuted, fontSize: 11, flexShrink: 1 },
   pick: {
     backgroundColor: colors.bgElevated,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.sm,
   },
-  pickHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pickName: { color: colors.text, fontSize: 15, fontWeight: '700', flex: 1 },
-  tag: {
-    backgroundColor: colors.accentDim,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    marginLeft: spacing.sm,
-  },
-  tagText: { color: colors.text, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  pickName: { color: colors.text, fontSize: 15, fontWeight: '700' },
   pickDetails: { color: colors.textMuted, fontSize: 13, marginTop: spacing.xs, lineHeight: 18 },
   pickReason: {
     color: colors.accent,
