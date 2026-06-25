@@ -561,10 +561,16 @@ export function buildMapHtml(
     });
 
     map.whenReady(function () {
-      refreshWind();
       updatePinDepth(marker.getLatLng(), false);
+      // Defer the first wind draw a tick. In a just-inserted container (e.g. the
+      // web full-screen overlay) the map can mis-measure its size at whenReady,
+      // which leaves the leaflet-velocity canvas sized to an old/zero box and
+      // never visible. invalidateSize settles it before the layer is added.
+      setTimeout(function () { map.invalidateSize(); refreshWind(); }, 250);
     });
     map.on('moveend', function () { scheduleWind(); scheduleDepth(); });
+    // Belt-and-suspenders: if the container resizes after load, redraw the wind.
+    window.addEventListener('resize', function () { map.invalidateSize(); scheduleWind(); });
   </script>
 </body>
 </html>`;
