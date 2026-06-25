@@ -112,6 +112,11 @@ export function HomeScreen({ onSnapshot }: Props) {
   const forecastRelY = useRef(0); // forecast card offset within the body
   const [nearForecast, setNearForecast] = useState(false);
 
+  // Auto-analyze plumbing: the signature of the last setup we analyzed, and a
+  // live ref to onAnalyze so the debounced effect always calls the latest one.
+  const lastSigRef = useRef('');
+  const onAnalyzeRef = useRef<(silent?: boolean) => void>(() => {});
+
   const conditions = forecast?.[selectedDay] ?? null;
   const strategy = strategies?.[selectedDay] ?? null;
   const regsUrl =
@@ -313,12 +318,17 @@ export function HomeScreen({ onSnapshot }: Props) {
     [onChangeWaterType],
   );
 
-  const onAnalyze = useCallback(async () => {
+  const onAnalyze = useCallback(async (silent = false) => {
     if (!coordinates) return;
+    // Mark this exact setup as analyzed so the auto-analyze effect doesn't
+    // immediately fire again for the same inputs.
+    lastSigRef.current = analyzeSig(
+      coordinates, waterType, species, structures, clarity, depth, pressureLevel,
+    );
     // Remember this setup so the next session starts pre-filled.
     void saveSettings({ waterType, species, structures, clarity, depth, pressureLevel });
     setAnalyzing(true);
-    setError(null);
+    if (!silent) setError(null);
     try {
       const [week, fish, reg] = await Promise.all([
         gatherForecast({
@@ -340,16 +350,42 @@ export function HomeScreen({ onSnapshot }: Props) {
       setSelectedHour(null);
       setAreaFish(fish);
       setRegion(reg);
+      setError(null); // a successful run clears any earlier failure
       // Catch log always attaches *today's* conditions, not a future forecast.
       if (week[0] && strats[0]) {
         onSnapshot?.(buildCatchConditions(week[0], strats[0].biteScore, place));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.');
+      // An automatic run shouldn't nag with a banner the angler didn't trigger
+      // (usually a transient rate limit). Surface errors only for a manual tap;
+      // the Analyze button stays available to retry and see what's wrong.
+      if (!silent) {
+        setError(e instanceof Error ? e.message : 'Something went wrong.');
+      }
     } finally {
       setAnalyzing(false);
     }
   }, [coordinates, waterType, species, structures, pressureLevel, clarity, depth, place, onSnapshot]);
+
+  // Keep a live ref to the latest onAnalyze for the debounced auto-run.
+  onAnalyzeRef.current = onAnalyze;
+
+  // Auto-run the analysis once a location is set (the only required field —
+  // everything else has a sensible default), and again whenever the setup
+  // changes. Debounced so rapid edits settle into one run; thanks to the
+  // per-location cache, refinement-only re-runs don't re-hit the weather API.
+  useEffect(() => {
+    if (!coordinates || analyzing) return; // hold off until any run finishes
+    const sig = analyzeSig(
+      coordinates, waterType, species, structures, clarity, depth, pressureLevel,
+    );
+    if (sig === lastSigRef.current) return; // already analyzed this exact setup
+    const timer = setTimeout(() => {
+      if (sig === lastSigRef.current) return; // a manual Analyze beat us to it
+      void onAnalyzeRef.current(true); // silent: don't show a banner on auto-runs
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [coordinates, waterType, species, structures, clarity, depth, pressureLevel, analyzing]);
 
   // Floating jump button: hop between the top of the form and the bite forecast.
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -695,7 +731,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       <Text style={styles.summaryLine}>{configSummary}</Text>
 
       <Pressable
-        onPress={onAnalyze}
+        onPress={() => onAnalyze()}
         disabled={analyzing || !coordinates}
         style={({ pressed }) => [
           styles.cta,
@@ -793,6 +829,30 @@ export function HomeScreen({ onSnapshot }: Props) {
 
 function formatCoords(c: Coordinates): string {
   return `${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)}`;
+}
+
+// Stable fingerprint of the inputs that change the analysis result, used to
+// skip auto-analyzing a setup we've already run. Empty string = not analyzable.
+function analyzeSig(
+  coordinates: Coordinates | null,
+  waterType: WaterType,
+  species: Species[],
+  structures: StructureType[],
+  clarity: WaterClarity,
+  depth: WaterDepth,
+  pressureLevel: PressureLevel,
+): string {
+  if (!coordinates) return '';
+  return JSON.stringify([
+    coordinates.latitude.toFixed(3),
+    coordinates.longitude.toFixed(3),
+    waterType,
+    [...species].sort(),
+    [...structures].sort(),
+    clarity,
+    depth,
+    pressureLevel,
+  ]);
 }
 
 function cap(s: string): string {
