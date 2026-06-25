@@ -12,6 +12,30 @@ import { addDays, localDateStr } from '@/utils/dates';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 export const FORECAST_DAYS = 7;
 
+/**
+ * Open-Meteo shares a per-IP rate limit with the map's wind overlay, so a burst
+ * of map panning can briefly use up the quota. Retry a 429 (or transient 5xx) a
+ * couple of times with backoff before surfacing a friendly error.
+ */
+async function fetchForecastWithRetry(url: string, attempts = 3): Promise<Response> {
+  for (let i = 0; i < attempts; i += 1) {
+    const res = await fetch(url);
+    if (res.ok) return res;
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || i === attempts - 1) {
+      if (res.status === 429) {
+        throw new Error(
+          'Weather service is busy right now (rate limited). Wait a minute and try again.',
+        );
+      }
+      throw new Error(`Weather request failed (${res.status}).`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
+  }
+  // Unreachable — the loop either returns a response or throws.
+  throw new Error('Weather request failed.');
+}
+
 interface Hourly {
   time: string[];
   temperature_2m: number[];
@@ -68,8 +92,7 @@ export async function fetchWeekWeather(
     forecast_days: String(FORECAST_DAYS),
   });
 
-  const res = await fetch(`${FORECAST_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`Weather request failed (${res.status}).`);
+  const res = await fetchForecastWithRetry(`${FORECAST_URL}?${params.toString()}`);
   const data = (await res.json()) as OpenMeteoForecast;
   const hourly = data.hourly;
   const nowTime = data.current?.time;

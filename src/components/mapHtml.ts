@@ -81,7 +81,10 @@ export function buildMapHtml(
     .maptoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
     #windtoggle { top: 8px; }
     #depthtoggle { top: 42px; }
-    .mapicon { padding: 6px; line-height: 0; }
+    .mapicon { padding: 8px; line-height: 0; }
+    /* Make the icon itself non-interactive so taps always land on the button —
+       on touch devices the SVG can otherwise swallow the tap. */
+    .mapicon svg { display: block; pointer-events: none; }
     #fsbtn { top: 8px; left: 8px; right: auto; }
     .legendbox {
       position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
@@ -233,10 +236,15 @@ export function buildMapHtml(
     // ---- Animated wind overlay (leaflet-velocity) ----
     // The hour to show, baked in from the Conditions picker. null = current.
     var windTargetISO = ${isoLiteral};
-    var GRID = 8;           // GRID x GRID sample points over the view
+    var GRID = 6;           // GRID x GRID sample points over the view
     var windLayer = null;
     var windTimer = null;
     var windEnabled = true; // toggled by the on-map Wind button
+    // Open-Meteo shares a per-IP rate limit with the Analyze forecast call, so
+    // we throttle: skip refetching the same view twice, and after a 429 we
+    // pause wind requests for a while to let the quota recover.
+    var lastWindKey = '';
+    var windCooldownUntil = 0;
 
     // Meteorological wind direction is the bearing the wind blows FROM, so the
     // motion vector is the negative: u east-ward, v north-ward, both m/s.
@@ -330,6 +338,8 @@ export function buildMapHtml(
 
     function refreshWind() {
       if (!windEnabled) { return; }
+      // Back off while rate-limited so we don't starve the Analyze forecast.
+      if (Date.now() < windCooldownUntil) { return; }
       try {
         var b = map.getBounds();
         var north = b.getNorth(), south = b.getSouth();
@@ -337,6 +347,12 @@ export function buildMapHtml(
         // Clamp a very wide (zoomed-out) view so the grid stays meaningful.
         if (east - west > 50) { var mx = (east + west) / 2; west = mx - 25; east = mx + 25; }
         if (north - south > 50) { var my = (north + south) / 2; south = my - 25; north = my + 25; }
+        // Skip if this is the same view (rounded) we last fetched — moving the
+        // marker or nudging the map shouldn't trigger a fresh request.
+        var key = [north, south, west, east].map(function (n) { return n.toFixed(2); }).join(',')
+          + '|' + (windTargetISO || 'now');
+        if (key === lastWindKey) { return; }
+        lastWindKey = key;
         var nx = GRID, ny = GRID;
         var dx = (east - west) / (nx - 1), dy = (north - south) / (ny - 1);
         var lats = [], lons = [];
@@ -348,15 +364,26 @@ export function buildMapHtml(
             lons.push(Math.round((west + col * dx) * 1e4) / 1e4);
           }
         }
+        // Only request as many forecast days as the target hour needs (1 for a
+        // few days out, never the full 8) to keep the request weight low.
+        var fdays = 2;
+        if (windTargetISO) {
+          var dd = Math.ceil((new Date(windTargetISO).getTime() - Date.now()) / 86400000) + 1;
+          fdays = Math.max(1, Math.min(8, dd));
+        }
         var base = 'https://api.open-meteo.com/v1/forecast'
           + '?latitude=' + lats.join(',')
           + '&longitude=' + lons.join(',')
           + '&wind_speed_unit=ms';
         var url = windTargetISO
-          ? base + '&hourly=wind_speed_10m,wind_direction_10m&timezone=auto&forecast_days=8'
+          ? base + '&hourly=wind_speed_10m,wind_direction_10m&timezone=auto&forecast_days=' + fdays
           : base + '&current=wind_speed_10m,wind_direction_10m';
         fetch(url)
-          .then(function (res) { return res.json(); })
+          .then(function (res) {
+            // On a rate-limit, pause wind fetching for a minute and bail.
+            if (res.status === 429) { windCooldownUntil = Date.now() + 60000; lastWindKey = ''; throw new Error('429'); }
+            return res.json();
+          })
           .then(function (json) {
             if (!windEnabled) { return; }
             var results = Array.isArray(json) ? json : [json];
@@ -388,7 +415,7 @@ export function buildMapHtml(
 
     function scheduleWind() {
       if (windTimer) { clearTimeout(windTimer); }
-      windTimer = setTimeout(refreshWind, 700);
+      windTimer = setTimeout(refreshWind, 1500);
     }
 
     // Wind on/off toggle. disableClickPropagation keeps a button tap from
@@ -403,6 +430,8 @@ export function buildMapHtml(
       if (windEnabled) {
         toggleBtn.textContent = 'Wind: on';
         toggleBtn.classList.remove('off');
+        lastWindKey = ''; // bypass the dedupe so re-enabling always refetches
+        windCooldownUntil = 0;
         refreshWind(); // re-fetches for the current view, re-adds the layer, shows the legend
       } else {
         toggleBtn.textContent = 'Wind: off';
