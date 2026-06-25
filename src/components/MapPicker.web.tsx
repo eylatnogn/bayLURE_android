@@ -1,4 +1,5 @@
 import { createElement, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { StyleSheet, View } from 'react-native';
 import { colors, radius } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
@@ -12,15 +13,17 @@ export function MapPicker({
   windTargetISO = null,
   windTargetLabel = 'Now',
 }: MapPickerProps) {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  // Latest center — read when the srcDoc is rebuilt for a wind-time change.
+  const inlineRef = useRef<HTMLIFrameElement | null>(null);
+  const fullRef = useRef<HTMLIFrameElement | null>(null);
+  // Latest center — read when a srcDoc is rebuilt for a wind-time change.
   const centerRef = useRef(center);
   centerRef.current = center;
-  // True when a pin move came from a click/drag inside the map: the map already
-  // moved the view, so we must NOT post it back (which could disturb the zoom).
+  // True when a pin move came from a click/drag inside a map: that map already
+  // moved its own view, so the external-center effect must not post it back.
   const internalPick = useRef(false);
-  // Full-screen via a CSS overlay (the iframe grows to fill the viewport). We
-  // avoid the Fullscreen API because iPhone Safari doesn't support it.
+  // Full screen is a CSS overlay portaled to <body> (the Fullscreen API isn't
+  // available on iPhone Safari, and a portal escapes every stacking context so
+  // it reliably sits above the whole app).
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -33,6 +36,10 @@ export function MapPicker({
         }
         if (typeof data?.latitude === 'number') {
           internalPick.current = true;
+          // Mirror the pin into the *other* map so inline and full screen agree.
+          const msg = { type: 'balure:moveSpot', lat: data.latitude, lng: data.longitude };
+          const fromInline = event.source === inlineRef.current?.contentWindow;
+          (fromInline ? fullRef : inlineRef).current?.contentWindow?.postMessage(msg, '*');
           onPick({ latitude: data.latitude, longitude: data.longitude });
         }
       } catch {
@@ -43,60 +50,71 @@ export function MapPicker({
     return () => window.removeEventListener('message', handler);
   }, [onPick]);
 
-  // Move the pin without reloading the iframe, so the zoom is preserved.
+  // External center change (geolocation/search/saved spot): move both pins
+  // without reloading, so each map keeps its zoom.
   useEffect(() => {
     if (internalPick.current) {
-      internalPick.current = false; // the map already placed this pin
+      internalPick.current = false; // a map already placed this pin
       return;
     }
     if (!center) return;
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'balure:moveSpot', lat: center.latitude, lng: center.longitude },
-      '*',
-    );
+    const msg = { type: 'balure:moveSpot', lat: center.latitude, lng: center.longitude };
+    inlineRef.current?.contentWindow?.postMessage(msg, '*');
+    fullRef.current?.contentWindow?.postMessage(msg, '*');
   }, [center]);
 
-  // Tell the in-map button which icon (expand vs shrink) to show.
-  useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'balure:fullscreen', value: expanded },
-      '*',
-    );
-  }, [expanded]);
-
-  // Rebuild the document only when the wind hour changes (to re-time the
-  // overlay). Center changes are pushed via postMessage instead, so selecting a
-  // spot never reloads the iframe or resets the zoom.
+  // Rebuild a document only when the wind hour changes (to re-time the overlay).
+  // Center changes are pushed via postMessage instead. The full-screen variant
+  // bakes the "shrink" icon (fullscreen=true).
   const srcDoc = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel),
+    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel, false),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [windTargetISO, windTargetLabel],
   );
+  // Keyed on `expanded` too, so each time it opens it bakes in the *current*
+  // location; it stays stable while open (no reload).
+  const srcDocFull = useMemo(
+    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel, true),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [windTargetISO, windTargetLabel, expanded],
+  );
 
-  // Only the style changes between inline and full screen — React keeps the same
-  // iframe element, so the map (and its zoom) is preserved across the toggle.
-  const iframe = createElement('iframe', {
-    ref: iframeRef,
+  const inlineIframe = createElement('iframe', {
+    ref: inlineRef,
     srcDoc,
-    style: expanded
-      ? {
-          // An <iframe> is a replaced element: left/right insets alone won't
-          // stretch it, so size it explicitly to the viewport.
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          zIndex: 9999,
-          border: 'none',
-          display: 'block',
-          background: colors.bgElevated,
-        }
-      : { width: '100%', height: '100%', border: 'none', display: 'block' },
+    style: { width: '100%', height: '100%', border: 'none', display: 'block' },
     title: 'Pick your fishing spot',
   });
 
-  return <View style={styles.frame}>{iframe}</View>;
+  const fullscreen =
+    expanded && typeof document !== 'undefined'
+      ? createPortal(
+          createElement('iframe', {
+            ref: fullRef,
+            srcDoc: srcDocFull,
+            style: {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              zIndex: 2147483647,
+              border: 'none',
+              display: 'block',
+              background: colors.bgElevated,
+            },
+            title: 'Pick your fishing spot (full screen)',
+          }),
+          document.body,
+        )
+      : null;
+
+  return (
+    <View style={styles.frame}>
+      {inlineIframe}
+      {fullscreen}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
