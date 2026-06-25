@@ -80,11 +80,13 @@ export function MapPicker({
     srcDoc,
     style: expanded
       ? {
+          // An <iframe> is a replaced element: left/right insets alone won't
+          // stretch it, so size it explicitly to the viewport.
           position: 'fixed',
           top: 0,
           left: 0,
-          right: 0,
-          bottom: 0,
+          width: '100vw',
+          height: '100vh',
           zIndex: 9999,
           border: 'none',
           display: 'block',
