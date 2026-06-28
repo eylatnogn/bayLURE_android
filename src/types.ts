@@ -167,6 +167,10 @@ export interface LurePick {
   reason: string;
   /** Suggested colors / sizes. */
   details: string;
+  /** Plain-language "how to actually fish it" for a new angler. */
+  howTo: string;
+  /** Illustration key for the in-app vector art. */
+  art: string;
   /** Recommended tackle for this bait. */
   gear?: GearSpec;
   /** 0-100 confidence the engine assigns this pick right now. */

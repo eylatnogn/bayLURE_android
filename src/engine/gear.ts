@@ -126,6 +126,155 @@ export const GEAR: Record<string, GearSpec> = {
     line: '10-20 lb braid + 20-30 lb leader',
     hook: 'Built-in (1/4-1 oz head)',
   },
+
+  // ---- Freshwater additions ----
+  Buzzbait: {
+    rod: 'Medium-heavy, moderate-fast',
+    line: '30-50 lb braid or 15-17 lb mono',
+    hook: 'Built-in 4/0-5/0 (add a trailer hook)',
+  },
+  'Paddle-Tail Swimbait': {
+    rod: 'Medium-heavy, moderate-fast',
+    line: '12-17 lb fluoro / 30-40 lb braid',
+    hook: '1/4-3/8 oz swimbait jighead (built-in)',
+  },
+  'Blade Bait': {
+    rod: 'Medium, fast (spinning or casting)',
+    line: '8-12 lb fluorocarbon',
+    hook: 'Stock #4-6 trebles',
+  },
+  'Carolina Rig': {
+    rod: 'Medium-heavy to heavy, fast',
+    line: '15-20 lb main + 12-17 lb fluoro leader',
+    hook: '3/0-4/0 EWG worm hook',
+  },
+  'Shaky Head': {
+    rod: 'Medium, fast (spinning)',
+    line: '8-12 lb braid + fluoro leader',
+    hook: '1/8-1/4 oz shaky jighead (built-in)',
+  },
+  'Neko Rig': {
+    rod: 'Medium-light, fast (spinning)',
+    line: '8-10 lb braid + fluoro leader',
+    hook: '#1-2 wacky/Neko hook + nail weight',
+  },
+  'Tube Rig': {
+    rod: 'Medium, fast (spinning)',
+    line: '8-12 lb fluoro / braid + leader',
+    hook: '1/8-1/4 oz internal tube jighead',
+  },
+  'Punch Rig': {
+    rod: 'Heavy, fast',
+    line: '50-65 lb braid',
+    hook: '4/0-5/0 straight-shank flipping hook',
+  },
+  'Live Crayfish': {
+    rod: 'Medium, fast (spinning)',
+    line: '6-10 lb mono/fluoro',
+    hook: '#1-2/0 octopus + small split-shot',
+  },
+  'Chicken Liver / Stinkbait': {
+    rod: 'Medium-heavy (bottom)',
+    line: '15-30 lb mono/braid',
+    hook: '#2-2/0 treble or sponge/dip hook',
+  },
+  'Crickets / Mealworms': {
+    rod: 'Light, moderate (spinning)',
+    line: '4-6 lb mono',
+    hook: '#8-10 light wire',
+  },
+  'Dough Bait / PowerBait': {
+    rod: 'Light, moderate (spinning)',
+    line: '4-6 lb mono',
+    hook: '#10-14 floating-bait treble',
+  },
+  'Live Bluegill / Sunfish': {
+    rod: 'Medium-heavy to heavy, fast',
+    line: '15-30 lb mono/braid',
+    hook: '2/0-4/0 circle or kahle',
+  },
+
+  // ---- Saltwater additions ----
+  'Soft Plastic Jerkbait': {
+    rod: 'Medium, fast',
+    line: '10-15 lb braid + 20-30 lb fluoro leader',
+    hook: '4/0-6/0 weighted weedless swimbait hook',
+  },
+  'Topwater Popper': {
+    rod: 'Medium-heavy, moderate-fast',
+    line: '15-20 lb braid + 30-40 lb leader',
+    hook: 'Stock #2-4 trebles',
+  },
+  'Lipped Diving Plug': {
+    rod: 'Medium, fast',
+    line: '10-15 lb braid + 20-30 lb leader',
+    hook: 'Stock #4-6 trebles',
+  },
+  'Flair Hawk Jig': {
+    rod: 'Medium-heavy, fast (7\'+)',
+    line: '20-40 lb braid + 30-50 lb leader',
+    hook: 'Built-in (1/2-1.5 oz head)',
+  },
+  'Gotcha Plug / Casting Jig': {
+    rod: 'Medium, fast',
+    line: '10-20 lb braid + 30-40 lb leader',
+    hook: 'Built-in trebles / single (add wire for macks)',
+  },
+  'Soft Plastic Shrimp on Jighead': {
+    rod: 'Medium, fast',
+    line: '10-15 lb braid + 20-30 lb fluoro leader',
+    hook: '1/8-1/4 oz jighead (built-in)',
+  },
+  'Weedless Weighted Swimbait': {
+    rod: 'Medium-heavy, fast',
+    line: '15-20 lb braid + 30 lb leader',
+    hook: '1/8-1/4 oz weighted weedless swimbait hook',
+  },
+  'Fish-Finder Bottom Rig': {
+    rod: 'Medium-heavy, moderate (7\'+)',
+    line: '15-30 lb main + 30-50 lb leader',
+    hook: '2/0-5/0 circle',
+  },
+  'Knocker Rig': {
+    rod: 'Medium-heavy to heavy, fast',
+    line: '20-40 lb braid + 30-50 lb leader',
+    hook: '2/0-4/0 circle or J-hook',
+  },
+  'Free-Line Rig': {
+    rod: 'Medium, moderate-fast',
+    line: '10-20 lb braid + 20-40 lb leader',
+    hook: '1/0-4/0 circle (match the bait)',
+  },
+  'Live Pinfish': {
+    rod: 'Medium-heavy, fast',
+    line: '15-30 lb braid + 30-50 lb leader',
+    hook: '2/0-4/0 circle',
+  },
+  'Finger Mullet': {
+    rod: 'Medium-heavy, moderate-fast',
+    line: '15-30 lb braid + 30-50 lb leader',
+    hook: '2/0-4/0 circle',
+  },
+  'Blue / Fiddler Crab': {
+    rod: 'Medium-heavy to heavy, fast',
+    line: '15-30 lb main + 30-50 lb leader',
+    hook: '2/0-4/0 circle (fiddler: #1-1/0)',
+  },
+  'Sand Fleas (Mole Crabs)': {
+    rod: 'Medium, moderate (surf)',
+    line: '12-20 lb main + 20-30 lb leader',
+    hook: '#1-2/0 (pompano/circle)',
+  },
+  'Live Croaker': {
+    rod: 'Medium-heavy, fast',
+    line: '15-30 lb braid + 30-50 lb leader',
+    hook: '3/0-5/0 circle',
+  },
+  'Fresh-Dead / Cut Shrimp': {
+    rod: 'Medium, moderate-fast',
+    line: '10-15 lb braid + 20-30 lb leader',
+    hook: '1/0-2/0 circle or kahle',
+  },
 };
 
 export function gearFor(name: string): GearSpec | undefined {

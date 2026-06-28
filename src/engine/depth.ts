@@ -30,6 +30,39 @@ const DEPTHS: Record<string, WaterDepth[]> = {
   'Live Shrimp': ['shallow', 'mid', 'deep'],
   'Cut/Live Baitfish': ['mid', 'deep'],
   Nightcrawlers: ['shallow', 'mid', 'deep'],
+
+  // ---- Freshwater additions ----
+  Buzzbait: ['shallow'],
+  'Paddle-Tail Swimbait': ['shallow', 'mid', 'deep'],
+  'Blade Bait': ['mid', 'deep'],
+  'Carolina Rig': ['mid', 'deep'],
+  'Shaky Head': ['shallow', 'mid', 'deep'],
+  'Neko Rig': ['mid', 'deep'],
+  'Tube Rig': ['mid', 'deep'],
+  'Punch Rig': ['shallow'],
+  'Live Crayfish': ['shallow', 'mid', 'deep'],
+  'Chicken Liver / Stinkbait': ['mid', 'deep'],
+  'Crickets / Mealworms': ['shallow', 'mid'],
+  'Dough Bait / PowerBait': ['shallow', 'mid', 'deep'],
+  'Live Bluegill / Sunfish': ['shallow', 'mid', 'deep'],
+
+  // ---- Saltwater additions ----
+  'Soft Plastic Jerkbait': ['shallow', 'mid'],
+  'Topwater Popper': ['shallow'],
+  'Lipped Diving Plug': ['shallow', 'mid'],
+  'Flair Hawk Jig': ['mid', 'deep'],
+  'Gotcha Plug / Casting Jig': ['shallow', 'mid'],
+  'Soft Plastic Shrimp on Jighead': ['shallow', 'mid', 'deep'],
+  'Weedless Weighted Swimbait': ['shallow', 'mid'],
+  'Fish-Finder Bottom Rig': ['mid', 'deep'],
+  'Knocker Rig': ['mid', 'deep'],
+  'Free-Line Rig': ['shallow', 'mid'],
+  'Live Pinfish': ['shallow', 'mid', 'deep'],
+  'Finger Mullet': ['shallow', 'mid', 'deep'],
+  'Blue / Fiddler Crab': ['mid', 'deep'],
+  'Sand Fleas (Mole Crabs)': ['shallow', 'mid'],
+  'Live Croaker': ['mid', 'deep'],
+  'Fresh-Dead / Cut Shrimp': ['shallow', 'mid', 'deep'],
 };
 
 export function depthLureAdjust(
