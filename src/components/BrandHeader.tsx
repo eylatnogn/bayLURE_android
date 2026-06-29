@@ -48,17 +48,6 @@ export function BrandHeader({
         <Path d="M0 37 Q12 30 25 37 T50 37 T75 37 T100 37 V46 H0Z" fill={onDark} opacity={0.07} />
       </Svg>
 
-      {showThemeToggle ? (
-        <Pressable
-          onPress={toggle}
-          hitSlop={10}
-          style={styles.toggle}
-          accessibilityLabel="Toggle light or dark theme"
-        >
-          <Feather name={mode === 'dark' ? 'sun' : 'moon'} size={18} color={onDark} />
-        </Pressable>
-      ) : null}
-
       <View style={styles.row}>
         <Logo size={44} color={onDark} accent="#8fd0a6" />
         <View style={styles.titles}>
@@ -78,6 +67,19 @@ export function BrandHeader({
           <Text style={[styles.subtitle, { color: onDarkMuted }]}>{subtitle}</Text>
         </View>
       </View>
+
+      {/* Rendered last so it sits above the title row and reliably takes the
+          tap on web (where an earlier sibling would be painted over). */}
+      {showThemeToggle ? (
+        <Pressable
+          onPress={toggle}
+          hitSlop={10}
+          style={styles.toggle}
+          accessibilityLabel="Toggle light or dark theme"
+        >
+          <Feather name={mode === 'dark' ? 'sun' : 'moon'} size={18} color={onDark} />
+        </Pressable>
+      ) : null}
     </LinearGradient>
   );
 }
@@ -100,6 +102,7 @@ const styles = StyleSheet.create({
   },
   toggle: {
     position: 'absolute',
+    zIndex: 10,
     top: spacing.lg,
     right: spacing.lg,
     width: 34,
