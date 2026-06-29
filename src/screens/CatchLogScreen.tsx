@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -15,7 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import type { CatchConditions, CatchRecord } from '@/types';
 import { SPECIES } from '@/engine/species';
-import { addCatch, deleteCatch, loadCatches } from '@/storage/catchLog';
+import { addCatch, deleteCatch, loadCatches, updateCatch } from '@/storage/catchLog';
 import { summarizeCatchConditions } from '@/utils/snapshot';
 import { LureSelect } from '@/components/LureSelect';
 import { Section } from '@/components/Section';
@@ -35,6 +35,9 @@ export function CatchLogScreen({ snapshot }: Props) {
   const [catches, setCatches] = useState<CatchRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
+  // Set while editing an existing catch (vs. logging a new one).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   // Form state
   const [species, setSpecies] = useState<string | null>(null);
@@ -66,6 +69,7 @@ export function CatchLogScreen({ snapshot }: Props) {
     setSize('');
     setNotes('');
     setPhotoUri(null);
+    setEditingId(null);
     setError(null);
   }, []);
 
@@ -130,6 +134,8 @@ export function CatchLogScreen({ snapshot }: Props) {
     setSaving(true);
     setError(null);
 
+    // When editing, keep the conditions and date the catch was first logged.
+    const original = editingId ? catches.find((c) => c.id === editingId) : undefined;
     const record = {
       species: resolvedSpecies,
       lure: lure ?? undefined,
@@ -138,17 +144,24 @@ export function CatchLogScreen({ snapshot }: Props) {
       size: size.trim() || undefined,
       notes: notes.trim() || undefined,
       photoUri: photoUri ?? undefined,
-      conditions: attachConditions && snapshot ? snapshot : undefined,
+      conditions: editingId
+        ? original?.conditions
+        : attachConditions && snapshot
+          ? snapshot
+          : undefined,
     };
+
+    const persistRecord = (rec: typeof record) =>
+      editingId ? updateCatch(editingId, rec) : addCatch(rec);
 
     try {
       let next: CatchRecord[];
       try {
-        next = await addCatch(record);
+        next = await persistRecord(record);
       } catch (storageErr) {
         // Almost always a storage-quota error from the photo. Retry without it.
         if (record.photoUri) {
-          next = await addCatch({ ...record, photoUri: undefined });
+          next = await persistRecord({ ...record, photoUri: undefined });
           setNotice('Catch saved — the photo was too large for on-device storage, so it wasn\'t kept.');
         } else {
           throw storageErr;
@@ -162,15 +175,33 @@ export function CatchLogScreen({ snapshot }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [resolvedSpecies, species, hasGear, lure, rig, bait, size, notes, photoUri, attachConditions, snapshot, resetForm]);
+  }, [resolvedSpecies, species, hasGear, lure, rig, bait, size, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm]);
 
   const onDelete = useCallback(async (id: string) => {
     const next = await deleteCatch(id);
     setCatches(next);
   }, []);
 
+  const onEdit = useCallback((c: CatchRecord) => {
+    setNotice(null);
+    setError(null);
+    const known = c.species !== 'Other' && SPECIES_OPTIONS.includes(c.species);
+    setSpecies(known ? c.species : 'Other');
+    setSpeciesOther(known ? '' : c.species);
+    setLure(c.lure ?? null);
+    setRig(c.rig ?? null);
+    setBait(c.bait ?? null);
+    setSize(c.size ?? '');
+    setNotes(c.notes ?? '');
+    setPhotoUri(c.photoUri ?? null);
+    setEditingId(c.id);
+    setFormOpen(true);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
+
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
@@ -189,6 +220,7 @@ export function CatchLogScreen({ snapshot }: Props) {
           style={({ pressed }) => [styles.cta, pressed && pressedStyle]}
           onPress={() => {
             setNotice(null);
+            setEditingId(null);
             setFormOpen(true);
           }}
         >
@@ -199,7 +231,7 @@ export function CatchLogScreen({ snapshot }: Props) {
         </Pressable>
       ) : (
         <Section
-          title="New Catch"
+          title={editingId ? 'Edit Catch' : 'New Catch'}
           right={
             <Pressable
               onPress={() => {
@@ -292,7 +324,13 @@ export function CatchLogScreen({ snapshot }: Props) {
             </Pressable>
           )}
 
-          {snapshot ? (
+          {editingId ? (
+            catches.find((c) => c.id === editingId)?.conditions ? (
+              <Text style={styles.attachHint}>
+                The conditions logged with this catch are kept as they were.
+              </Text>
+            ) : null
+          ) : snapshot ? (
             <Pressable
               onPress={() => setAttachConditions((v) => !v)}
               style={({ pressed }) => [styles.attachRow, pressed && pressedStyle]}
@@ -331,7 +369,7 @@ export function CatchLogScreen({ snapshot }: Props) {
             {saving ? (
               <ActivityIndicator color={colors.card} />
             ) : (
-              <Text style={styles.ctaText}>Save catch</Text>
+              <Text style={styles.ctaText}>{editingId ? 'Save changes' : 'Save catch'}</Text>
             )}
           </Pressable>
         </Section>
@@ -352,9 +390,14 @@ export function CatchLogScreen({ snapshot }: Props) {
             <View style={styles.cardBody}>
               <View style={styles.cardHead}>
                 <Text style={styles.cardSpecies}>{c.species}</Text>
-                <Pressable onPress={() => onDelete(c.id)} hitSlop={8}>
-                  <Text style={styles.delete}>Delete</Text>
-                </Pressable>
+                <View style={styles.cardActions}>
+                  <Pressable onPress={() => onEdit(c)} hitSlop={8}>
+                    <Text style={styles.edit}>Edit</Text>
+                  </Pressable>
+                  <Pressable onPress={() => onDelete(c.id)} hitSlop={8}>
+                    <Text style={styles.delete}>Delete</Text>
+                  </Pressable>
+                </View>
               </View>
               {[
                 c.lure ? `Lure: ${c.lure}` : null,
@@ -577,6 +620,8 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     alignItems: 'center',
   },
   cardSpecies: { color: colors.text, fontSize: 16, fontWeight: '800', flex: 1 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  edit: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   delete: { color: colors.bad, fontSize: 12, fontWeight: '700' },
   cardLure: { color: colors.accent, fontSize: 14, fontWeight: '700', marginTop: 2 },
   cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },

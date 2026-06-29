@@ -39,6 +39,22 @@ export async function deleteCatch(id: string): Promise<CatchRecord[]> {
   return next;
 }
 
+/**
+ * Replace a catch's editable fields by id, keeping its original id and date.
+ * Returns the updated list (newest first).
+ */
+export async function updateCatch(
+  id: string,
+  fields: Omit<CatchRecord, 'id' | 'dateISO'>,
+): Promise<CatchRecord[]> {
+  const existing = await loadCatches();
+  const next = existing.map((c) =>
+    c.id === id ? { ...c, ...fields, id: c.id, dateISO: c.dateISO } : c,
+  );
+  await persist(next);
+  return next.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+}
+
 async function persist(list: CatchRecord[]): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(list));
 }
