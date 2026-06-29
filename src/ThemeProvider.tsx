@@ -9,15 +9,18 @@ import {
   type ThemePref,
 } from '@/theme';
 
-const PREF_KEY = 'baylure.themePref';
+// Bumped to .v2 when dark became the default, so any preference saved during
+// earlier testing is ignored and the new default takes effect.
+const PREF_KEY = 'baylure.themePref.v2';
 
 /**
- * Resolves the active theme from the user's preference (light / dark / follow
- * the OS) and exposes a toggle. The choice is persisted so it survives reloads.
+ * Resolves the active theme. Dark is the app's main theme and the default; the
+ * user can switch to light (or follow the OS) via the toggle, and that choice
+ * is persisted so it survives reloads.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemScheme = useColorScheme();
-  const [pref, setPrefState] = useState<ThemePref>('system');
+  const [pref, setPrefState] = useState<ThemePref>('dark');
 
   useEffect(() => {
     let active = true;
@@ -38,7 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(PREF_KEY, p).catch(() => {});
   };
 
-  const mode: ThemeMode = pref === 'system' ? (systemScheme ?? 'light') : pref;
+  const mode: ThemeMode = pref === 'system' ? (systemScheme ?? 'dark') : pref;
 
   const value = useMemo<ThemeContextValue>(
     () => ({
