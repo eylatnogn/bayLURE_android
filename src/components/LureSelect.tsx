@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WaterType } from '@/types';
 import { LURES } from '@/engine/lureDatabase';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   value: string | null;
@@ -21,6 +21,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 /** Single-select list of lures/rigs/bait. Tap again to deselect. */
 export function LureSelect({ value, onChange, waterType, category }: Props) {
+  const styles = useStyles();
   const items = LURES.filter(
     (l) =>
       (!waterType || l.waterTypes.includes(waterType)) &&
@@ -57,7 +58,7 @@ export function LureSelect({ value, onChange, waterType, category }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: {
     gap: spacing.xs,
   },
@@ -112,4 +113,4 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-});
+}));

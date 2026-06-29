@@ -60,8 +60,9 @@ import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
+import { Button } from '@/components/Button';
 import { APP_VERSION } from '@/version';
-import { colors, pressedStyle, radius, shadow, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
@@ -69,6 +70,8 @@ interface Props {
 }
 
 export function HomeScreen({ onSnapshot }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [place, setPlace] = useState<string>('');
   const [locating, setLocating] = useState(false);
@@ -418,6 +421,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         subtitle="Read the water. Tie on the right thing."
         version={APP_VERSION}
         display
+        showThemeToggle
       />
 
       <View
@@ -427,7 +431,7 @@ export function HomeScreen({ onSnapshot }: Props) {
         }}
       >
       {/* Step 1 — Location */}
-      <Section title="Location">
+      <Section title="Location" icon="map-pin">
         <Pressable
           onPress={useMyLocation}
           disabled={locating}
@@ -578,7 +582,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       </Pressable>
 
       {quickStartOpen ? (
-        <Section title="Quick Start">
+        <Section title="Quick Start" icon="zap">
           <Text style={styles.helper}>
             Tap a starter profile, or save your own setup below to reuse it.
           </Text>
@@ -658,14 +662,14 @@ export function HomeScreen({ onSnapshot }: Props) {
 
       {fineTuneOpen ? (
         <View>
-          <Section title="Water Type">
+          <Section title="Water Type" icon="droplet">
             <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
             <Text style={[styles.helper, styles.helperGap]}>
               Auto-set from your spot when possible — tap to override.
             </Text>
           </Section>
 
-          <Section title="Water & Spot">
+          <Section title="Water & Spot" icon="map">
             <Text style={styles.helper}>Water clarity — how far you can see in.</Text>
             <OptionRow
               value={clarity}
@@ -701,7 +705,7 @@ export function HomeScreen({ onSnapshot }: Props) {
             />
           </Section>
 
-          <Section title="Target Species">
+          <Section title="Target Species" icon="target">
             <Text style={styles.helper}>
               Pick one or more fish to sharpen the picks, or leave it on Any.
             </Text>
@@ -713,7 +717,7 @@ export function HomeScreen({ onSnapshot }: Props) {
             />
           </Section>
 
-          <Section title="Structure & Cover">
+          <Section title="Structure & Cover" icon="layers">
             <Text style={styles.helper}>
               Tap everything you can see at your spot, or leave it on “None
               selected.”
@@ -730,23 +734,13 @@ export function HomeScreen({ onSnapshot }: Props) {
 
       <Text style={styles.summaryLine}>{configSummary}</Text>
 
-      <Pressable
+      <Button
+        title={coordinates ? 'Analyze my spot' : 'Set a location first'}
+        icon="target"
         onPress={() => onAnalyze()}
         disabled={analyzing || !coordinates}
-        style={({ pressed }) => [
-          styles.cta,
-          (analyzing || !coordinates) && styles.btnDisabled,
-          pressed && pressedStyle,
-        ]}
-      >
-        {analyzing ? (
-          <ActivityIndicator color={colors.card} />
-        ) : (
-          <Text style={styles.ctaText}>
-            {coordinates ? 'Analyze my spot' : 'Set a location first'}
-          </Text>
-        )}
-      </Pressable>
+        loading={analyzing}
+      />
 
       {error ? (
         <View style={styles.errorBox}>
@@ -899,6 +893,7 @@ function OptionRow<T extends string>({
   value: T;
   onChange: (value: T) => void;
 }) {
+  const styles = useStyles();
   return (
     <View style={styles.toggleRow}>
       {options.map((opt) => {
@@ -923,14 +918,12 @@ function OptionRow<T extends string>({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors, { shadow }) => ({
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   screen: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   content: {
     paddingBottom: spacing.xl * 2,
@@ -1206,4 +1199,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     opacity: 0.8,
   },
-});
+}));

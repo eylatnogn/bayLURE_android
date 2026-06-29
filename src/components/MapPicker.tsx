@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, SafeAreaView, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { colors, radius } from '@/theme';
+import { makeStyles, radius } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 
 interface CanvasProps extends MapPickerProps {
@@ -22,6 +22,7 @@ function MapCanvas({
   fullscreen,
   onToggleFullscreen,
 }: CanvasProps) {
+  const styles = useStyles();
   const webRef = useRef<WebView>(null);
   // Latest center — read when the HTML is rebuilt for a wind-time change.
   const centerRef = useRef(center);
@@ -79,6 +80,7 @@ function MapCanvas({
 // MapPicker.web.tsx when bundling for web. react-native-webview ships inside
 // Expo Go, so this works without a custom dev build.
 export function MapPicker(props: MapPickerProps) {
+  const styles = useStyles();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -100,7 +102,7 @@ export function MapPicker(props: MapPickerProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   frame: {
     width: '100%',
     aspectRatio: 1,
@@ -117,4 +119,4 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bgElevated,
   },
-});
+}));

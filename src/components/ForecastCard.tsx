@@ -4,7 +4,7 @@ import type { Conditions, Strategy } from '@/types';
 import { Section } from '@/components/Section';
 import { tideAt } from '@/api/tides';
 import { hourLabel } from '@/utils/dates';
-import { colors, fonts, pressedStyle, radius, scoreColor, spacing } from '@/theme';
+import { fonts, makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
 
 const BAR_MAX = 60;
 
@@ -33,6 +33,7 @@ const trendArrow: Record<string, string> = {
 };
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.stat}>
       <Text style={styles.statValue}>{value}</Text>
@@ -57,6 +58,8 @@ export function ForecastCard({
   selectedHour,
   onSelectHour,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { water, chartedDepth } = conditions;
   const hours = conditions.hourlyWeather;
 
@@ -288,7 +291,7 @@ function shortTime(iso: string): string {
   return parts[1] ?? iso;
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   // Bite headline
   score: { fontFamily: fonts.displayBold, fontSize: 32 },
   scoreMax: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
@@ -402,4 +405,4 @@ const styles = StyleSheet.create({
   },
   aiText: { color: colors.text, fontSize: 14, lineHeight: 20 },
   hint: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: spacing.md },
-});
+}));

@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WaterType } from '@/types';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   value: WaterType;
@@ -13,6 +13,7 @@ const OPTIONS: { value: WaterType; label: string }[] = [
 ];
 
 export function WaterTypeToggle({ value, onChange }: Props) {
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       {OPTIONS.map((opt) => {
@@ -37,7 +38,7 @@ export function WaterTypeToggle({ value, onChange }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -62,4 +63,4 @@ const styles = StyleSheet.create({
   labelActive: {
     color: colors.text,
   },
-});
+}));

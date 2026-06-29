@@ -2,13 +2,14 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Region } from '@/api/geocode';
 import { regulationsForState } from '@/engine/regulations';
 import { Section } from '@/components/Section';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   region: Region | null;
 }
 
 export function RegulationsCard({ region }: Props) {
+  const styles = useStyles();
   const isUS = region?.countryCode?.toLowerCase() === 'us';
   const reg = isUS ? regulationsForState(region?.state) : null;
 
@@ -62,7 +63,7 @@ export function RegulationsCard({ region }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   lead: {
     color: colors.text,
     fontSize: 14,
@@ -91,4 +92,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     opacity: 0.85,
   },
-});
+}));

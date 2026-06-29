@@ -2,7 +2,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-na
 import { Feather } from '@expo/vector-icons';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 interface Item {
   name: string;
@@ -73,6 +73,8 @@ const COMFORT: Item[] = [
 ];
 
 function Row({ item }: { item: Item }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       <Feather name="square" size={16} color={colors.accent} style={styles.check} />
@@ -85,6 +87,7 @@ function Row({ item }: { item: Item }) {
 }
 
 export function HelpScreen() {
+  const styles = useStyles();
   return (
     <ScrollView
       style={styles.screen}
@@ -158,8 +161,8 @@ export function HelpScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
+const useStyles = makeStyles((colors) => ({
+  screen: { flex: 1 },
   content: { paddingBottom: spacing.xl * 2 },
   body: { paddingHorizontal: spacing.lg },
   brand: {
@@ -210,4 +213,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     opacity: 0.8,
   },
-});
+}));

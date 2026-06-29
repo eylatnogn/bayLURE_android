@@ -1,7 +1,7 @@
 import { createElement, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { StyleSheet, View } from 'react-native';
-import { colors, radius } from '@/theme';
+import { makeStyles, radius, useTheme } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 
 // Web implementation. Renders the shared Leaflet document inside an <iframe>
@@ -13,6 +13,8 @@ export function MapPicker({
   windTargetISO = null,
   windTargetLabel = 'Now',
 }: MapPickerProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const inlineRef = useRef<HTMLIFrameElement | null>(null);
   const fullRef = useRef<HTMLIFrameElement | null>(null);
   // Latest center — read when a srcDoc is rebuilt for a wind-time change.
@@ -117,7 +119,7 @@ export function MapPicker({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   frame: {
     width: '100%',
     // Phone-width browsers stay below this, so mobile is unchanged; on a wide
@@ -132,4 +134,4 @@ const styles = StyleSheet.create({
     borderColor: colors.cardBorder,
     backgroundColor: colors.bgElevated,
   },
-});
+}));

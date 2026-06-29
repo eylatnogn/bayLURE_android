@@ -20,7 +20,7 @@ import { summarizeCatchConditions } from '@/utils/snapshot';
 import { LureSelect } from '@/components/LureSelect';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
-import { colors, pressedStyle, radius, shadow, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 const SPECIES_OPTIONS = [...SPECIES.map((s) => s.label), 'Other'];
 
@@ -30,6 +30,8 @@ interface Props {
 }
 
 export function CatchLogScreen({ snapshot }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [catches, setCatches] = useState<CatchRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -394,8 +396,8 @@ function formatDate(iso: string): string {
   });
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
+const useStyles = makeStyles((colors, { shadow }) => ({
+  screen: { flex: 1 },
   content: { paddingBottom: spacing.xl * 2 },
   body: { paddingHorizontal: spacing.lg },
   brand: {
@@ -585,4 +587,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     lineHeight: 15,
   },
-});
+}));

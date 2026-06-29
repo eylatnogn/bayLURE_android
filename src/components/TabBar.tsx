@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, pressedStyle, shadow, spacing } from '@/theme';
+import { Pressable, Text, View } from 'react-native';
+import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 export type Tab = 'plan' | 'log' | 'guide';
 
@@ -16,6 +16,8 @@ interface Props {
 }
 
 export function TabBar({ tab, onChange }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.bar}>
       {TABS.map((t) => {
@@ -26,16 +28,17 @@ export function TabBar({ tab, onChange }: Props) {
             onPress={() => onChange(t.id)}
             style={({ pressed }) => [styles.tab, pressed && pressedStyle]}
           >
-            <View style={[styles.indicator, active && styles.indicatorActive]} />
-            <Feather
-              name={t.icon}
-              size={22}
-              color={active ? colors.accent : colors.textMuted}
-              style={!active && styles.inactive}
-            />
-            <Text style={[styles.label, active ? styles.active : styles.inactive]}>
-              {t.label}
-            </Text>
+            <View style={[styles.pill, active && styles.pillActive]}>
+              <Feather
+                name={t.icon}
+                size={21}
+                color={active ? colors.accent : colors.textMuted}
+                style={!active && styles.inactive}
+              />
+              <Text style={[styles.label, active ? styles.active : styles.inactive]}>
+                {t.label}
+              </Text>
+            </View>
           </Pressable>
         );
       })}
@@ -43,34 +46,38 @@ export function TabBar({ tab, onChange }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c, t) => ({
   bar: {
     flexDirection: 'row',
-    backgroundColor: colors.card,
+    backgroundColor: c.card,
     borderTopWidth: 1,
-    borderTopColor: colors.cardBorder,
+    borderTopColor: c.cardBorder,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.md,
-    ...shadow.bar,
+    paddingHorizontal: spacing.sm,
+    ...t.shadow.bar,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    gap: 3,
   },
-  indicator: {
-    height: 3,
-    width: 26,
-    borderRadius: 2,
-    marginBottom: spacing.sm,
+  pill: {
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
     backgroundColor: 'transparent',
   },
-  indicatorActive: {
-    backgroundColor: colors.accent,
+  pillActive: {
+    backgroundColor: c.accentDim,
   },
   label: {
     fontSize: 11,
     fontWeight: '700',
   },
-  active: { color: colors.accent },
-  inactive: { color: colors.textMuted, opacity: 0.7 },
-});
+  active: { color: c.accent },
+  inactive: { color: c.textMuted, opacity: 0.75 },
+}));

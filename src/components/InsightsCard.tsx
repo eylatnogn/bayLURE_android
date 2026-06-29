@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { PlaybookSection, Strategy } from '@/types';
 import { Section } from '@/components/Section';
-import { colors, pressedStyle, spacing } from '@/theme';
+import { makeStyles, pressedStyle, spacing } from '@/theme';
 
 /** A collapsible, categorized playbook (collapsed by default to cut clutter). */
 function Playbook({
@@ -17,6 +17,7 @@ function Playbook({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const styles = useStyles();
   if (sections.length === 0) return null;
   const tipCount = sections.reduce((n, s) => n + s.tips.length, 0);
 
@@ -56,6 +57,7 @@ function Playbook({
 }
 
 export function InsightsCard({ strategy }: { strategy: Strategy }) {
+  const styles = useStyles();
   return (
     <>
       {strategy.behavior.length > 0 ? (
@@ -95,7 +97,7 @@ export function InsightsCard({ strategy }: { strategy: Strategy }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   toggle: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.md },
   collapsed: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
@@ -113,4 +115,4 @@ const styles = StyleSheet.create({
   bulletWater: { color: colors.water, marginRight: spacing.sm, fontSize: 16, fontWeight: '800' },
   bulletFish: { color: colors.water, marginRight: spacing.sm, fontSize: 16, fontWeight: '800' },
   text: { color: colors.text, fontSize: 13, lineHeight: 19, flex: 1 },
-});
+}));

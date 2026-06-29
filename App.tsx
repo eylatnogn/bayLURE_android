@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Platform, SafeAreaView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   useFonts,
   Fraunces_600SemiBold,
@@ -11,12 +12,10 @@ import { HomeScreen } from '@/screens/HomeScreen';
 import { CatchLogScreen } from '@/screens/CatchLogScreen';
 import { HelpScreen } from '@/screens/HelpScreen';
 import { TabBar, type Tab } from '@/components/TabBar';
-import { colors } from '@/theme';
+import { ThemeProvider } from '@/ThemeProvider';
+import { useTheme } from '@/theme';
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('plan');
-  // The most recent analyzed conditions, offered to the catch log to attach.
-  const [snapshot, setSnapshot] = useState<CatchConditions | null>(null);
   const [fontsLoaded] = useFonts({
     Fraunces_600SemiBold,
     Fraunces_700Bold,
@@ -38,35 +37,55 @@ export default function App() {
     };
   }, []);
 
+  return (
+    <ThemeProvider>
+      <AppShell fontsLoaded={fontsLoaded} />
+    </ThemeProvider>
+  );
+}
+
+function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
+  const { colors, gradients, mode } = useTheme();
+  const [tab, setTab] = useState<Tab>('plan');
+  // The most recent analyzed conditions, offered to the catch log to attach.
+  const [snapshot, setSnapshot] = useState<CatchConditions | null>(null);
+
   if (!fontsLoaded) {
-    return <View style={styles.root} />;
+    return <View style={[styles.root, { backgroundColor: colors.bg }]} />;
   }
 
   return (
-    <SafeAreaView style={styles.root}>
-      <StatusBar style="dark" />
-      <View style={styles.body}>
-        {/* Keep both mounted so the planner's snapshot and form state persist
-            across tab switches. */}
-        <View style={[styles.screen, tab !== 'plan' && styles.hidden]}>
-          <HomeScreen onSnapshot={setSnapshot} />
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <LinearGradient
+        colors={gradients.bg}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={styles.root}>
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <View style={styles.body}>
+          {/* Keep both mounted so the planner's snapshot and form state persist
+              across tab switches. */}
+          <View style={[styles.screen, tab !== 'plan' && styles.hidden]}>
+            <HomeScreen onSnapshot={setSnapshot} />
+          </View>
+          <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
+            <CatchLogScreen snapshot={snapshot} />
+          </View>
+          <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
+            <HelpScreen />
+          </View>
         </View>
-        <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
-          <CatchLogScreen snapshot={snapshot} />
-        </View>
-        <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
-          <HelpScreen />
-        </View>
-      </View>
-      <TabBar tab={tab} onChange={setTab} />
-    </SafeAreaView>
+        <TabBar tab={tab} onChange={setTab} />
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   body: {
     flex: 1,

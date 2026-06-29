@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LurePick, Strategy } from '@/types';
 import { Section } from '@/components/Section';
 import { LureArt } from '@/components/LureArt';
-import { colors, pressedStyle, radius, scoreColor, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
 
 type PickFilter = 'all' | 'lure' | 'rig' | 'bait';
 
@@ -28,6 +28,7 @@ const TOP_ALL = 3; // per category in the "All" overview
 const TOP_FILTERED = 10; // per category when one type is selected
 
 function GearRow({ label, value }: { label: string; value: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.gearRow}>
       <Text style={styles.gearLabel}>{label}</Text>
@@ -38,6 +39,7 @@ function GearRow({ label, value }: { label: string; value: string }) {
 
 /** Small label + body line used inside the full beginner guide. */
 function Field({ label, value }: { label: string; value: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -48,6 +50,7 @@ function Field({ label, value }: { label: string; value: string }) {
 
 /** Compact row used in the "All" overview — thumbnail + name + color/size. */
 function CompactRow({ pick }: { pick: LurePick }) {
+  const styles = useStyles();
   return (
     <View style={styles.compact}>
       <View style={styles.thumbSm}>
@@ -69,6 +72,8 @@ function CompactRow({ pick }: { pick: LurePick }) {
  * tackle. This is the learn-what-to-throw view.
  */
 function GuideCard({ pick, rank }: { pick: LurePick; rank: number }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [showGear, setShowGear] = useState(false);
   return (
     <View style={styles.guide}>
@@ -81,8 +86,8 @@ function GuideCard({ pick, rank }: { pick: LurePick; rank: number }) {
             <Text style={styles.rank}>{rank}</Text>
             <Text style={styles.guideName}>{pick.name}</Text>
           </View>
-          <View style={[styles.matchPill, { borderColor: scoreColor(pick.score) }]}>
-            <View style={[styles.matchDot, { backgroundColor: scoreColor(pick.score) }]} />
+          <View style={[styles.matchPill, { borderColor: scoreColor(pick.score, colors) }]}>
+            <View style={[styles.matchDot, { backgroundColor: scoreColor(pick.score, colors) }]} />
             <Text style={styles.matchText}>{pick.score}% match today</Text>
           </View>
         </View>
@@ -115,6 +120,7 @@ function GuideCard({ pick, rank }: { pick: LurePick; rank: number }) {
 }
 
 export function PicksCard({ strategy }: { strategy: Strategy }) {
+  const styles = useStyles();
   const [filter, setFilter] = useState<PickFilter>('all');
   const available = new Set(strategy.picks.map((p) => p.category));
 
@@ -195,7 +201,7 @@ export function PicksCard({ strategy }: { strategy: Strategy }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   intro: {
     color: colors.textMuted,
     fontSize: 12,
@@ -343,4 +349,4 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   gearValue: { color: colors.text, fontSize: 12, flex: 1 },
-});
+}));

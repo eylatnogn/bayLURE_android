@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import type { Species } from '@/types';
 import type { AreaFish } from '@/api/areaSpecies';
 import { Section } from '@/components/Section';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 const COLLAPSED = 5;
 
@@ -19,6 +19,8 @@ interface Props {
 }
 
 export function AreaFishCard({ fish, onPickTarget, regsUrl, limit = 20 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const [expanded, setExpanded] = useState(false);
   if (fish.length === 0) return null;
   const all = fish.slice(0, limit);
@@ -100,7 +102,7 @@ export function AreaFishCard({ fish, onPickTarget, regsUrl, limit = 20 }: Props)
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   intro: {
     color: colors.textMuted,
     fontSize: 13,
@@ -180,4 +182,4 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     opacity: 0.8,
   },
-});
+}));

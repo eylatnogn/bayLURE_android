@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Species, WaterType } from '@/types';
 import { speciesForWaterType } from '@/engine/species';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing } from '@/theme';
 
 interface Props {
   waterType: WaterType;
@@ -14,6 +14,7 @@ interface Props {
 
 /** Multi-select: "Any species" plus the species for the chosen water type. */
 export function SpeciesPicker({ waterType, value, onToggle, onClear }: Props) {
+  const styles = useStyles();
   const options = speciesForWaterType(waterType);
   const anyActive = value.length === 0;
 
@@ -49,7 +50,7 @@ export function SpeciesPicker({ waterType, value, onToggle, onClear }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   wrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -75,4 +76,4 @@ const styles = StyleSheet.create({
   labelActive: {
     color: colors.text,
   },
-});
+}));

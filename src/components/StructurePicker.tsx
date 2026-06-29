@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StructureType, WaterType } from '@/types';
-import { colors, pressedStyle, radius, spacing } from '@/theme';
+import { makeStyles, pressedStyle, radius, spacing } from '@/theme';
 
 interface Option {
   value: StructureType;
@@ -81,6 +81,7 @@ interface Props {
 }
 
 export function StructurePicker({ waterType, selected, onToggle, onClear }: Props) {
+  const styles = useStyles();
   const visible = OPTIONS.filter((o) => o.waterTypes.includes(waterType));
   const noneActive = selected.length === 0;
   return (
@@ -119,7 +120,7 @@ export function StructurePicker({ waterType, selected, onToggle, onClear }: Prop
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   wrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -145,4 +146,4 @@ const styles = StyleSheet.create({
   labelActive: {
     color: colors.text,
   },
-});
+}));
