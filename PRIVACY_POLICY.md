@@ -1,6 +1,6 @@
 # bayLURE Privacy Policy
 
-_Effective date: [SET DATE WHEN PUBLISHING]_
+_Effective date: July 8, 2026_
 
 bayLURE is a fishing-conditions app. It has **no accounts and no analytics**,
 and we (the developer) run no servers and receive none of your personal data.
