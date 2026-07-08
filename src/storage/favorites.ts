@@ -39,6 +39,50 @@ export async function deleteFavorite(id: string): Promise<FavoriteLocation[]> {
   return next;
 }
 
+/** Same spot saved twice (label + ~10m coordinates) counts as a duplicate. */
+function favKey(f: { label: string; latitude: number; longitude: number }): string {
+  return `${f.label.trim().toLowerCase()}|${f.latitude.toFixed(4)},${f.longitude.toFixed(4)}`;
+}
+
+/**
+ * Merge backup entries into the saved spots. Invalid entries are skipped,
+ * existing spots are never modified, and duplicates are ignored.
+ * Returns how many were actually added.
+ */
+export async function importFavorites(entries: unknown[]): Promise<number> {
+  const existing = await loadFavorites();
+  const seen = new Set(existing.map(favKey));
+  const next = [...existing];
+  let added = 0;
+  for (const raw of entries) {
+    const e = raw as Partial<FavoriteLocation>;
+    if (
+      !e ||
+      typeof e.label !== 'string' ||
+      typeof e.latitude !== 'number' ||
+      typeof e.longitude !== 'number' ||
+      Math.abs(e.latitude) > 90 ||
+      Math.abs(e.longitude) > 180
+    ) {
+      continue;
+    }
+    const entry: FavoriteLocation = {
+      // Fresh id: backup ids may collide with entries already on this device.
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      label: e.label.trim() || 'Unnamed spot',
+      latitude: e.latitude,
+      longitude: e.longitude,
+      savedAt: typeof e.savedAt === 'string' ? e.savedAt : new Date().toISOString(),
+    };
+    if (seen.has(favKey(entry))) continue;
+    seen.add(favKey(entry));
+    next.push(entry);
+    added += 1;
+  }
+  if (added > 0) await persist(next);
+  return added;
+}
+
 async function persist(list: FavoriteLocation[]): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(list));
 }

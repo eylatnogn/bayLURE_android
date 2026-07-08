@@ -1,7 +1,10 @@
 import type { Coordinates } from '@/types';
 
 const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
-const REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
+// FCC Area API (point -> US state): US-government data, free, no key,
+// commercial OK, and CORS-enabled so it also works in the web build (the
+// Census geocoder blocks browser requests).
+const FCC_AREA_URL = 'https://geo.fcc.gov/api/census/area';
 
 export interface GeocodeResult {
   coordinates: Coordinates;
@@ -16,33 +19,35 @@ export interface Region {
 }
 
 // A point's state/country doesn't change, so cache it indefinitely (for the
-// session). Nominatim asks for <= 1 req/sec, and auto-analyze would otherwise
-// call this on every re-run.
+// session); auto-analyze would otherwise call this on every re-run.
 const regionCache = new Map<string, Region>();
 
-/** Reverse-geocode coordinates to a state/region (for regulations lookup). */
+/**
+ * Reverse-geocode coordinates to a US state (for the regulations lookup) via
+ * the FCC Area API. Regulations only exist for US states, so a point outside
+ * the US simply resolves to an empty region.
+ */
 export async function reverseRegion(coords: Coordinates): Promise<Region> {
   const key = `${coords.latitude.toFixed(2)},${coords.longitude.toFixed(2)}`;
   const cached = regionCache.get(key);
   if (cached) return cached;
 
   const params = new URLSearchParams({
-    format: 'jsonv2',
     lat: String(coords.latitude),
     lon: String(coords.longitude),
-    zoom: '8',
-    addressdetails: '1',
+    format: 'json',
   });
-  const res = await fetch(`${REVERSE_URL}?${params.toString()}`, {
-    headers: { Accept: 'application/json', 'User-Agent': 'bayLURE/0.3 (fishing app)' },
+  const res = await fetch(`${FCC_AREA_URL}?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Region lookup failed (${res.status}).`);
   const data = (await res.json()) as {
-    address?: { state?: string; region?: string; country_code?: string };
+    results?: Array<{ state_name?: string }>;
   };
+  const stateName = data.results?.[0]?.state_name ?? '';
   const region: Region = {
-    state: data.address?.state ?? data.address?.region ?? '',
-    countryCode: data.address?.country_code ?? '',
+    state: stateName,
+    countryCode: stateName ? 'us' : '',
   };
   regionCache.set(key, region);
   return region;
@@ -74,6 +79,9 @@ export async function geocodeQuery(query: string): Promise<GeocodeResult | null>
     format: 'jsonv2',
     limit: '1',
     addressdetails: '1',
+    // The app's data sources (NWS, NOAA, state regs) are US-only; without this
+    // a bare ZIP like "32960" can match a European postal code.
+    countrycodes: 'us',
     q,
   });
 

@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
+import { exportBackup, importBackup } from '@/utils/backup';
 import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 interface Item {
@@ -72,6 +74,69 @@ const COMFORT: Item[] = [
   { name: 'Tape measure & a phone', why: 'Measure fish against size limits and log your catch in bayLURE.' },
 ];
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function BackupSection() {
+  const styles = useStyles();
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (fn: () => Promise<string | null>) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const msg = await fn();
+      if (msg) setStatus(msg);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Backup & Restore">
+      <Text style={styles.para}>
+        Your saved spots and presets live only on this device. Export them to a
+        backup file you keep (Files, Drive, email — anywhere), and import that
+        file later to restore them or move to a new phone. Importing only adds:
+        nothing already saved here is changed or deleted.
+      </Text>
+      <Pressable
+        style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
+        onPress={() =>
+          run(async () => {
+            const res = await exportBackup();
+            return res
+              ? `Exported ${plural(res.spots, 'spot')} and ${plural(res.presets, 'preset')}.`
+              : 'Nothing saved yet — save a spot or preset first.';
+          })
+        }
+      >
+        <Text style={styles.linkText}>Export backup file</Text>
+      </Pressable>
+      <Pressable
+        style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
+        onPress={() =>
+          run(async () => {
+            const res = await importBackup();
+            if (!res) return null; // picker canceled
+            return res.spots === 0 && res.presets === 0
+              ? 'Nothing new to import — everything in that file is already here.'
+              : `Imported ${plural(res.spots, 'new spot')} and ${plural(res.presets, 'new preset')}.`;
+          })
+        }
+      >
+        <Text style={styles.linkText}>Import backup file</Text>
+      </Pressable>
+      {status ? <Text style={styles.backupStatus}>{status}</Text> : null}
+    </Section>
+  );
+}
+
 function Row({ item }: { item: Item }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -127,6 +192,8 @@ export function HelpScreen() {
           corrodes everything.
         </Text>
       </Section>
+
+      <BackupSection />
 
       <Section title="A Simple First Rig">
         <Text style={styles.para}>
@@ -206,6 +273,13 @@ const useStyles = makeStyles((colors) => ({
     marginTop: spacing.sm,
   },
   linkText: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  backupStatus: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
   footer: {
     color: colors.textMuted,
     fontSize: 11,

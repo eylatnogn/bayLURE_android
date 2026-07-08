@@ -18,8 +18,9 @@ interface CanvasProps extends MapPickerProps {
 function MapCanvas({
   center,
   onPick,
-  windTargetISO = null,
   windTargetLabel = 'Now',
+  windMph = null,
+  windDirDeg = null,
   fullscreen,
   onToggleFullscreen,
 }: CanvasProps) {
@@ -32,13 +33,13 @@ function MapCanvas({
   // moved the view, so we must NOT re-inject (which could disturb the zoom).
   const internalPick = useRef(false);
 
-  // Rebuild the document only when the wind hour (or this instance's fullscreen
-  // flag) changes. Center changes are pushed via injectJavaScript instead, so
-  // selecting a spot never reloads the WebView or resets the zoom.
+  // Rebuild the document only when the baked-in wind (or this instance's
+  // fullscreen flag) changes. Center changes are pushed via injectJavaScript
+  // instead, so selecting a spot never reloads the WebView or resets the zoom.
   const html = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel, fullscreen),
+    () => buildMapHtml(centerRef.current, windTargetLabel, fullscreen, windMph, windDirDeg),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windTargetISO, windTargetLabel, fullscreen],
+    [windTargetLabel, windMph, windDirDeg, fullscreen],
   );
 
   useEffect(() => {
@@ -58,6 +59,10 @@ function MapCanvas({
       originWhitelist={['*']}
       source={{ html }}
       style={styles.web}
+      // Android: without this, a vertical drag on the map is claimed by the
+      // surrounding ScrollView, so the page scrolls instead of the map panning.
+      nestedScrollEnabled
+      overScrollMode="never"
       onMessage={(event) => {
         try {
           const data = JSON.parse(event.nativeEvent.data);

@@ -18,10 +18,12 @@ When you use your location (or type an address / drop a pin), the app sends
 those **coordinates** to third-party weather and marine data services to fetch
 conditions for that spot:
 
-- **Open-Meteo** — weather, marine and hourly forecast data
-- **NOAA (CO-OPS / Chart Display Service)** — tide predictions and nautical
-  chart overlays
-- **OpenStreetMap (Nominatim + map tiles)** — address search and the map
+- **National Weather Service (weather.gov)** — weather and hourly forecasts
+- **NOAA (CO-OPS / Chart Display Service)** — tide predictions, measured
+  water temperature, and nautical chart overlays
+- **USGS (The National Map)** — the map's topographic tiles
+- **FCC Area API** — identifying your US state for the regulations link
+- **OpenStreetMap Nominatim** — the address/ZIP search box
 - **Open-Topo-Data (GEBCO)** — water depth estimates
 - **iNaturalist** — fish species reported near your area
 - **unpkg.com CDN** — loads the map display library

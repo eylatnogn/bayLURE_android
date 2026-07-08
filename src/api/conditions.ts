@@ -1,4 +1,5 @@
 import type {
+  ChartedDepth,
   Conditions,
   Coordinates,
   PressureLevel,
@@ -26,15 +27,15 @@ export interface ConditionsRequest {
 
 // The network results depend only on coordinates + waterType — never on the
 // angler's species/cover/clarity/depth/pressure picks. We cache them so that
-// re-analyzing after a refinement tweak (now automatic) doesn't re-hit
-// Open-Meteo and trip its rate limit. Short TTL keeps the weather fresh enough.
+// re-analyzing after a refinement tweak (now automatic) doesn't re-hit the
+// NWS/NOAA services needlessly. Short TTL keeps the weather fresh enough.
 interface CachedFetch {
   at: number;
   fetchedAt: string;
   week: Awaited<ReturnType<typeof fetchWeekWeather>>;
   water: Awaited<ReturnType<typeof fetchWeekWater>>;
   tides: Conditions['tide'][];
-  chartedDepth: number | null;
+  chartedDepth: ChartedDepth | null;
 }
 
 const FETCH_TTL_MS = 15 * 60 * 1000;
@@ -53,7 +54,12 @@ async function getFetched(req: ConditionsRequest): Promise<CachedFetch> {
   const week = await fetchWeekWeather(req.coordinates);
   const days = week.days.length;
   const [water, tides, chartedDepth] = await Promise.all([
-    fetchWeekWater(req.coordinates, req.waterType, week.days.map((w) => w.airTempF)),
+    fetchWeekWater(
+      req.coordinates,
+      req.waterType,
+      week.days.map((w) => w.airTempF),
+      week.waveHeightFtByDay,
+    ),
     req.waterType === 'saltwater'
       ? fetchWeekTides(req.coordinates, days).catch(() => new Array(days).fill(null))
       : Promise.resolve(new Array(days).fill(null)),

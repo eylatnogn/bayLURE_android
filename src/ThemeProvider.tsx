@@ -41,7 +41,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(PREF_KEY, p).catch(() => {});
   };
 
-  const mode: ThemeMode = pref === 'system' ? (systemScheme ?? 'dark') : pref;
+  // RN can also report 'unspecified'; treat anything but 'light' as dark
+  // (the app defaults to dark).
+  const mode: ThemeMode =
+    pref === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : pref;
 
   const value = useMemo<ThemeContextValue>(
     () => ({

@@ -22,7 +22,7 @@ soft card depth, a gradient header with a fish-over-waves logo mark, the
 1. **Location** — three ways to set your spot: tap **Use my location** for
    device GPS, type an **address or ZIP code** (geocoded via OpenStreetMap
    Nominatim, no key — great when location services are off), or **drop a pin**
-   on an interactive map. The map is Leaflet + OpenStreetMap and works on web
+   on an interactive map. The map is Leaflet + USGS topo tiles and works on web
    (iframe) and native (WebView). You can **save favorite spots with your own
    labels** ("Home lake", "North dock") and reload them with a tap.
    Structure & cover options are **filtered to the water type** — lily pads show
@@ -79,14 +79,18 @@ soft card depth, a gradient header with a fish-over-waves logo mark, the
 
 | Data | Source |
 | --- | --- |
-| Weather, pressure, wind, clouds | [Open-Meteo Forecast API](https://open-meteo.com/) |
-| Sea-surface temp, wave height | [Open-Meteo Marine API](https://open-meteo.com/en/docs/marine-weather-api) |
+| Weather, pressure, wind, clouds, waves | [National Weather Service forecast grid](https://www.weather.gov/documentation/services-web-api) |
+| Measured water temperature | [NOAA CO-OPS water temperature stations](https://api.tidesandcurrents.noaa.gov/api/prod/) |
 | Tide predictions | [NOAA CO-OPS Tides & Currents](https://api.tidesandcurrents.noaa.gov/api/prod/) |
-| Address / ZIP geocoding | [OpenStreetMap Nominatim](https://nominatim.org/) |
+| Map tiles | [USGS The National Map (topo)](https://basemap.nationalmap.gov/) |
+| Address / ZIP geocoding | [OpenStreetMap Nominatim](https://nominatim.org/) (US-biased) |
+| Point → US state (regulations) | [FCC Area API](https://geo.fcc.gov/api/census/) |
 | Fish observed nearby | [iNaturalist species counts](https://api.inaturalist.org/v1/) |
 
-> NOAA tides cover U.S. coastal waters. Open-Meteo is global. Freshwater water
-> temperature is **estimated** from air temperature and flagged as such in the UI.
+> NWS/NOAA/USGS are US-government sources (commercial use OK) — so weather,
+> tides, and the map cover the **US only**. Sunrise/sunset and moon phase are
+> computed locally. Freshwater water temperature is **estimated** from air
+> temperature and flagged as such in the UI.
 
 ## Project layout
 
@@ -98,9 +102,9 @@ src/
   theme.ts                 Colors / spacing tokens
   api/
     location.ts            GPS + reverse geocode (expo-location)
-    geocode.ts             Address / ZIP -> coordinates (Nominatim)
+    geocode.ts             Address / ZIP -> coordinates (Nominatim); state via FCC
     areaSpecies.ts         Fish observed nearby (iNaturalist)
-    weather.ts             Open-Meteo weather + pressure trend
+    weather.ts             NWS forecast grid + pressure trend
     marine.ts              Sea-surface temp / freshwater estimate
     tides.ts               Nearest NOAA station + hi/lo predictions
     conditions.ts          Orchestrates the three fetches

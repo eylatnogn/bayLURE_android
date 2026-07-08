@@ -1,54 +1,110 @@
 import type { Coordinates, WaterConditions, WaterType } from '@/types';
-import { round } from '@/utils/format';
-import { addDays, localDateStr } from '@/utils/dates';
+import { distanceMiles, round } from '@/utils/format';
 
-const MARINE_URL = 'https://marine-api.open-meteo.com/v1/marine';
+// NOAA CO-OPS runs ~240 coastal + Great Lakes stations that report measured
+// water temperature. US-government data: free, no key, commercial use OK.
+const STATIONS_URL =
+  'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=watertemp';
+const DATA_URL = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';
 
-interface OpenMeteoMarineWeek {
-  hourly?: {
-    time: string[];
-    sea_surface_temperature: number[];
-    wave_height: number[];
-  };
+/** Beyond this, a station's reading stops being representative of the spot. */
+const MAX_STATION_MILES = 60;
+
+interface TempStation {
+  id: string;
+  lat: number;
+  lng: number;
+}
+
+// The station list is static for practical purposes; fetch once per session.
+let stationsPromise: Promise<TempStation[]> | null = null;
+function loadStations(): Promise<TempStation[]> {
+  if (!stationsPromise) {
+    stationsPromise = (async () => {
+      const res = await fetch(STATIONS_URL);
+      if (!res.ok) throw new Error(`Station list failed (${res.status}).`);
+      const data = (await res.json()) as {
+        stations?: Array<{ id?: string; lat?: number; lng?: number }>;
+      };
+      return (data.stations ?? [])
+        .filter((s) => s.id && Number.isFinite(s.lat) && Number.isFinite(s.lng))
+        .map((s) => ({ id: s.id as string, lat: s.lat as number, lng: s.lng as number }));
+    })();
+    // Let a transient failure retry on the next analysis.
+    stationsPromise.catch(() => {
+      stationsPromise = null;
+    });
+  }
+  return stationsPromise;
+}
+
+/** Latest measured water temp (°F) from the nearest station, or null. */
+async function fetchMeasuredWaterTempF(coords: Coordinates): Promise<number | null> {
+  const stations = await loadStations();
+  let best: TempStation | null = null;
+  let bestMiles = Infinity;
+  for (const s of stations) {
+    const d = distanceMiles(coords, { latitude: s.lat, longitude: s.lng });
+    if (d < bestMiles) {
+      bestMiles = d;
+      best = s;
+    }
+  }
+  if (!best || bestMiles > MAX_STATION_MILES) return null;
+
+  const params = new URLSearchParams({
+    product: 'water_temperature',
+    date: 'latest',
+    station: best.id,
+    units: 'english',
+    time_zone: 'lst_ldt',
+    format: 'json',
+  });
+  const res = await fetch(`${DATA_URL}?${params.toString()}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { data?: Array<{ v?: string }> };
+  const v = Number(data.data?.[0]?.v);
+  return Number.isFinite(v) ? v : null;
 }
 
 /**
  * Water-surface conditions for each day of the outlook.
  *
- * Saltwater: pulls measured sea-surface temperature and wave height from the
- * Open-Meteo Marine API (no key), sampled at midday per day. Freshwater (or
- * when the marine grid has no coverage): estimates water temp from air temp.
+ * Saltwater: the latest measured reading from the nearest NOAA CO-OPS water
+ * temperature station (sea-surface temp moves slowly, so one measurement
+ * stands in for the whole outlook). Freshwater, or when no station is near:
+ * estimates water temp from air temp, flagged as an estimate.
  *
- * `airTempByDay` aligns 1:1 with the requested days and drives the freshwater
- * estimate / fallback.
+ * `airTempByDay` aligns 1:1 with the requested days and drives the estimate.
+ * `waveHeightFtByDay` comes from the NWS forecast grid (coastal grids only).
  */
 export async function fetchWeekWater(
   coords: Coordinates,
   waterType: WaterType,
   airTempByDay: number[],
+  waveHeightFtByDay?: Array<number | null>,
 ): Promise<WaterConditions[]> {
-  const days = airTempByDay.length;
+  const waveAt = (d: number) => waveHeightFtByDay?.[d] ?? null;
 
   if (waterType === 'saltwater') {
     try {
-      const marine = await fetchMarineWeek(coords, days);
-      return airTempByDay.map((airTemp, d) => {
-        const m = marine[d];
-        if (m && m.waterTempF != null) {
-          return {
-            waterTempF: round(m.waterTempF),
-            isEstimated: false,
-            waveHeightFt: m.waveHeightFt,
-          };
-        }
-        return estimate(airTemp);
-      });
+      const measured = await fetchMeasuredWaterTempF(coords);
+      if (measured != null) {
+        return airTempByDay.map((_, d) => ({
+          waterTempF: round(measured),
+          isEstimated: false,
+          waveHeightFt: waveAt(d),
+        }));
+      }
     } catch {
       // Fall through to estimates below.
     }
   }
 
-  return airTempByDay.map((airTemp) => estimate(airTemp));
+  return airTempByDay.map((airTemp, d) => ({
+    ...estimate(airTemp),
+    waveHeightFt: waveAt(d),
+  }));
 }
 
 function estimate(airTempF: number): WaterConditions {
@@ -57,39 +113,6 @@ function estimate(airTempF: number): WaterConditions {
     isEstimated: true,
     waveHeightFt: null,
   };
-}
-
-async function fetchMarineWeek(
-  coords: Coordinates,
-  days: number,
-): Promise<Array<{ waterTempF: number | null; waveHeightFt: number | null }>> {
-  const params = new URLSearchParams({
-    latitude: String(coords.latitude),
-    longitude: String(coords.longitude),
-    hourly: 'sea_surface_temperature,wave_height',
-    temperature_unit: 'fahrenheit',
-    timezone: 'auto',
-    forecast_days: String(Math.min(days, 7)),
-  });
-  const res = await fetch(`${MARINE_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`Marine request failed (${res.status}).`);
-  const data = (await res.json()) as OpenMeteoMarineWeek;
-  const h = data.hourly;
-  if (!h) throw new Error('Marine response missing hourly data.');
-
-  const base = new Date(`${h.time[0]?.slice(0, 10)}T00:00`);
-  const result: Array<{ waterTempF: number | null; waveHeightFt: number | null }> = [];
-  for (let d = 0; d < days; d += 1) {
-    const dateStr = localDateStr(addDays(base, d));
-    const idx = h.time.findIndex((t) => t === `${dateStr}T12:00`);
-    const sst = idx >= 0 ? h.sea_surface_temperature[idx] : undefined;
-    const wave = idx >= 0 ? h.wave_height[idx] : undefined;
-    result.push({
-      waterTempF: sst == null ? null : sst,
-      waveHeightFt: wave == null ? null : round(wave * 3.28084, 1),
-    });
-  }
-  return result;
 }
 
 /**

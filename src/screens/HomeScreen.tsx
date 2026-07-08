@@ -44,6 +44,7 @@ import { isLikelySaltwater } from '@/api/tides';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
 import { speciesForWaterType, SPECIES } from '@/engine/species';
+import { onBackupImported } from '@/utils/backup';
 import { buildCatchConditions } from '@/utils/snapshot';
 import { addDays, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
 import { ForecastCard } from '@/components/ForecastCard';
@@ -127,16 +128,15 @@ export function HomeScreen({ onSnapshot }: Props) {
       ? regulationsForState(region.state)?.url ?? null
       : null;
 
-  // Which hour the map's wind overlay should show. Null = live "current" wind,
-  // used before an analysis and for "today / day overview"; otherwise it tracks
-  // the day + hour chosen in the Conditions card.
-  let windTargetISO: string | null = null;
+  // Wind for the map overlay: the analyzed forecast for the chosen day + hour
+  // ("today / overview" uses today's now-snapshot). Null before the first
+  // analysis — the map itself makes no weather requests.
   let windTargetLabel = 'Now';
+  let windWx = conditions ? conditions.weather : null;
   if (conditions && !(selectedDay === 0 && selectedHour === null)) {
     const wx = selectedHour != null ? conditions.hourlyWeather[selectedHour] : null;
-    const iso = wx ? wx.timeISO : conditions.weather.timeISO;
-    windTargetISO = iso;
-    windTargetLabel = `${dayLabel(addDays(new Date(), selectedDay), selectedDay)} ${hourLabel(iso)}`;
+    windWx = wx ?? conditions.weather;
+    windTargetLabel = `${dayLabel(addDays(new Date(), selectedDay), selectedDay)} ${hourLabel(windWx.timeISO)}`;
   }
 
   // One-line recap of the current setup, shown by the Analyze button so the
@@ -284,6 +284,17 @@ export function HomeScreen({ onSnapshot }: Props) {
     void loadPresets().then(setCustomPresets);
   }, []);
 
+  // A backup import (Guide tab) can add spots/presets while this screen stays
+  // mounted — reload both lists when that happens.
+  useEffect(
+    () =>
+      onBackupImported(() => {
+        void loadFavorites().then(setFavorites);
+        void loadPresets().then(setCustomPresets);
+      }),
+    [],
+  );
+
   // Auto-pick water type from the spot (coastal → saltwater) unless the angler
   // has already set it by hand or via a preset.
   useEffect(() => {
@@ -296,7 +307,10 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const onSaveFavorite = useCallback(async () => {
     if (!coordinates) return;
-    const next = await addFavorite(favLabel || place || 'Saved spot', coordinates);
+    // `place` can be a raw "lat, long" string when the spot came from a pin
+    // drop or GPS; never use that as a label.
+    const placeLabel = /^-?\d+\.\d+, -?\d+\.\d+$/.test(place) ? '' : place;
+    const next = await addFavorite(favLabel.trim() || placeLabel || 'Saved spot', coordinates);
     setFavorites(next);
     setSavingFav(false);
     setFavLabel('');
@@ -484,8 +498,9 @@ export function HomeScreen({ onSnapshot }: Props) {
         <MapPicker
           center={coordinates}
           onPick={onPickOnMap}
-          windTargetISO={windTargetISO}
           windTargetLabel={windTargetLabel}
+          windMph={windWx?.windMph ?? null}
+          windDirDeg={windWx?.windDirectionDeg ?? null}
         />
 
         <Text style={styles.selected}>
@@ -498,7 +513,7 @@ export function HomeScreen({ onSnapshot }: Props) {
           <Pressable
             style={({ pressed }) => [styles.saveFavBtn, pressed && pressedStyle]}
             onPress={() => {
-              setFavLabel(place);
+              setFavLabel('');
               setSavingFav(true);
             }}
           >
@@ -514,7 +529,7 @@ export function HomeScreen({ onSnapshot }: Props) {
             <TextInput
               value={favLabel}
               onChangeText={setFavLabel}
-              placeholder="Label (e.g. North dock, Home lake)"
+              placeholder="Spot Name"
               placeholderTextColor={colors.textMuted}
               autoFocus
               style={styles.input}
@@ -586,6 +601,8 @@ export function HomeScreen({ onSnapshot }: Props) {
           <Text style={styles.helper}>
             Tap a starter profile, or save your own setup below to reuse it.
           </Text>
+          {/* Starter profiles and saved setups share one chip group so the
+              section reads as a single container. */}
           <View style={styles.presetWrap}>
             {PRESETS.map((p) => (
               <Pressable
@@ -596,27 +613,21 @@ export function HomeScreen({ onSnapshot }: Props) {
                 <Text style={styles.presetText}>{p.label}</Text>
               </Pressable>
             ))}
+            {customPresets.map((p) => (
+              <View key={p.id} style={styles.presetCustom}>
+                <Pressable
+                  style={({ pressed }) => [styles.presetCustomTap, pressed && pressedStyle]}
+                  onPress={() => applyCustomPreset(p)}
+                >
+                  <Feather name="bookmark" size={13} color={colors.accent} />
+                  <Text style={styles.presetText}>{p.label}</Text>
+                </Pressable>
+                <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
+                  <Feather name="x" size={14} color={colors.textMuted} />
+                </Pressable>
+              </View>
+            ))}
           </View>
-
-          {customPresets.length > 0 ? (
-            <View style={styles.favList}>
-              <Text style={styles.favHeader}>Your saved setups</Text>
-              {customPresets.map((p) => (
-                <View key={p.id} style={styles.favRow}>
-                  <Pressable
-                    style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
-                    onPress={() => applyCustomPreset(p)}
-                  >
-                    <Feather name="bookmark" size={14} color={colors.accent} style={styles.favStar} />
-                    <Text style={styles.favName}>{p.label}</Text>
-                  </Pressable>
-                  <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
-                    <Feather name="x" size={16} color={colors.textMuted} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          ) : null}
 
           {!savingPreset ? (
             <Pressable
@@ -634,7 +645,7 @@ export function HomeScreen({ onSnapshot }: Props) {
               <TextInput
                 value={presetLabel}
                 onChangeText={setPresetLabel}
-                placeholder="Name it (e.g. My home lake)"
+                placeholder="Preset Name"
                 placeholderTextColor={colors.textMuted}
                 autoFocus
                 style={styles.input}
@@ -1047,11 +1058,6 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontWeight: '600',
     marginTop: spacing.sm,
   },
-  btnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
   saveFavBtn: {
     marginTop: spacing.sm,
     alignSelf: 'flex-start',
@@ -1136,6 +1142,22 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     backgroundColor: colors.accentDim,
     borderWidth: 1,
     borderColor: colors.accent,
+  },
+  presetCustom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.accentDim,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  presetCustomTap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   presetText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   collapse: {

@@ -5,13 +5,15 @@ export interface MapPickerProps {
   center: Coordinates | null;
   /** Called whenever the user drops or drags the pin. */
   onPick: (coords: Coordinates) => void;
-  /**
-   * Local ISO hour the wind overlay should show (e.g. "2026-06-22T14:00").
-   * Null shows live "current" wind. Comes from the Conditions hour/day picker.
-   */
-  windTargetISO?: string | null;
-  /** Human label for that time, shown on the map (e.g. "Sat 2 PM" or "Now"). */
+  /** Human label for the wind overlay's hour (e.g. "Sat 2 PM" or "Now"). */
   windTargetLabel?: string;
+  /**
+   * Wind at the spot for that hour, from the app's own forecast. Null (no
+   * analysis yet) hides the overlay. The map makes no weather requests itself.
+   */
+  windMph?: number | null;
+  /** Meteorological direction (degrees the wind blows FROM). */
+  windDirDeg?: number | null;
 }
 
 /** Sensible fallback when we have no location yet (continental US). */
@@ -28,15 +30,17 @@ function esc(s: string): string {
 }
 
 /**
- * A self-contained Leaflet + OpenStreetMap document with a draggable pin, an
+ * A self-contained Leaflet + USGS topo document with a draggable pin, an
  * animated wind overlay (leaflet-velocity), and an optional depth view. No API
- * key required.
+ * key required; the USGS National Map tiles are US-government data (free,
+ * commercial OK — coverage is US only, blank elsewhere).
  *
  * The pin posts the selected coordinates back to its host:
  * `window.ReactNativeWebView` on native, the parent window on web.
  *
- * Wind: samples a coarse grid of Open-Meteo wind over the view and animates the
- * flow for the hour given by `windTargetISO` (or live "current" when null).
+ * Wind: drawn from the speed/direction baked in by the host (the app's own
+ * forecast for the chosen hour) as a uniform flow field — the map makes no
+ * weather requests of its own.
  *
  * Depth (toggle, off by default): NOAA nautical charts (real soundings/contours,
  * US coastal + Great Lakes) over a coarse GEBCO depth shading; tapping the pin
@@ -47,13 +51,13 @@ function esc(s: string): string {
  */
 export function buildMapHtml(
   center: Coordinates | null,
-  windTargetISO: string | null = null,
   windTargetLabel = 'Now',
   fullscreen = false,
+  windMph: number | null = null,
+  windDirDeg: number | null = null,
 ): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = center ? 12 : 4;
-  const isoLiteral = windTargetISO ? JSON.stringify(windTargetISO) : 'null';
   const whenText = esc(`Wind · ${windTargetLabel}`);
   return `<!DOCTYPE html>
 <html>
@@ -156,9 +160,12 @@ export function buildMapHtml(
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
   <script>
     var map = L.map('map').setView([${c.latitude}, ${c.longitude}], ${zoom});
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
+    // USGS The National Map topo tiles ({z}/{y}/{x} order). Native detail tops
+    // out at 16; maxZoom 18 lets Leaflet upscale for precise pin placement.
+    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
+      maxNativeZoom: 16,
+      maxZoom: 18,
+      attribution: 'USGS The National Map'
     }).addTo(map);
 
     // Panes so the stack is OSM < GEBCO shading < NOAA charts < wind < markers.
@@ -225,22 +232,18 @@ export function buildMapHtml(
     }
 
     // ---- Animated wind overlay (leaflet-velocity) ----
-    // The hour to show, baked in from the Conditions picker. null = current.
-    var windTargetISO = ${isoLiteral};
-    var GRID = 5;           // GRID x GRID sample points over the view
+    // Wind comes baked in from the app's own forecast: one speed/direction for
+    // the spot at the chosen hour, drawn as a uniform flow field over the
+    // current view. No weather requests happen from the map.
+    var windMph = ${windMph == null ? 'null' : Number(windMph)};
+    var windDirDeg = ${windDirDeg == null ? '0' : Number(windDirDeg)};
+    var GRID = 5;           // GRID x GRID field points over the view
     var windLayer = null;
     var windTimer = null;
     var windEnabled = true; // toggled by the on-map Wind button
-    // Open-Meteo shares a per-IP rate limit with the Analyze forecast call, so
-    // we throttle: skip refetching the same view twice, and after a 429 we
-    // pause wind requests for a while to let the quota recover.
-    var lastWindKey = '';
-    var windCooldownUntil = 0;
-    var windRetryTimer = null;
 
-    // Surface why the wind overlay is blank (rate limit, offline, etc.) in the
-    // pin-readout box instead of failing silently. A successful fetch overwrites
-    // this with the real reading.
+    // Surface why the wind overlay is blank (no analysis yet, CDN offline) in
+    // the pin-readout box instead of failing silently.
     function windStatus(msg) {
       var wr = document.getElementById('windread');
       if (wr) { wr.textContent = msg; wr.style.display = 'block'; }
@@ -278,163 +281,69 @@ export function buildMapHtml(
       ];
     }
 
-    function nearestTimeIndex(times, iso) {
-      var target = new Date(iso).getTime();
-      var best = -1, bestDiff = Infinity;
-      for (var i = 0; i < times.length; i++) {
-        var d = Math.abs(new Date(times[i]).getTime() - target);
-        if (d < bestDiff) { bestDiff = d; best = i; }
-      }
-      return best;
-    }
-
-    // Pull one {speed,dir} per grid point. Hourly mode picks the target hour
-    // (matched once from the first point's time axis); else uses live current.
-    function extractSamples(results) {
-      var idx = -1;
-      if (windTargetISO && results[0] && results[0].hourly && results[0].hourly.time) {
-        var times = results[0].hourly.time;
-        idx = times.indexOf(windTargetISO);
-        if (idx < 0) { idx = nearestTimeIndex(times, windTargetISO); }
-      }
-      var out = [];
-      for (var i = 0; i < results.length; i++) {
-        var r = results[i], spd = 0, dir = 0;
-        if (windTargetISO && r && r.hourly && idx >= 0) {
-          spd = r.hourly.wind_speed_10m[idx];
-          dir = r.hourly.wind_direction_10m[idx];
-        } else if (r && r.current) {
-          spd = r.current.wind_speed_10m;
-          dir = r.current.wind_direction_10m;
-        }
-        out.push({ speed: spd == null ? 0 : spd, dir: dir == null ? 0 : dir });
-      }
-      return out;
-    }
-
     function compass(deg) {
       var dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
       var idx = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
       return dirs[idx] || 'N';
     }
 
-    // Persistent readout of the wind at the pin (nearest grid sample), so a
-    // direction always shows — including on touch, where hover can't fire.
-    function updateSpotReadout(lats, lons, samples) {
+    // Persistent readout of the wind at the pin, so a direction always shows —
+    // including on touch, where hover can't fire.
+    function updateSpotReadout() {
       var wr = document.getElementById('windread');
-      if (!wr) { return; }
-      var ll = marker.getLatLng();
-      var best = -1, bestD = Infinity;
-      for (var i = 0; i < lats.length; i++) {
-        var d = Math.abs(lats[i] - ll.lat) + Math.abs(lons[i] - ll.lng);
-        if (d < bestD) { bestD = d; best = i; }
-      }
-      if (best < 0 || !samples[best]) { return; }
-      var s = samples[best];
-      var mph = Math.round(s.speed * 2.23694);
-      wr.textContent = 'Wind at pin: ' + compass(s.dir) + ' ' + mph + ' mph';
+      if (!wr || windMph == null) { return; }
+      wr.textContent = 'Wind at pin: ' + compass(windDirDeg) + ' ' + Math.round(windMph) + ' mph';
       wr.style.display = 'block';
     }
 
     function refreshWind() {
       if (!windEnabled) { return; }
-      // Back off while rate-limited so we don't starve the Analyze forecast.
-      if (Date.now() < windCooldownUntil) { return; }
+      if (windMph == null) {
+        // No forecast yet (the host bakes wind in after an analysis).
+        setLegend('windlegend', false);
+        windStatus('Wind shows after you analyze a spot');
+        return;
+      }
       try {
         var b = map.getBounds();
         var north = b.getNorth(), south = b.getSouth();
         var west = b.getWest(), east = b.getEast();
-        // Clamp a very wide (zoomed-out) view so the grid stays meaningful.
-        if (east - west > 50) { var mx = (east + west) / 2; west = mx - 25; east = mx + 25; }
-        if (north - south > 50) { var my = (north + south) / 2; south = my - 25; north = my + 25; }
-        // Skip if this is the same view (rounded) we last fetched — moving the
-        // marker or nudging the map shouldn't trigger a fresh request.
-        var key = [north, south, west, east].map(function (n) { return n.toFixed(2); }).join(',')
-          + '|' + (windTargetISO || 'now');
-        if (key === lastWindKey) { return; }
-        lastWindKey = key;
         var nx = GRID, ny = GRID;
-        var dx = (east - west) / (nx - 1), dy = (north - south) / (ny - 1);
-        var lats = [], lons = [];
-        // Row-major, north-to-south then west-to-east, to match the header.
-        for (var row = 0; row < ny; row++) {
-          var lat = north - row * dy;
-          for (var col = 0; col < nx; col++) {
-            lats.push(Math.round(lat * 1e4) / 1e4);
-            lons.push(Math.round((west + col * dx) * 1e4) / 1e4);
-          }
+        var ms = windMph * 0.44704; // mph -> m/s for the velocity field
+        var samples = [];
+        for (var i = 0; i < nx * ny; i++) { samples.push({ speed: ms, dir: windDirDeg }); }
+        var data = buildVelocity(nx, ny, north, south, west, east, samples);
+        setLegend('windlegend', true);
+        updateSpotReadout();
+        // leaflet-velocity loads from a CDN; if it didn't, still show the
+        // pin reading above and say the animation is missing.
+        if (typeof L.velocityLayer !== 'function') {
+          windStatus('Wind animation failed to load (CDN/offline)');
+          return;
         }
-        // Only request as many forecast days as the target hour needs (1 for a
-        // few days out, never the full 8) to keep the request weight low.
-        var fdays = 2;
-        if (windTargetISO) {
-          var dd = Math.ceil((new Date(windTargetISO).getTime() - Date.now()) / 86400000) + 1;
-          fdays = Math.max(1, Math.min(8, dd));
+        if (windLayer) {
+          windLayer.setData(data);
+          if (!map.hasLayer(windLayer)) { windLayer.addTo(map); }
+          return;
         }
-        var base = 'https://api.open-meteo.com/v1/forecast'
-          + '?latitude=' + lats.join(',')
-          + '&longitude=' + lons.join(',')
-          + '&wind_speed_unit=ms';
-        var url = windTargetISO
-          ? base + '&hourly=wind_speed_10m,wind_direction_10m&timezone=auto&forecast_days=' + fdays
-          : base + '&current=wind_speed_10m,wind_direction_10m';
-        fetch(url)
-          .then(function (res) {
-            // On a rate-limit, pause wind fetching for a minute and bail.
-            if (res.status === 429) { windCooldownUntil = Date.now() + 60000; lastWindKey = ''; throw new Error('rate-limited'); }
-            if (!res.ok) { throw new Error('http-' + res.status); }
-            return res.json();
-          })
-          .then(function (json) {
-            if (!windEnabled) { return; }
-            var results = Array.isArray(json) ? json : [json];
-            var samples = extractSamples(results);
-            var data = buildVelocity(nx, ny, north, south, west, east, samples);
-            setLegend('windlegend', true);
-            updateSpotReadout(lats, lons, samples);
-            // leaflet-velocity loads from a CDN; if it didn't, still show the
-            // pin reading above and say the animation is missing.
-            if (typeof L.velocityLayer !== 'function') {
-              windStatus('Wind animation failed to load (CDN/offline)');
-              return;
-            }
-            if (windLayer) {
-              windLayer.setData(data);
-              if (!map.hasLayer(windLayer)) { windLayer.addTo(map); }
-              return;
-            }
-            // Our own pin readout (updateSpotReadout) replaces leaflet-velocity's
-            // hover control, which shows "No wind data" until you hover and can't
-            // work on touch at all. displayValues:false keeps that control off.
-            windLayer = L.velocityLayer({
-              displayValues: false,
-              data: data,
-              // Color scale spans 0–30 mph (13.41 m/s); see the on-map legend.
-              minVelocity: 0, maxVelocity: 13.41,
-              velocityScale: 0.01, opacity: 0.85,
-              colorScale: ['#5b8f8a', '#3a7d52', '#6f9e3f', '#c0a233', '#c08433', '#b15240']
-            });
-            windLayer.addTo(map);
-          })
-          .catch(function (err) {
-            var msg = (err && err.message) || '';
-            if (msg === 'rate-limited') {
-              windStatus('Wind paused — weather service busy (rate limited)');
-              // Auto-recover: retry once the cooldown passes.
-              if (windRetryTimer) { clearTimeout(windRetryTimer); }
-              windRetryTimer = setTimeout(function () {
-                windRetryTimer = null; lastWindKey = ''; refreshWind();
-              }, 61000);
-            } else {
-              windStatus('Wind data unavailable right now (' + (msg || 'error') + ')');
-            }
-          });
+        // Our own pin readout (updateSpotReadout) replaces leaflet-velocity's
+        // hover control, which shows "No wind data" until you hover and can't
+        // work on touch at all. displayValues:false keeps that control off.
+        windLayer = L.velocityLayer({
+          displayValues: false,
+          data: data,
+          // Color scale spans 0–30 mph (13.41 m/s); see the on-map legend.
+          minVelocity: 0, maxVelocity: 13.41,
+          velocityScale: 0.01, opacity: 0.85,
+          colorScale: ['#5b8f8a', '#3a7d52', '#6f9e3f', '#c0a233', '#c08433', '#b15240']
+        });
+        windLayer.addTo(map);
       } catch (e) { /* wind is optional */ }
     }
 
     function scheduleWind() {
       if (windTimer) { clearTimeout(windTimer); }
-      windTimer = setTimeout(refreshWind, 2500);
+      windTimer = setTimeout(refreshWind, 300);
     }
 
     // Wind on/off toggle. disableClickPropagation keeps a button tap from
@@ -449,9 +358,7 @@ export function buildMapHtml(
       if (windEnabled) {
         toggleBtn.textContent = 'Wind: on';
         toggleBtn.classList.remove('off');
-        lastWindKey = ''; // bypass the dedupe so re-enabling always refetches
-        windCooldownUntil = 0;
-        refreshWind(); // re-fetches for the current view, re-adds the layer, shows the legend
+        refreshWind(); // redraws for the current view, re-adds the layer, shows the legend
       } else {
         toggleBtn.textContent = 'Wind: off';
         toggleBtn.classList.add('off');

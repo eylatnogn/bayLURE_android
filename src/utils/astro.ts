@@ -46,3 +46,92 @@ export function timeOfDay(iso: string | undefined): string {
   const t = iso.split('T')[1];
   return t ? t.slice(0, 5) : '—';
 }
+
+export interface SunTimes {
+  /** "HH:MM" device-local, or '—' for polar day/night. */
+  sunrise: string;
+  sunset: string;
+  /** Epoch ms, null when the sun never rises/sets that day. */
+  sunriseMs: number | null;
+  sunsetMs: number | null;
+}
+
+/**
+ * Local sunrise/sunset for a date and location (classic Almanac algorithm,
+ * accurate to a minute or two — plenty for feeding windows). Computed locally
+ * because the NWS forecast grid doesn't include sun times. Pass the spot's
+ * IANA `timeZone` (from the NWS point lookup) so the clock times read in the
+ * spot's zone even when the angler plans from another one.
+ */
+export function sunTimes(
+  date: Date,
+  latitude: number,
+  longitude: number,
+  timeZone?: string,
+): SunTimes {
+  const rise = sunEvent(date, latitude, longitude, true);
+  const set = sunEvent(date, latitude, longitude, false);
+  return {
+    sunrise: fmtLocal(rise, timeZone),
+    sunset: fmtLocal(set, timeZone),
+    sunriseMs: rise ? rise.getTime() : null,
+    sunsetMs: set ? set.getTime() : null,
+  };
+}
+
+function fmtLocal(d: Date | null, timeZone?: string): string {
+  if (!d) return '—';
+  if (timeZone) {
+    try {
+      return new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+        timeZone,
+      }).format(d);
+    } catch {
+      // Unknown zone / no Intl data — fall through to device-local.
+    }
+  }
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function sunEvent(date: Date, lat: number, lon: number, rising: boolean): Date | null {
+  const rad = Math.PI / 180;
+  const zenith = 90.833; // official sunrise/sunset incl. refraction
+
+  // Day of year.
+  const startOfYear = new Date(date.getFullYear(), 0, 1);
+  const n = Math.floor((date.getTime() - startOfYear.getTime()) / 86400000) + 1;
+
+  const lngHour = lon / 15;
+  const t = rising ? n + (6 - lngHour) / 24 : n + (18 - lngHour) / 24;
+
+  // Sun's mean anomaly, then true longitude.
+  const M = 0.9856 * t - 3.289;
+  let L = M + 1.916 * Math.sin(M * rad) + 0.02 * Math.sin(2 * M * rad) + 282.634;
+  L = ((L % 360) + 360) % 360;
+
+  // Right ascension, aligned to L's quadrant, converted to hours.
+  let RA = Math.atan(0.91764 * Math.tan(L * rad)) / rad;
+  RA = ((RA % 360) + 360) % 360;
+  RA += Math.floor(L / 90) * 90 - Math.floor(RA / 90) * 90;
+  RA /= 15;
+
+  // Declination and local hour angle.
+  const sinDec = 0.39782 * Math.sin(L * rad);
+  const cosDec = Math.cos(Math.asin(sinDec));
+  const cosH =
+    (Math.cos(zenith * rad) - sinDec * Math.sin(lat * rad)) /
+    (cosDec * Math.cos(lat * rad));
+  if (cosH > 1 || cosH < -1) return null; // sun never rises/sets today
+
+  const H = (rising ? 360 - Math.acos(cosH) / rad : Math.acos(cosH) / rad) / 15;
+  const T = H + RA - 0.06571 * t - 6.622;
+  const UT = (((T - lngHour) % 24) + 24) % 24;
+
+  const utcMidnight = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return new Date(utcMidnight + UT * 3600000);
+}

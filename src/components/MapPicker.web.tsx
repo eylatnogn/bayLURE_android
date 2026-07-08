@@ -10,8 +10,9 @@ import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 export function MapPicker({
   center,
   onPick,
-  windTargetISO = null,
   windTargetLabel = 'Now',
+  windMph = null,
+  windDirDeg = null,
 }: MapPickerProps) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -65,20 +66,20 @@ export function MapPicker({
     fullRef.current?.contentWindow?.postMessage(msg, '*');
   }, [center]);
 
-  // Rebuild a document only when the wind hour changes (to re-time the overlay).
-  // Center changes are pushed via postMessage instead. The full-screen variant
-  // bakes the "shrink" icon (fullscreen=true).
+  // Rebuild a document only when the baked-in wind changes (to re-time the
+  // overlay). Center changes are pushed via postMessage instead. The
+  // full-screen variant bakes the "shrink" icon (fullscreen=true).
   const srcDoc = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel, false),
+    () => buildMapHtml(centerRef.current, windTargetLabel, false, windMph, windDirDeg),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windTargetISO, windTargetLabel],
+    [windTargetLabel, windMph, windDirDeg],
   );
   // Keyed on `expanded` too, so each time it opens it bakes in the *current*
   // location; it stays stable while open (no reload).
   const srcDocFull = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetISO, windTargetLabel, true),
+    () => buildMapHtml(centerRef.current, windTargetLabel, true, windMph, windDirDeg),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windTargetISO, windTargetLabel, expanded],
+    [windTargetLabel, windMph, windDirDeg, expanded],
   );
 
   const inlineIframe = createElement('iframe', {

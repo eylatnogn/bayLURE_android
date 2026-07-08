@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import type { CatchConditions, CatchRecord } from '@/types';
 import { SPECIES } from '@/engine/species';
 import { addCatch, deleteCatch, loadCatches, updateCatch } from '@/storage/catchLog';
@@ -102,7 +102,7 @@ export function CatchLogScreen({ snapshot }: Props) {
       const rendered = await context.renderAsync();
       const manipulated = await rendered.saveAsync({
         compress: 0.4,
-        format: ImageManipulator.SaveFormat.JPEG,
+        format: SaveFormat.JPEG,
         base64: wantsBase64,
       });
       // On web, persist a small data URL so the photo survives a reload; on
@@ -469,11 +469,6 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     color: colors.onAccent,
     fontSize: 16,
     fontWeight: '800',
-  },
-  ctaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
   },
   disabled: { opacity: 0.5 },
   cancel: { color: colors.bad, fontWeight: '700', fontSize: 13 },

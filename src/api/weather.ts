@@ -1,33 +1,32 @@
 import type { Coordinates, SkyCondition, WeatherConditions } from '@/types';
 import {
   degreesToCompass,
-  hpaToInHg,
   pressureTrendFromChange,
   round,
   weatherCodeLabel,
 } from '@/utils/format';
-import { moonInfo, timeOfDay } from '@/utils/astro';
+import { moonInfo, sunTimes } from '@/utils/astro';
 import { addDays, localDateStr } from '@/utils/dates';
 
-const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+const POINTS_URL = 'https://api.weather.gov/points';
 export const FORECAST_DAYS = 7;
 
-/**
- * Open-Meteo shares a per-IP rate limit with the map's wind overlay, so a burst
- * of map panning can briefly use up the quota. Retry a 429 (or transient 5xx) a
- * couple of times with backoff before surfacing a friendly error.
- */
-async function fetchForecastWithRetry(url: string, attempts = 3): Promise<Response> {
+// The National Weather Service API (api.weather.gov) is US-government data:
+// free, no key, commercial use OK. It asks callers to identify themselves via
+// User-Agent; native fetch sends it, browsers strip it and send Origin, which
+// NWS also accepts. Coverage is US + territories only.
+const NWS_HEADERS = {
+  Accept: 'application/geo+json',
+  'User-Agent': 'bayLURE/1.0 (eybusiness@outlook.com)',
+};
+
+/** NWS occasionally 500s or rate-limits; retry briefly before surfacing. */
+async function fetchNwsWithRetry(url: string, attempts = 3): Promise<Response> {
   for (let i = 0; i < attempts; i += 1) {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: NWS_HEADERS });
     if (res.ok) return res;
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || i === attempts - 1) {
-      if (res.status === 429) {
-        throw new Error(
-          'Weather service is busy right now (rate limited). Wait a minute and try again.',
-        );
-      }
       throw new Error(`Weather request failed (${res.status}).`);
     }
     await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)));
@@ -36,23 +35,97 @@ async function fetchForecastWithRetry(url: string, attempts = 3): Promise<Respon
   throw new Error('Weather request failed.');
 }
 
-interface Hourly {
-  time: string[];
-  temperature_2m: number[];
-  surface_pressure: number[];
-  relative_humidity_2m: number[];
-  cloud_cover: number[];
-  wind_speed_10m: number[];
-  wind_gusts_10m: number[];
-  wind_direction_10m: number[];
-  weather_code: number[];
-  is_day: number[];
+// The forecast grid run-length-encodes each field as {validTime, value} where
+// validTime is "ISO/duration" (e.g. "2026-07-07T12:00:00+00:00/PT3H").
+interface GridValue {
+  validTime: string;
+  value: number | null;
+}
+interface GridSeriesJson {
+  uom?: string;
+  values?: GridValue[];
+}
+interface GridProperties {
+  temperature?: GridSeriesJson;
+  pressure?: GridSeriesJson;
+  skyCover?: GridSeriesJson;
+  relativeHumidity?: GridSeriesJson;
+  windSpeed?: GridSeriesJson;
+  windGust?: GridSeriesJson;
+  windDirection?: GridSeriesJson;
+  probabilityOfPrecipitation?: GridSeriesJson;
+  waveHeight?: GridSeriesJson;
 }
 
-interface OpenMeteoForecast {
-  current?: { time: string };
-  hourly?: Hourly;
-  daily?: { time: string[]; sunrise: string[]; sunset: string[] };
+/** A field expanded into a step function over epoch-ms intervals. */
+interface Series {
+  points: Array<{ start: number; end: number; value: number }>;
+}
+
+/** Parse the duration half of a validTime, e.g. "P1DT6H", "PT3H". */
+function durationMs(validTime: string): number {
+  const dur = validTime.split('/')[1] ?? 'PT1H';
+  const m = /P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/.exec(dur);
+  if (!m) return 3600000;
+  const days = Number(m[1] ?? 0);
+  const hours = Number(m[2] ?? 0);
+  const minutes = Number(m[3] ?? 0);
+  const ms = (days * 24 + hours) * 3600000 + minutes * 60000;
+  return ms > 0 ? ms : 3600000;
+}
+
+function parseSeries(
+  json: GridSeriesJson | undefined,
+  convert: (v: number, uom: string) => number,
+): Series {
+  const uom = json?.uom ?? '';
+  const points: Series['points'] = [];
+  for (const entry of json?.values ?? []) {
+    if (entry.value == null) continue;
+    const start = new Date(entry.validTime.split('/')[0] ?? '').getTime();
+    if (Number.isNaN(start)) continue;
+    points.push({ start, end: start + durationMs(entry.validTime), value: convert(entry.value, uom) });
+  }
+  points.sort((a, b) => a.start - b.start);
+  return { points };
+}
+
+/**
+ * Sample the step function at a moment. Between entries (or past the field's
+ * forecast horizon — pressure only extends ~3 days) the last known value
+ * carries forward, which also gives a neutral "steady" trend out there.
+ */
+function valueAt(s: Series, ms: number): number | null {
+  let carried: number | null = null;
+  for (const p of s.points) {
+    if (ms >= p.start && ms < p.end) return p.value;
+    if (p.start <= ms) carried = p.value;
+    else break;
+  }
+  if (carried != null) return carried;
+  return s.points[0]?.value ?? null;
+}
+
+// Unit conversions keyed off the grid's `uom` strings.
+function toF(v: number, uom: string): number {
+  return uom.includes('degC') ? (v * 9) / 5 + 32 : v;
+}
+function toMph(v: number, uom: string): number {
+  if (uom.includes('km_h')) return v * 0.621371;
+  if (uom.includes('m_s')) return v * 2.23694;
+  return v;
+}
+/** Pressure arrives with no uom; detect Pa / hPa / inHg by magnitude. */
+function toInHg(v: number): number {
+  if (v > 5000) return v * 0.0002953; // Pa
+  if (v > 300) return v * 0.02953; // hPa
+  return v; // already inHg
+}
+function toFt(v: number, uom: string): number {
+  return uom.includes(':m') ? v * 3.28084 : v;
+}
+function asIs(v: number): number {
+  return v;
 }
 
 function skyFromCloudCover(pct: number): SkyCondition {
@@ -66,124 +139,126 @@ export interface WeekWeather {
   days: WeatherConditions[];
   /** Per-day hourly snapshots (hourly[d] aligns with days[d]). */
   hourly: WeatherConditions[][];
+  /** Midday wave height per day, feet; null inland (no marine grid). */
+  waveHeightFtByDay: Array<number | null>;
+}
+
+function isoHour(dateStr: string, hour: number): string {
+  return `${dateStr}T${String(hour).padStart(2, '0')}:00`;
 }
 
 /**
- * Fetch a 7-day weather outlook from Open-Meteo (no API key). Returns one
- * representative WeatherConditions per day plus the per-hour snapshots used to
- * grade the bite by the hour. Today's representative snapshot anchors on "now";
- * future days anchor on midday.
+ * Fetch a 7-day weather outlook from the National Weather Service forecast
+ * grid (two requests: points -> gridpoints). Returns one representative
+ * WeatherConditions per day plus the per-hour snapshots used to grade the bite
+ * by the hour. Today's representative snapshot anchors on "now"; future days
+ * anchor on midday. Sunrise/sunset and moon phase are computed locally.
  */
-export async function fetchWeekWeather(
-  coords: Coordinates,
-): Promise<WeekWeather> {
-  const params = new URLSearchParams({
-    latitude: String(coords.latitude),
-    longitude: String(coords.longitude),
-    // We only need current.time as the "now" anchor; the value is unused.
-    current: 'temperature_2m',
-    hourly:
-      'temperature_2m,relative_humidity_2m,is_day,surface_pressure,cloud_cover,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code',
-    daily: 'sunrise,sunset',
-    temperature_unit: 'fahrenheit',
-    wind_speed_unit: 'mph',
-    timezone: 'auto',
-    past_days: '1',
-    forecast_days: String(FORECAST_DAYS),
-  });
-
-  const res = await fetchForecastWithRetry(`${FORECAST_URL}?${params.toString()}`);
-  const data = (await res.json()) as OpenMeteoForecast;
-  const hourly = data.hourly;
-  const nowTime = data.current?.time;
-  if (!hourly || !nowTime) {
-    throw new Error('Weather response was missing hourly data.');
+export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather> {
+  // NWS wants at most 4 decimal places on the point lookup.
+  const lat = coords.latitude.toFixed(4);
+  const lon = coords.longitude.toFixed(4);
+  const pointsRes = await fetchNwsWithRetry(`${POINTS_URL}/${lat},${lon}`);
+  const points = (await pointsRes.json()) as {
+    properties?: { forecastGridData?: string; timeZone?: string };
+  };
+  const gridUrl = points.properties?.forecastGridData;
+  const spotTimeZone = points.properties?.timeZone;
+  if (!gridUrl) {
+    throw new Error('This spot is outside NWS forecast coverage (US only).');
   }
 
-  const base = new Date(nowTime);
+  const gridRes = await fetchNwsWithRetry(gridUrl);
+  const grid = ((await gridRes.json()) as { properties?: GridProperties }).properties;
+  if (!grid) throw new Error('Weather response was missing forecast data.');
+
+  const temp = parseSeries(grid.temperature, toF);
+  if (temp.points.length === 0) {
+    throw new Error('Weather response was missing temperature data.');
+  }
+  const pressure = parseSeries(grid.pressure, toInHg);
+  const sky = parseSeries(grid.skyCover, asIs);
+  const humidity = parseSeries(grid.relativeHumidity, asIs);
+  const wind = parseSeries(grid.windSpeed, toMph);
+  const gust = parseSeries(grid.windGust, toMph);
+  const windDir = parseSeries(grid.windDirection, asIs);
+  const precipProb = parseSeries(grid.probabilityOfPrecipitation, asIs);
+  const wave = parseSeries(grid.waveHeight, toFt);
+
+  const base = new Date();
   const nowMs = base.getTime();
+
+  function snap(ms: number, date: Date, timeISO: string): WeatherConditions {
+    const pressureNow = valueAt(pressure, ms);
+    const pressurePast = valueAt(pressure, ms - 3 * 3600000);
+    const pInHg = pressureNow ?? 29.92;
+    const change = pressureNow != null && pressurePast != null ? pressureNow - pressurePast : 0;
+
+    const cloud = valueAt(sky, ms) ?? 0;
+    const dir = valueAt(windDir, ms) ?? 0;
+    const moon = moonInfo(date);
+    const sun = sunTimes(date, coords.latitude, coords.longitude, spotTimeZone);
+    const isDay =
+      sun.sunriseMs != null && sun.sunsetMs != null
+        ? ms >= sun.sunriseMs && ms < sun.sunsetMs
+        : new Date(ms).getHours() >= 6 && new Date(ms).getHours() < 20;
+
+    // Synthesize a WMO-style code (the labels the UI shows) from precip
+    // probability + cloud cover; the NWS "weather" field is too sparse.
+    const pop = valueAt(precipProb, ms) ?? 0;
+    const code = pop >= 60 ? 63 : pop >= 35 ? 61 : cloud < 30 ? 0 : cloud < 70 ? 2 : 3;
+
+    return {
+      airTempF: round(valueAt(temp, ms) ?? 0),
+      pressureHpa: round(pInHg / 0.02953, 1),
+      pressureInHg: round(pInHg, 2),
+      pressureChangeInHg: round(change, 2),
+      pressureTrend: pressureTrendFromChange(change),
+      windMph: round(valueAt(wind, ms) ?? 0),
+      windGustMph: round(valueAt(gust, ms) ?? valueAt(wind, ms) ?? 0),
+      windDirectionDeg: round(dir),
+      windDirectionLabel: degreesToCompass(dir),
+      cloudCoverPct: round(cloud),
+      sky: skyFromCloudCover(cloud),
+      humidityPct: round(valueAt(humidity, ms) ?? 0),
+      isDay,
+      weatherCode: code,
+      weatherLabel: weatherCodeLabel(code),
+      timeISO,
+      sunrise: sun.sunrise,
+      sunset: sun.sunset,
+      moonPhase: moon.phase,
+      moonIllumPct: moon.illuminationPct,
+      moonMajor: moon.major,
+    };
+  }
+
   const days: WeatherConditions[] = [];
   const hourlyByDay: WeatherConditions[][] = [];
+  const waveHeightFtByDay: Array<number | null> = [];
 
   for (let d = 0; d < FORECAST_DAYS; d += 1) {
     const date = addDays(base, d);
     const dateStr = localDateStr(date);
     // Representative snapshot: today anchors on "now", future days on noon.
-    const anchorKey = d === 0 ? nowTime : `${dateStr}T12:00`;
-    const idx = nearestTimeIndex(hourly.time, anchorKey);
-    if (idx < 0) continue;
-    days.push(buildDay(hourly, idx, date, dateStr, data.daily));
+    const anchorISO = d === 0 ? isoHour(dateStr, base.getHours()) : isoHour(dateStr, 12);
+    const anchorMs = d === 0 ? nowMs : new Date(anchorISO).getTime();
+    days.push(snap(anchorMs, date, anchorISO));
 
     // Per-hour snapshots for this date (today: from the current hour onward).
     const hours: WeatherConditions[] = [];
-    for (let i = 0; i < hourly.time.length; i += 1) {
-      const t = hourly.time[i];
-      if (!t || t.slice(0, 10) !== dateStr) continue;
-      if (d === 0 && new Date(t).getTime() < nowMs - 30 * 60 * 1000) continue;
-      hours.push(buildDay(hourly, i, date, dateStr, data.daily));
+    for (let h = 0; h < 24; h += 1) {
+      const iso = isoHour(dateStr, h);
+      const ms = new Date(iso).getTime();
+      if (d === 0 && ms < nowMs - 30 * 60 * 1000) continue;
+      hours.push(snap(ms, date, iso));
     }
     hourlyByDay.push(hours);
+
+    const noonMs = new Date(isoHour(dateStr, 12)).getTime();
+    const waveFt = wave.points.length > 0 ? valueAt(wave, noonMs) : null;
+    waveHeightFtByDay.push(waveFt == null ? null : round(waveFt, 1));
   }
-  return { days, hourly: hourlyByDay };
-}
 
-function buildDay(
-  h: Hourly,
-  idx: number,
-  date: Date,
-  dateStr: string,
-  daily: OpenMeteoForecast['daily'],
-): WeatherConditions {
-  const pastIdx = Math.max(0, idx - 3);
-  const pressureNow = h.surface_pressure[idx] ?? 1013;
-  const pressurePast = h.surface_pressure[pastIdx] ?? pressureNow;
-  const pressureChangeInHg = hpaToInHg(pressureNow - pressurePast);
-
-  const cloud = h.cloud_cover[idx] ?? 0;
-  const windDir = h.wind_direction_10m[idx] ?? 0;
-  const moon = moonInfo(date);
-
-  const dayIdx = daily?.time.findIndex((t) => t === dateStr) ?? -1;
-  const sunrise = timeOfDay(daily?.sunrise[dayIdx >= 0 ? dayIdx : 0]);
-  const sunset = timeOfDay(daily?.sunset[dayIdx >= 0 ? dayIdx : 0]);
-
-  return {
-    airTempF: round(h.temperature_2m[idx] ?? 0),
-    pressureHpa: round(pressureNow, 1),
-    pressureInHg: round(hpaToInHg(pressureNow), 2),
-    pressureChangeInHg: round(pressureChangeInHg, 2),
-    pressureTrend: pressureTrendFromChange(pressureChangeInHg),
-    windMph: round(h.wind_speed_10m[idx] ?? 0),
-    windGustMph: round(h.wind_gusts_10m[idx] ?? 0),
-    windDirectionDeg: round(windDir),
-    windDirectionLabel: degreesToCompass(windDir),
-    cloudCoverPct: round(cloud),
-    sky: skyFromCloudCover(cloud),
-    humidityPct: round(h.relative_humidity_2m[idx] ?? 0),
-    isDay: (h.is_day[idx] ?? 1) === 1,
-    weatherCode: h.weather_code[idx] ?? 0,
-    weatherLabel: weatherCodeLabel(h.weather_code[idx] ?? 0),
-    timeISO: h.time[idx] ?? dateStr,
-    sunrise,
-    sunset,
-    moonPhase: moon.phase,
-    moonIllumPct: moon.illuminationPct,
-    moonMajor: moon.major,
-  };
-}
-
-function nearestTimeIndex(times: string[], target: string): number {
-  const targetMs = new Date(target).getTime();
-  let best = -1;
-  let bestDiff = Infinity;
-  for (let i = 0; i < times.length; i += 1) {
-    const t = times[i];
-    if (!t) continue;
-    const diff = Math.abs(new Date(t).getTime() - targetMs);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = i;
-    }
-  }
-  return best;
+  return { days, hourly: hourlyByDay, waveHeightFtByDay };
 }

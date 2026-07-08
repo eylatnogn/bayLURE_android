@@ -113,10 +113,11 @@ under the Android status bar or gesture bar (edge-to-edge is new).
 
 ## 6. Before you ship — read API_LICENSING.md
 
-The app's free data sources are fine for a **free, ad-free** app at hobby
-scale, but two of them (Open-Meteo, OpenStreetMap tiles) have terms that
-matter if the app gains ads/paid features or a large audience. Details and
-swap options: [API_LICENSING.md](API_LICENSING.md).
+The app's data sources are now primarily US-government APIs (NWS weather,
+NOAA water/tides, USGS map tiles, FCC state lookup) — free, keyless, and
+**commercial-use OK**, so ads/monetization don't violate any terms. The few
+remaining community sources and their light-use policies are covered in
+[API_LICENSING.md](API_LICENSING.md).
 
 ## 7. Releasing updates
 
