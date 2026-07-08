@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
@@ -207,17 +207,6 @@ export function HelpScreen() {
           lines, and hooks to use for the conditions where you are.
         </Text>
       </Section>
-
-      <Pressable
-        style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
-        onPress={() =>
-          Linking.openURL(
-            'https://www.takemefishing.com/how-to-fish/fishing-for-beginners/',
-          )
-        }
-      >
-        <Text style={styles.linkText}>More beginner how-to guides  ↗</Text>
-      </Pressable>
 
       <Text style={styles.footer}>
         Buy a license, learn your local size/bag limits, handle fish gently, and

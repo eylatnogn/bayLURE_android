@@ -52,6 +52,8 @@ export function CatchLogScreen({ snapshot }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Two-step delete: first tap arms this id, the confirm row does the delete.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadCatches().then((list) => {
@@ -390,14 +392,53 @@ export function CatchLogScreen({ snapshot }: Props) {
               <View style={styles.cardHead}>
                 <Text style={styles.cardSpecies}>{c.species}</Text>
                 <View style={styles.cardActions}>
-                  <Pressable onPress={() => onEdit(c)} hitSlop={8}>
-                    <Text style={styles.edit}>Edit</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.actionBtn, pressed && pressedStyle]}
+                    onPress={() => {
+                      setConfirmDeleteId(null);
+                      onEdit(c);
+                    }}
+                  >
+                    <Feather name="edit-2" size={14} color={colors.accent} />
+                    <Text style={styles.actionText}>Edit</Text>
                   </Pressable>
-                  <Pressable onPress={() => onDelete(c.id)} hitSlop={8}>
-                    <Text style={styles.delete}>Delete</Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      styles.deleteBtn,
+                      pressed && pressedStyle,
+                    ]}
+                    onPress={() => setConfirmDeleteId(c.id)}
+                  >
+                    <Feather name="trash-2" size={14} color={colors.bad} />
+                    <Text style={[styles.actionText, styles.deleteBtnText]}>Delete</Text>
                   </Pressable>
                 </View>
               </View>
+              {confirmDeleteId === c.id ? (
+                <View style={styles.confirmRow}>
+                  <Text style={styles.confirmText}>Delete this catch?</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.actionBtn, pressed && pressedStyle]}
+                    onPress={() => setConfirmDeleteId(null)}
+                  >
+                    <Text style={styles.actionText}>Keep</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actionBtn,
+                      styles.confirmDeleteBtn,
+                      pressed && pressedStyle,
+                    ]}
+                    onPress={() => {
+                      setConfirmDeleteId(null);
+                      void onDelete(c.id);
+                    }}
+                  >
+                    <Text style={styles.confirmDeleteText}>Delete</Text>
+                  </Pressable>
+                </View>
+              ) : null}
               {[
                 c.lure ? `Lure: ${c.lure}` : null,
                 c.rig ? `Rig: ${c.rig}` : null,
@@ -614,9 +655,32 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     alignItems: 'center',
   },
   cardSpecies: { color: colors.text, fontSize: 16, fontWeight: '800', flex: 1 },
-  cardActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  edit: { color: colors.accent, fontSize: 12, fontWeight: '700' },
-  delete: { color: colors.bad, fontSize: 12, fontWeight: '700' },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 36,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.bgElevated,
+  },
+  actionText: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  deleteBtn: { borderColor: colors.bad },
+  deleteBtnText: { color: colors.bad },
+  confirmRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  confirmText: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  confirmDeleteBtn: { backgroundColor: colors.bad, borderColor: colors.bad },
+  confirmDeleteText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
   cardLure: { color: colors.accent, fontSize: 14, fontWeight: '700', marginTop: 2 },
   cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   cardNotes: { color: colors.text, fontSize: 13, marginTop: spacing.sm, lineHeight: 18 },
