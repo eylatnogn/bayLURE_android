@@ -1,5 +1,7 @@
-# dependencies
-node_modules/
+# dependencies (no trailing slash: also covers the node_modules symlink
+# used to keep packages out of iCloud sync)
+node_modules
+node_modules.nosync/
 
 # expo
 .expo/

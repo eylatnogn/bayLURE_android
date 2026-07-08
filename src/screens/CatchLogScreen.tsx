@@ -86,7 +86,7 @@ export function CatchLogScreen({ snapshot }: Props) {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.4,
         base64: Platform.OS === 'web',
@@ -97,15 +97,14 @@ export function CatchLogScreen({ snapshot }: Props) {
       // Resize down before storing — full-res photos blow past on-device
       // storage limits (this caused the "quota exceeded" error on web).
       const wantsBase64 = Platform.OS === 'web';
-      const manipulated = await ImageManipulator.manipulateAsync(
-        asset.uri,
-        [{ resize: { width: 700 } }],
-        {
-          compress: 0.4,
-          format: ImageManipulator.SaveFormat.JPEG,
-          base64: wantsBase64,
-        },
-      );
+      const context = ImageManipulator.manipulate(asset.uri);
+      context.resize({ width: 700, height: null });
+      const rendered = await context.renderAsync();
+      const manipulated = await rendered.saveAsync({
+        compress: 0.4,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: wantsBase64,
+      });
       // On web, persist a small data URL so the photo survives a reload; on
       // native the resized file URI in the app sandbox is fine.
       if (wantsBase64 && manipulated.base64) {

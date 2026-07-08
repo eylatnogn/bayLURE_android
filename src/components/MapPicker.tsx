@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, SafeAreaView, StyleSheet, View } from 'react-native';
+import { Modal, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { makeStyles, radius } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';

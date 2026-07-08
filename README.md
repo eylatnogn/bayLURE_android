@@ -284,3 +284,14 @@ is provided.
 ---
 
 _bayLURE — tight lines._
+
+---
+
+## Store release
+
+This folder is the store-release copy (Expo SDK 56, v1.0.0, bundle ID
+`com.baylure.app`). Start with **[SUBMISSION_GUIDE.md](SUBMISSION_GUIDE.md)**;
+listing copy is in [STORE_LISTING.md](STORE_LISTING.md), the hostable policy in
+[PRIVACY_POLICY.md](PRIVACY_POLICY.md), and data-source terms in
+[API_LICENSING.md](API_LICENSING.md). Icons/splash live in `assets/`, Play
+listing art in `store-assets/`.

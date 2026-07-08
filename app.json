@@ -1,26 +1,24 @@
 {
   "expo": {
     "name": "bayLURE",
-    "slug": "balure-app",
-    "version": "0.15.0",
+    "slug": "baylure",
+    "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "balure",
+    "scheme": "baylure",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#1e4a3c"
-    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.balure.app",
+      "bundleIdentifier": "com.baylure.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "bayLURE uses your location to fetch local weather, water and tide conditions for fishing recommendations."
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.balure.app",
+      "package": "com.baylure.app",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1e4a3c"
       },
       "permissions": [
@@ -29,7 +27,8 @@
       ]
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       [
@@ -42,6 +41,18 @@
         "expo-image-picker",
         {
           "photosPermission": "bayLURE lets you attach a photo of your catch to your log."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1e4a3c",
+          "dark": {
+            "backgroundColor": "#0f1713"
+          }
         }
       ]
     ]

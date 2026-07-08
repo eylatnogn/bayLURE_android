@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Platform, SafeAreaView, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -38,9 +39,11 @@ export default function App() {
   }, []);
 
   return (
-    <ThemeProvider>
-      <AppShell fontsLoaded={fontsLoaded} />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AppShell fontsLoaded={fontsLoaded} />
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 

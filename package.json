@@ -1,6 +1,6 @@
 {
-  "name": "balure-app",
-  "version": "0.1.0",
+  "name": "baylure",
+  "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -18,26 +18,28 @@
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.2.3",
-    "@expo/metro-runtime": "~3.2.3",
-    "@expo/vector-icons": "^14.0.0",
-    "@react-native-async-storage/async-storage": "1.23.1",
-    "expo": "~51.0.0",
-    "expo-font": "~12.0.10",
-    "expo-image-manipulator": "~12.0.5",
-    "expo-image-picker": "~15.0.7",
-    "expo-linear-gradient": "~13.0.2",
-    "expo-location": "~17.0.1",
-    "expo-status-bar": "~1.12.1",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-native": "0.74.5",
-    "react-native-svg": "15.2.0",
-    "react-native-web": "~0.19.10",
-    "react-native-webview": "13.8.6"
+    "@expo/metro-runtime": "~56.0.16",
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~56.0.0",
+    "expo-font": "~56.0.7",
+    "expo-image-manipulator": "~56.0.21",
+    "expo-image-picker": "~56.0.20",
+    "expo-linear-gradient": "~56.0.4",
+    "expo-location": "~56.0.20",
+    "expo-splash-screen": "~56.0.12",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "~0.21.0",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
-    "@types/react": "~18.2.45",
-    "typescript": "~5.3.3"
+    "@types/react": "~19.2.0",
+    "typescript": "^5.8.3"
   },
   "private": true
 }
