@@ -2,9 +2,9 @@
 
 _Effective date: [SET DATE WHEN PUBLISHING]_
 
-bayLURE is a fishing-conditions app. It has **no accounts, no ads, no
-analytics, and no tracking**. We (the developer) run no servers and receive
-none of your data.
+bayLURE is a fishing-conditions app. It has **no accounts and no analytics**,
+and we (the developer) run no servers and receive none of your personal data.
+The app is supported by a single banner ad — see **Advertising** below.
 
 ## Data stored on your device only
 
@@ -39,6 +39,17 @@ permission at any time in system settings.
 The photo library permission is used only when you choose to attach a photo
 to a catch. The photo is copied, resized, and kept on your device. It is
 never uploaded.
+
+## Advertising
+
+bayLURE shows one banner ad served by **Google AdMob**. The app requests
+**non-personalized ads**: they are matched to general context, not to a
+profile of you. To serve and measure ads, Google's advertising SDK may
+collect device information such as your device's advertising ID, IP address,
+and general (city-level) location, handled under
+[Google's advertising privacy policy](https://policies.google.com/technologies/ads).
+You can reset or delete your device's advertising ID any time in your
+device's privacy settings. We do not receive this data.
 
 ## Children
 

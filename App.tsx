@@ -12,6 +12,7 @@ import type { CatchConditions } from '@/types';
 import { HomeScreen } from '@/screens/HomeScreen';
 import { CatchLogScreen } from '@/screens/CatchLogScreen';
 import { HelpScreen } from '@/screens/HelpScreen';
+import { AdBanner } from '@/components/AdBanner';
 import { TabBar, type Tab } from '@/components/TabBar';
 import { ThemeProvider } from '@/ThemeProvider';
 import { useTheme } from '@/theme';
@@ -80,6 +81,7 @@ function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
             <HelpScreen />
           </View>
         </View>
+        <AdBanner />
         <TabBar tab={tab} onChange={setTab} />
       </SafeAreaView>
     </View>

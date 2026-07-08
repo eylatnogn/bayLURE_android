@@ -12,7 +12,8 @@ Paste-ready text for both consoles. Character limits noted.
 ## Category & rating
 
 - Category: **Sports** (iOS secondary: Weather)
-- Age rating: 4+ / Everyone. No ads, no in-app purchases, no user accounts.
+- Age rating: 4+ / Everyone. **Contains ads** (one banner — declare in both
+  consoles). No in-app purchases, no user accounts.
 
 ## Keywords (iOS, 100 chars max)
 
@@ -54,9 +55,9 @@ CATCH LOG
 • Log species, gear, size, notes, and a photo
 • Conditions are attached to each catch automatically — build your own
   database of what works
-• Everything stays on your device: no account, no ads, no tracking
+• Everything stays on your device: no account, no sign-up
 
-Fish smarter mornings. bayLURE is free.
+Fish smarter mornings. bayLURE is free, supported by a single small ad.
 ```
 
 ## Screenshot plan (capture from a preview build)

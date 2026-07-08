@@ -102,7 +102,10 @@ under the Android status bar or gesture bar (edge-to-edge is new).
    "Submitting to Google Play" docs).
 4. **Data safety form**: Location → collected, **processed ephemerally**
    (sent to weather/tide services to fetch conditions, never stored), purpose
-   App functionality, not shared for advertising, collection optional. No ads.
+   App functionality, collection optional. Because of AdMob also declare:
+   **Device or other IDs → collected by third party (Google), purpose
+   Advertising**. In App content, mark **"Contains ads"** — Play cross-checks
+   this against the detected AdMob SDK.
 5. Content rating questionnaire → Everyone. App access → all features
    available without login. Privacy policy → same hosted URL.
 6. ⚠️ **New personal developer accounts must run a closed test with at least
@@ -110,6 +113,26 @@ under the Android status bar or gesture bar (edge-to-edge is new).
    Plan for this: friends/family, or register as an organization (D-U-N-S
    number) to be exempt. Listing assets: `store-assets/play-icon-512.png` and
    `store-assets/feature-graphic-1024x500.png`, plus 2+ phone screenshots.
+
+## 5b. Ads (AdMob)
+
+Configured: Android app ID `ca-app-pub-2923543385163788~3293892067`, banner
+unit `ca-app-pub-2923543385163788/4082148564`, anchored above the tab bar.
+
+- **Dev and preview builds always show Google's test banner.** Real ads serve
+  only from `eas build --profile production` (the profile sets
+  `EXPO_PUBLIC_REAL_ADS`). Never tap live ads in your own published app —
+  that's invalid-traffic territory and gets AdMob accounts suspended.
+- **app-ads.txt** (required for full earnings): on the website you list as
+  the developer site in Play, serve a file at `/app-ads.txt` with this line:
+  `google.com, pub-2923543385163788, DIRECT, f08c47fec0942fa0`
+  (a one-file addition to your Vercel site).
+- **After the app is live on Play**: AdMob → your app → link it to the Play
+  listing, then wait for AdMob's app review; real fill starts after that.
+- ⚠️ **Before ever building iOS with ads**: create an iOS app in AdMob and
+  add `iosAppId` next to `androidAppId` in app.json — the Google SDK crashes
+  an iOS app at launch if it's present without its app ID. Also expect the
+  App Store privacy label to gain "Identifiers → used for advertising".
 
 ## 6. Before you ship — read API_LICENSING.md
 
