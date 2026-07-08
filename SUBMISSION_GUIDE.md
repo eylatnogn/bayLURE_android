@@ -119,6 +119,11 @@ under the Android status bar or gesture bar (edge-to-edge is new).
 Configured: Android app ID `ca-app-pub-2923543385163788~3293892067`, banner
 unit `ca-app-pub-2923543385163788/4082148564`, anchored above the tab bar.
 
+> ⚠️ `react-native-google-mobile-ads` is pinned to **exactly 15.8.3**: v16
+> bundles play-services-ads 25.x, whose Kotlin 2.3 binaries fail to compile
+> on Expo SDK 56's toolchain (broke the Android build twice). Revisit the pin
+> when upgrading to a newer Expo SDK.
+
 - **Dev and preview builds always show Google's test banner.** Real ads serve
   only from `eas build --profile production` (the profile sets
   `EXPO_PUBLIC_REAL_ADS`). Never tap live ads in your own published app —
