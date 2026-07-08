@@ -7,7 +7,8 @@ submission. The original folder is untouched. What changed here:
 - **Expo SDK 51 → 56** (React Native 0.85, React 19.2). SDK 51 targets an
   Android API level Google Play no longer accepts for new apps; SDK 56
   (May 2026) satisfies current Play requirements and Apple's SDK rules.
-- **App identity**: version `1.0.0`, slug `baylure`, bundle ID / package
+- **App identity**: version `0.15.0` (matches the in-app badge and
+  `src/version.ts`), slug `baylure`, bundle ID / package
   **`com.baylure.app`** on both platforms. ⚠️ The bundle ID is permanent once
   you first submit — change it now or never.
 - **Store-required assets** in `assets/` (app icon, Android adaptive icon,

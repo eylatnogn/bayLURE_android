@@ -2,7 +2,7 @@
   "expo": {
     "name": "bayLURE",
     "slug": "baylure",
-    "version": "1.0.0",
+    "version": "0.15.0",
     "orientation": "portrait",
     "scheme": "baylure",
     "icon": "./assets/icon.png",
