@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -68,21 +68,29 @@ function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
       />
       <SafeAreaView style={styles.root}>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-        <View style={styles.body}>
-          {/* Keep both mounted so the planner's snapshot and form state persist
-              across tab switches. */}
-          <View style={[styles.screen, tab !== 'plan' && styles.hidden]}>
-            <HomeScreen onSnapshot={setSnapshot} />
+        {/* Edge-to-edge Android no longer resizes the window for the keyboard,
+            so the shell must shrink itself — otherwise the keyboard covers
+            whatever input is focused (e.g. naming a saved spot). */}
+        <KeyboardAvoidingView
+          style={styles.root}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.body}>
+            {/* Keep both mounted so the planner's snapshot and form state persist
+                across tab switches. */}
+            <View style={[styles.screen, tab !== 'plan' && styles.hidden]}>
+              <HomeScreen onSnapshot={setSnapshot} />
+            </View>
+            <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
+              <CatchLogScreen snapshot={snapshot} />
+            </View>
+            <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
+              <HelpScreen />
+            </View>
           </View>
-          <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
-            <CatchLogScreen snapshot={snapshot} />
-          </View>
-          <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
-            <HelpScreen />
-          </View>
-        </View>
-        <AdBanner />
-        <TabBar tab={tab} onChange={setTab} />
+          <AdBanner />
+          <TabBar tab={tab} onChange={setTab} />
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
