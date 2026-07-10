@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bayLURE — Catch Log mockup</title>
+<style>
+  /* ---- theme tokens, copied from src/theme.ts ---- */
+  .light {
+    --bg1:#eef2ec; --bg2:#e7efe3;
+    --bg-elevated:#e4ebe1; --card:#fbfdf8; --card-border:#d4ddca;
+    --text:#1f2b22; --text-muted:#5b6a58;
+    --accent:#3a7d52; --accent-deep:#2f6e52; --accent-dim:#d7e6cf;
+    --water:#2c7a74; --warn:#c08433; --bad:#b15240; --good:#3f9050;
+    --chip:#eef2ec; --chip-border:#d4ddca;
+    --header-from:#1e4a3c; --header-to:#2f6e52;
+    --on-dark:#eaf3ea; --on-dark-muted:#bcd2c2; --on-accent:#f7faf3;
+    --shadow: 0 6px 16px rgba(46,59,34,0.10);
+  }
+  .dark {
+    --bg1:#0f1713; --bg2:#0b120e;
+    --bg-elevated:#18221c; --card:#1a241e; --card-border:#2c3a30;
+    --text:#e8f0e7; --text-muted:#9aab9b;
+    --accent:#5fbf83; --accent-deep:#2f8f5e; --accent-dim:#1f3a2a;
+    --water:#3fb0a6; --warn:#d9a043; --bad:#d0715c; --good:#5fbf83;
+    --chip:#22302a; --chip-border:#2c3a30;
+    --header-from:#102a20; --header-to:#1c5440;
+    --on-dark:#eaf3ea; --on-dark-muted:#bcd2c2; --on-accent:#06140c;
+    --shadow: 0 6px 14px rgba(0,0,0,0.4);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:393px; height:852px; overflow:hidden; }
+  body {
+    font-family: Roboto, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: linear-gradient(180deg, var(--bg1), var(--bg2));
+    color: var(--text);
+    position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg.icon { display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---- status bar (sits on the header gradient) ---- */
+  .statusbar {
+    position:absolute; top:0; left:0; right:0; height:36px; z-index:5;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 8px 22px 0 26px; color: var(--on-dark);
+    font-size:13.5px; font-weight:600; letter-spacing:.2px;
+  }
+  .statusbar .right { display:flex; align-items:center; gap:6px; }
+
+  /* ---- brand header (BrandHeader.tsx) ---- */
+  .header {
+    position:relative; overflow:hidden;
+    background: linear-gradient(135deg, var(--header-from), var(--header-to));
+    border-bottom-left-radius:26px; border-bottom-right-radius:26px;
+    padding: 58px 16px 16px; margin-bottom:16px;
+  }
+  .header .row { display:flex; align-items:center; position:relative; z-index:2; }
+  .header .titles { margin-left:12px; flex:1; }
+  .header .heading {
+    font-family: "Fraunces", Georgia, "Times New Roman", serif;
+    font-weight:700; font-size:28px; letter-spacing:1px; color:var(--on-dark);
+    line-height:1.15;
+  }
+  .header .subtitle { font-size:13px; margin-top:2px; color:var(--on-dark-muted); }
+  .header svg.wave { position:absolute; left:0; right:0; bottom:0; width:100%; height:46px; }
+
+  .body { padding: 0 16px; }
+
+  /* ---- "Log a catch" CTA ---- */
+  .cta {
+    background: var(--accent); border-radius:18px; padding:16px 0;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    margin-top:8px; color: var(--on-accent);
+    font-size:16px; font-weight:800;
+  }
+
+  /* ---- Section card (Section.tsx) ---- */
+  .section {
+    background: var(--card); border:1px solid var(--card-border);
+    border-radius:18px; padding:16px; margin-top:12px; margin-bottom:12px;
+    box-shadow: var(--shadow);
+  }
+  .section-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .tick { width:3px; height:13px; border-radius:2px; background:var(--accent); }
+  .section-title {
+    color:var(--text-muted); font-size:12px; font-weight:700;
+    letter-spacing:1.2px; text-transform:uppercase;
+  }
+  .divider { height:1px; background:var(--card-border); opacity:.7; margin-bottom:12px; }
+
+  /* ---- CatchReportCard ---- */
+  .para { font-size:13px; line-height:19px; color:var(--text); margin-bottom:12px; }
+  .pattern { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+  .pattern-icon {
+    width:26px; height:26px; border-radius:999px; background:var(--accent-dim);
+    display:flex; align-items:center; justify-content:center; color:var(--accent);
+    flex:none;
+  }
+  .pattern-body { flex:1; }
+  .pattern-top { display:flex; justify-content:space-between; align-items:baseline; }
+  .pattern-text { font-size:13px; font-weight:700; color:var(--text); }
+  .pattern-count { font-size:11px; font-weight:700; color:var(--text-muted); }
+  .bar-track { height:4px; border-radius:999px; background:var(--chip); border:0.5px solid var(--chip-border); margin-top:3px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:999px; background:var(--accent); }
+
+  .subhead { font-size:14px; font-weight:800; color:var(--text); margin-top:14px; margin-bottom:8px; }
+
+  .day-row {
+    border:1px solid var(--card-border); border-radius:12px;
+    background: var(--bg-elevated); padding:12px; margin-bottom:8px;
+  }
+  .day-head { display:flex; align-items:center; gap:8px; }
+  .day-head .cal { color:var(--accent); flex:none; }
+  .day-label { font-size:14px; font-weight:800; color:var(--text); }
+  .day-matches { margin-left:auto; font-size:12px; font-weight:700; color:var(--accent); }
+  .chip-wrap { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+  .chip {
+    background:var(--card); border:1px solid var(--chip-border); border-radius:999px;
+    padding:3px 9px; font-size:11px; font-weight:700; color:var(--text-muted);
+  }
+  .bite-hint { font-size:11px; color:var(--text-muted); margin-top:8px; }
+  .footer-note { font-size:11px; line-height:16px; color:var(--text-muted); font-style:italic; margin-top:4px; }
+
+  /* ---- catch card peeking below ---- */
+  .catch-card {
+    display:flex; background:var(--card); border:1px solid var(--card-border);
+    border-radius:18px; padding:12px; margin-top:12px; box-shadow:var(--shadow);
+  }
+  .thumb {
+    width:64px; height:64px; border-radius:12px; margin-right:12px; flex:none;
+    background: linear-gradient(145deg, #46796b, #24443c 60%, #16302a);
+    display:flex; align-items:center; justify-content:center; color:rgba(234,243,234,.75);
+  }
+  .catch-body { flex:1; }
+  .catch-head { display:flex; align-items:center; justify-content:space-between; }
+  .catch-species { font-size:16px; font-weight:800; color:var(--text); }
+  .catch-actions { display:flex; gap:8px; }
+  .action-btn {
+    display:flex; align-items:center; gap:5px; padding:6px 12px;
+    border:1px solid var(--card-border); border-radius:8px; background:var(--bg-elevated);
+    font-size:13px; font-weight:700; color:var(--text);
+  }
+  .action-btn.delete { border-color:var(--bad); color:var(--bad); }
+  .catch-lure { color:var(--accent); font-size:14px; font-weight:700; margin-top:2px; }
+  .catch-meta { color:var(--text-muted); font-size:12px; margin-top:2px; }
+  .catch-conditions { color:var(--water); font-size:11px; margin-top:8px; line-height:15px; }
+
+  /* ---- tab bar (TabBar.tsx) ---- */
+  .tabbar {
+    position:absolute; left:0; right:0; bottom:0; z-index:10;
+    display:flex; background:var(--card);
+    border-top:1px solid var(--card-border);
+    border-top-left-radius:18px; border-top-right-radius:18px;
+    padding:8px 8px 12px;
+    box-shadow: 0 -3px 12px rgba(46,59,34,0.07);
+  }
+  .dark .tabbar { box-shadow: 0 -3px 12px rgba(0,0,0,0.4); }
+  .tab { flex:1; display:flex; justify-content:center; }
+  .tab .pill {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    padding:6px 14px; border-radius:12px; color:var(--text-muted); opacity:.75;
+    font-size:11px; font-weight:700;
+  }
+  .tab .pill.active { background:var(--accent-dim); color:var(--accent); opacity:1; }
+</style>
+</head>
+<body class="light">
+
+  <!-- status bar -->
+  <div class="statusbar">
+    <span>6:42</span>
+    <span class="right">
+      <!-- wifi -->
+      <svg class="icon" width="15" height="15" viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+      <!-- signal -->
+      <svg class="icon" width="15" height="15" viewBox="0 0 24 24"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/></svg>
+      <!-- battery -->
+      <svg class="icon" width="17" height="15" viewBox="0 0 24 24"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"/><line x1="23" y1="11" x2="23" y2="13"/></svg>
+    </span>
+  </div>
+
+  <!-- brand header -->
+  <div class="header">
+    <svg class="wave" viewBox="0 0 100 46" preserveAspectRatio="none">
+      <path d="M0 30 Q12 22 25 30 T50 30 T75 30 T100 30 V46 H0Z" fill="#eaf3ea" opacity="0.1"/>
+      <path d="M0 37 Q12 30 25 37 T50 37 T75 37 T100 37 V46 H0Z" fill="#eaf3ea" opacity="0.07"/>
+    </svg>
+    <div class="row">
+      <!-- Logo.tsx -->
+      <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+        <circle cx="34" cy="15" r="4" fill="#8fd0a6"/>
+        <path d="M9 22c5-6 14-7 19-3 2 1.6 3.4 3.6 4 5.4-0.6 1.8-2 3.8-4 5.4-5 4-14 3-19-3 2.2-2 3.4-3.9 3.4-4.8S11.2 24 9 22Z" stroke="#eaf3ea" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M9 22c-1.6-1-3.2-1.4-4.6-1.2 1 2 1 5.4 0 7.4 1.4 0.2 3-0.2 4.6-1.2" stroke="#eaf3ea" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="26" cy="22.5" r="1.4" fill="#eaf3ea"/>
+        <path d="M6 38c3-2.6 6-2.6 9 0s6 2.6 9 0 6-2.6 9 0 6 2.6 9 0" stroke="#eaf3ea" stroke-width="2" stroke-linecap="round" opacity="0.9"/>
+        <path d="M6 43c3-2.6 6-2.6 9 0s6 2.6 9 0 6-2.6 9 0 6 2.6 9 0" stroke="#eaf3ea" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+      </svg>
+      <div class="titles">
+        <div class="heading">Catch Log</div>
+        <div class="subtitle">Log what you catch and what caught it — stays on your device.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- CTA -->
+    <div class="cta">
+      <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Log a catch
+    </div>
+
+    <!-- Your Patterns card -->
+    <div class="section">
+      <div class="section-head"><div class="tick"></div><div class="section-title">Your Patterns</div></div>
+      <div class="divider"></div>
+
+      <div class="para">From 6 catches with conditions, you catch fish when it looks like this:</div>
+
+      <div class="pattern">
+        <div class="pattern-icon"><svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
+        <div class="pattern-body">
+          <div class="pattern-top"><span class="pattern-text">Falling pressure</span><span class="pattern-count">5 of 6</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:83%"></div></div>
+        </div>
+      </div>
+      <div class="pattern">
+        <div class="pattern-icon"><svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></div>
+        <div class="pattern-body">
+          <div class="pattern-top"><span class="pattern-text">Overcast skies</span><span class="pattern-count">4 of 6</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:67%"></div></div>
+        </div>
+      </div>
+      <div class="pattern">
+        <div class="pattern-icon"><svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg></div>
+        <div class="pattern-body">
+          <div class="pattern-top"><span class="pattern-text">Light wind (5–10 mph)</span><span class="pattern-count">4 of 6</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:67%"></div></div>
+        </div>
+      </div>
+      <div class="pattern">
+        <div class="pattern-icon"><svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg></div>
+        <div class="pattern-body">
+          <div class="pattern-top"><span class="pattern-text">Water 60–64°F</span><span class="pattern-count">3 of 6</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:50%"></div></div>
+        </div>
+      </div>
+
+      <div class="subhead">Days ahead that fish like your catches</div>
+
+      <div class="day-row">
+        <div class="day-head">
+          <svg class="icon cal" width="15" height="15" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span class="day-label">Tomorrow</span>
+          <span class="day-matches">matches 4 catches</span>
+        </div>
+        <div class="chip-wrap">
+          <span class="chip">falling pressure</span>
+          <span class="chip">overcast skies</span>
+          <span class="chip">water ~62°F</span>
+        </div>
+        <div class="bite-hint">Your matched catches came at bite score ~74.</div>
+      </div>
+
+      <div class="day-row">
+        <div class="day-head">
+          <svg class="icon cal" width="15" height="15" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span class="day-label">Sun · Jul 12</span>
+          <span class="day-matches">matches 2 catches</span>
+        </div>
+        <div class="chip-wrap">
+          <span class="chip">falling pressure</span>
+          <span class="chip">wind ~7 mph</span>
+          <span class="chip">air ~66°F</span>
+        </div>
+        <div class="bite-hint">Your matched catches came at bite score ~68.</div>
+      </div>
+
+      <div class="day-row">
+        <div class="day-head">
+          <svg class="icon cal" width="15" height="15" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span class="day-label">Wed · Jul 15</span>
+          <span class="day-matches">matches 1 catch</span>
+        </div>
+        <div class="chip-wrap">
+          <span class="chip">overcast skies</span>
+          <span class="chip">water ~61°F</span>
+        </div>
+      </div>
+
+      <div class="footer-note">Every catch you log with conditions sharpens this report.</div>
+    </div>
+
+    <!-- top of a logged catch peeking above the tab bar -->
+    <div class="catch-card">
+      <div class="thumb">
+        <svg width="34" height="34" viewBox="0 0 48 48" fill="none">
+          <path d="M9 22c5-6 14-7 19-3 2 1.6 3.4 3.6 4 5.4-0.6 1.8-2 3.8-4 5.4-5 4-14 3-19-3 2.2-2 3.4-3.9 3.4-4.8S11.2 24 9 22Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M9 22c-1.6-1-3.2-1.4-4.6-1.2 1 2 1 5.4 0 7.4 1.4 0.2 3-0.2 4.6-1.2" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle cx="26" cy="22.5" r="1.4" fill="currentColor"/>
+        </svg>
+      </div>
+      <div class="catch-body">
+        <div class="catch-head">
+          <span class="catch-species">Largemouth Bass</span>
+          <div class="catch-actions">
+            <span class="action-btn"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" style="color:var(--accent)"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>Edit</span>
+            <span class="action-btn delete"><svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Delete</span>
+          </div>
+        </div>
+        <div class="catch-lure">Lure: Ned Rig</div>
+        <div class="catch-meta">Jul 8, 2026  ·  3.2 lb</div>
+        <div class="catch-conditions">Balus Creek dock · 62°F water · stained · 29.84" falling · wind 6 NW · bite 74</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- tab bar -->
+  <div class="tabbar">
+    <div class="tab"><div class="pill">
+      <svg class="icon" width="21" height="21" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      Plan
+    </div></div>
+    <div class="tab"><div class="pill active">
+      <svg class="icon" width="21" height="21" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a4 4 0 0 0-4-4H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a4 4 0 0 1 4-4h6z"/></svg>
+      Catch Log
+    </div></div>
+    <div class="tab"><div class="pill">
+      <svg class="icon" width="21" height="21" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+      Guide
+    </div></div>
+  </div>
+
+<script>
+  // ?theme=dark flips the palette
+  const params = new URLSearchParams(location.search);
+  if (params.get('theme') === 'dark') {
+    document.body.classList.remove('light');
+    document.body.classList.add('dark');
+  }
+</script>
+</body>
+</html>
