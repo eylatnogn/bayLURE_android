@@ -156,20 +156,32 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       // Resize down before storing — full-res photos blow past on-device
       // storage limits (this caused the "quota exceeded" error on web).
       const wantsBase64 = Platform.OS === 'web';
-      const context = ImageManipulator.manipulate(asset.uri);
-      context.resize({ width: 700, height: null });
-      const rendered = await context.renderAsync();
-      const manipulated = await rendered.saveAsync({
-        compress: 0.4,
-        format: SaveFormat.JPEG,
-        base64: wantsBase64,
-      });
-      // On web, persist a small data URL so the photo survives a reload; on
-      // native the resized file URI in the app sandbox is fine.
-      if (wantsBase64 && manipulated.base64) {
-        setPhotoUri(`data:image/jpeg;base64,${manipulated.base64}`);
-      } else {
-        setPhotoUri(manipulated.uri);
+      try {
+        const context = ImageManipulator.manipulate(asset.uri);
+        // Height omitted on purpose: the API computes it to keep the ratio.
+        // Passing an explicit null here throws a native range error on Android.
+        context.resize({ width: 700 });
+        const rendered = await context.renderAsync();
+        const manipulated = await rendered.saveAsync({
+          compress: 0.4,
+          format: SaveFormat.JPEG,
+          base64: wantsBase64,
+        });
+        // On web, persist a small data URL so the photo survives a reload; on
+        // native the resized file URI in the app sandbox is fine.
+        if (wantsBase64 && manipulated.base64) {
+          setPhotoUri(`data:image/jpeg;base64,${manipulated.base64}`);
+        } else {
+          setPhotoUri(manipulated.uri);
+        }
+      } catch {
+        // Resizing is an optimization — if it fails, keep the original photo
+        // (the storage-quota retry in onSave still covers oversized ones).
+        if (wantsBase64 && asset.base64) {
+          setPhotoUri(`data:image/jpeg;base64,${asset.base64}`);
+        } else {
+          setPhotoUri(asset.uri);
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open the photo library.');
