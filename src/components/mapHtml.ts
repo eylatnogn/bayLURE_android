@@ -30,10 +30,12 @@ function esc(s: string): string {
 }
 
 /**
- * A self-contained Leaflet + USGS topo document with a draggable pin, an
- * animated wind overlay (leaflet-velocity), and an optional depth view. No API
- * key required; the USGS National Map tiles are US-government data (free,
- * commercial OK — coverage is US only, blank elsewhere).
+ * A self-contained Leaflet + USGS document with a draggable pin, an animated
+ * wind overlay (leaflet-velocity), and an optional depth view. Satellite
+ * imagery (USGS ImageryTopo: aerials + labels) is the default base layer with
+ * a toggle to the classic topo map. No API key required; the USGS National
+ * Map tiles are US-government data (free, commercial OK — coverage is US
+ * only, blank elsewhere).
  *
  * The pin posts the selected coordinates back to its host:
  * `window.ReactNativeWebView` on native, the parent window on web.
@@ -91,11 +93,13 @@ export function buildMapHtml(
     .maptoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
     #windtoggle { top: 8px; }
     #depthtoggle { top: 42px; }
+    #sattoggle { top: 76px; }
     .mapicon { padding: 8px; line-height: 0; }
     /* Make the icon itself non-interactive so taps always land on the button —
        on touch devices the SVG can otherwise swallow the tap. */
     .mapicon svg { display: block; pointer-events: none; }
     #fsbtn { top: 8px; left: 8px; right: auto; }
+    #centerbtn { top: 42px; left: 8px; right: auto; }
     .legendbox {
       position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
       background: rgba(34,46,28,0.82); color: #f8faf1;
@@ -135,8 +139,10 @@ export function buildMapHtml(
   <div id="map"></div>
   <div class="hint">Tap or drag to set your spot</div>
   <button class="maptoggle mapicon" id="fsbtn" aria-label="Full screen"></button>
+  <button class="maptoggle mapicon" id="centerbtn" aria-label="Center on pin"></button>
   <button class="maptoggle" id="windtoggle">Wind: on</button>
   <button class="maptoggle off" id="depthtoggle">Depth: off</button>
+  <button class="maptoggle" id="sattoggle">Sat: on</button>
   <div class="legendbox" id="legendbox">
     <div class="legend-head">
       <span class="legend-title">Map key</span>
@@ -163,13 +169,23 @@ export function buildMapHtml(
     // Show only the data credit (USGS). The "Leaflet" prefix is a courtesy
     // default, not a license requirement (BSD keeps its notice in source).
     map.attributionControl.setPrefix('');
-    // USGS The National Map topo tiles ({z}/{y}/{x} order). Native detail tops
-    // out at 16; maxZoom 18 lets Leaflet upscale for precise pin placement.
-    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
-      maxNativeZoom: 16,
-      maxZoom: 18,
-      attribution: 'USGS The National Map'
-    }).addTo(map);
+    // USGS The National Map tiles ({z}/{y}/{x} order), both US-government data
+    // (free, commercial OK — coverage is US only, blank elsewhere). Native
+    // detail tops out at 16; maxZoom 18 lets Leaflet upscale for precise pin
+    // placement. Satellite (imagery + labels) is the default — anglers read
+    // grass lines, laydowns, and channel edges from imagery; the Sat toggle
+    // flips to the classic topo map.
+    function usgsLayer(service) {
+      return L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/' + service + '/MapServer/tile/{z}/{y}/{x}', {
+        maxNativeZoom: 16,
+        maxZoom: 18,
+        attribution: 'USGS The National Map'
+      });
+    }
+    var satLayer = usgsLayer('USGSImageryTopo');
+    var topoLayer = usgsLayer('USGSTopo');
+    var satEnabled = true;
+    satLayer.addTo(map);
 
     // Panes so the stack is OSM < GEBCO shading < NOAA charts < wind < markers.
     map.createPane('depthshade'); map.getPane('depthshade').style.zIndex = 350;
@@ -371,6 +387,44 @@ export function buildMapHtml(
         if (wr) { wr.style.display = 'none'; }
       }
     });
+
+    // Re-center on the pin: pan (and zoom in from a wide view) back to the
+    // marker after scrolling away. Crosshair button under the fullscreen one.
+    var SVG_CENTER = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="2" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="22" y2="12"/></svg>';
+    var centerBtn = document.getElementById('centerbtn');
+    if (centerBtn) {
+      centerBtn.innerHTML = SVG_CENTER;
+      if (L.DomEvent) {
+        L.DomEvent.disableClickPropagation(centerBtn);
+        L.DomEvent.disableScrollPropagation(centerBtn);
+      }
+      centerBtn.addEventListener('click', function () {
+        map.setView(marker.getLatLng(), Math.max(map.getZoom(), 12));
+      });
+    }
+
+    // Satellite/topo base-layer toggle, same chip pattern as Wind/Depth.
+    var satBtn = document.getElementById('sattoggle');
+    if (satBtn && L.DomEvent) {
+      L.DomEvent.disableClickPropagation(satBtn);
+      L.DomEvent.disableScrollPropagation(satBtn);
+    }
+    if (satBtn) {
+      satBtn.addEventListener('click', function () {
+        satEnabled = !satEnabled;
+        if (satEnabled) {
+          satBtn.textContent = 'Sat: on';
+          satBtn.classList.remove('off');
+          map.removeLayer(topoLayer);
+          satLayer.addTo(map);
+        } else {
+          satBtn.textContent = 'Sat: off';
+          satBtn.classList.add('off');
+          map.removeLayer(satLayer);
+          topoLayer.addTo(map);
+        }
+      });
+    }
 
     // ---- Depth: NOAA charts + GEBCO shading + tap-to-read ----
     var depthEnabled = false; // off by default

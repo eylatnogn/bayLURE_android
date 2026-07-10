@@ -5,6 +5,7 @@ import mobileAds, {
   BannerAdSize,
   TestIds,
 } from 'react-native-google-mobile-ads';
+import { usePro } from '@/purchases/pro';
 
 // AdMob app ca-app-pub-2923543385163788~3293892067 (Android). There is no
 // AdMob iOS app yet, so iOS renders no ad — create one and add `iosAppId` to
@@ -23,6 +24,8 @@ const adUnitId =
 /** The bottom banner, anchored above the tab bar. Android-only for now. */
 export function AdBanner() {
   const [ready, setReady] = useState(false);
+  // Pro subscribers get an ad-free app.
+  const { isPro } = usePro();
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -34,7 +37,7 @@ export function AdBanner() {
       });
   }, []);
 
-  if (Platform.OS !== 'android' || !ready) return null;
+  if (Platform.OS !== 'android' || !ready || isPro) return null;
 
   return (
     <View style={{ alignItems: 'center' }}>

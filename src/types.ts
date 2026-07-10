@@ -17,14 +17,23 @@ export type Species =
   | 'trout'
   | 'catfish'
   | 'pike'
-  // saltwater
+  // saltwater — inshore
   | 'redfish'
   | 'seatrout'
   | 'snook'
   | 'flounder'
   | 'striper'
   | 'tarpon'
-  | 'spanish';
+  | 'spanish'
+  // saltwater — offshore
+  | 'mahi'
+  | 'kingmackerel'
+  | 'cobia'
+  | 'grouper'
+  | 'snapper'
+  | 'amberjack'
+  | 'tuna'
+  | 'wahoo';
 
 /** Structure / cover the user reports at their spot. */
 export type StructureType =
@@ -274,6 +283,8 @@ export interface CatchRecord {
   lure?: string;
   rig?: string;
   bait?: string;
+  /** Free-typed gear that isn't in the built-in lists (optional). */
+  gearOther?: string;
   waterType?: WaterType;
   /** Free text, e.g. "18 in" or "3.5 lb". */
   size?: string;

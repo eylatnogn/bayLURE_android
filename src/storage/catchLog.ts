@@ -55,6 +55,54 @@ export async function updateCatch(
   return next.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
 }
 
+/**
+ * Merge backup entries into the catch log. Invalid entries are skipped,
+ * existing catches are never modified, and duplicates (same date + species +
+ * gear) are ignored. Returns how many were actually added.
+ */
+export async function importCatches(entries: unknown[]): Promise<number> {
+  const existing = await loadCatches();
+  const key = (c: CatchRecord) =>
+    [c.dateISO, c.species, c.lure ?? '', c.rig ?? '', c.bait ?? '', c.gearOther ?? ''].join('|');
+  const seen = new Set(existing.map(key));
+  const next = [...existing];
+  let added = 0;
+  for (const raw of entries) {
+    const e = raw as Partial<CatchRecord>;
+    if (!e || typeof e.species !== 'string' || typeof e.dateISO !== 'string') continue;
+    const entry: CatchRecord = {
+      // Fresh id: backup ids may collide with entries already on this device.
+      id: makeId(),
+      dateISO: e.dateISO,
+      species: e.species.trim() || 'Unknown',
+      lure: typeof e.lure === 'string' ? e.lure : undefined,
+      rig: typeof e.rig === 'string' ? e.rig : undefined,
+      bait: typeof e.bait === 'string' ? e.bait : undefined,
+      gearOther: typeof e.gearOther === 'string' ? e.gearOther : undefined,
+      waterType: e.waterType === 'saltwater' || e.waterType === 'freshwater' ? e.waterType : undefined,
+      size: typeof e.size === 'string' ? e.size : undefined,
+      notes: typeof e.notes === 'string' ? e.notes : undefined,
+      // Only data-URL photos survive a device move; file URIs point into the
+      // old device's sandbox and would render as broken images.
+      photoUri:
+        typeof e.photoUri === 'string' && e.photoUri.startsWith('data:')
+          ? e.photoUri
+          : undefined,
+      conditions:
+        e.conditions && typeof e.conditions === 'object' ? e.conditions : undefined,
+    };
+    if (seen.has(key(entry))) continue;
+    seen.add(key(entry));
+    next.push(entry);
+    added += 1;
+  }
+  if (added > 0) {
+    next.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+    await persist(next);
+  }
+  return added;
+}
+
 async function persist(list: CatchRecord[]): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(list));
 }

@@ -2,7 +2,7 @@
   "expo": {
     "name": "bayLURE",
     "slug": "baylure",
-    "version": "0.15.0",
+    "version": "0.15.2",
     "orientation": "portrait",
     "scheme": "baylure",
     "icon": "./assets/icon.png",
@@ -16,7 +16,7 @@
       }
     },
     "android": {
-      "package": "com.baylure.app",
+      "package": "com.bayLURE.android",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1e4a3c"

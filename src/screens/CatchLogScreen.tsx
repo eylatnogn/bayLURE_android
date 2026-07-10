@@ -13,25 +13,54 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import type { CatchConditions, CatchRecord } from '@/types';
+import type { CatchConditions, CatchRecord, Conditions } from '@/types';
 import { SPECIES } from '@/engine/species';
+import { LURES } from '@/engine/lureDatabase';
 import { addCatch, deleteCatch, loadCatches, updateCatch } from '@/storage/catchLog';
+import { onBackupImported } from '@/utils/backup';
 import { summarizeCatchConditions } from '@/utils/snapshot';
-import { LureSelect } from '@/components/LureSelect';
+import { CatchReportCard } from '@/components/CatchReportCard';
+import { SearchPick } from '@/components/SearchPick';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
+import { FREE_LIMITS, usePro } from '@/purchases/pro';
 import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
-const SPECIES_OPTIONS = [...SPECIES.map((s) => s.label), 'Other'];
+// Search options: species by name, and every lure/rig/bait with its category
+// tag. Free-typed entries are always allowed via the "Use …" row.
+const SPECIES_OPTIONS = SPECIES.map((s) => ({ name: s.label }));
+
+/** Today as the MM/DD/YYYY the date field uses. */
+function todayInput(): string {
+  const d = new Date();
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
+/** Parse MM/DD/YYYY (or M/D/YYYY) to a Date at local noon, or null if invalid. */
+function parseCatchDate(s: string): Date | null {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s.trim());
+  if (!m) return null;
+  const d = new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]), 12, 0, 0);
+  // Reject rollovers like 2/31 (which Date silently turns into March).
+  if (d.getMonth() !== Number(m[1]) - 1 || d.getDate() !== Number(m[2])) return null;
+  return d;
+}
+const GEAR_OPTIONS = LURES.map((l) => ({
+  name: l.name,
+  tag: l.category.toUpperCase(),
+}));
 
 interface Props {
   /** Latest analyzed conditions from the planner, offered for attaching. */
   snapshot?: CatchConditions | null;
+  /** Latest 7-day forecast from the planner, for upcoming-day matching. */
+  forecast?: Conditions[] | null;
 }
 
-export function CatchLogScreen({ snapshot }: Props) {
+export function CatchLogScreen({ snapshot, forecast }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const { isPro, limitsActive, showPaywall } = usePro();
   const [catches, setCatches] = useState<CatchRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -41,14 +70,18 @@ export function CatchLogScreen({ snapshot }: Props) {
 
   // Form state
   const [species, setSpecies] = useState<string | null>(null);
-  const [speciesOther, setSpeciesOther] = useState('');
   const [lure, setLure] = useState<string | null>(null);
   const [rig, setRig] = useState<string | null>(null);
   const [bait, setBait] = useState<string | null>(null);
+  const [gearOther, setGearOther] = useState<string | null>(null);
   const [size, setSize] = useState('');
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [attachConditions, setAttachConditions] = useState(true);
+  // When/where overrides so a catch from earlier in the week can be
+  // backdated and labeled, instead of logging as "today at the analyzed spot".
+  const [catchDate, setCatchDate] = useState(todayInput());
+  const [placeLabel, setPlaceLabel] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -62,22 +95,46 @@ export function CatchLogScreen({ snapshot }: Props) {
     });
   }, []);
 
+  // A backup import (Guide tab) can add catches while this screen stays
+  // mounted — reload the list when that happens.
+  useEffect(
+    () =>
+      onBackupImported(() => {
+        void loadCatches().then(setCatches);
+      }),
+    [],
+  );
+
   const resetForm = useCallback(() => {
     setSpecies(null);
-    setSpeciesOther('');
     setLure(null);
     setRig(null);
     setBait(null);
+    setGearOther(null);
     setSize('');
     setNotes('');
     setPhotoUri(null);
     setEditingId(null);
     setError(null);
+    setCatchDate(todayInput());
+    setPlaceLabel('');
   }, []);
 
-  const resolvedSpecies =
-    species === 'Other' ? speciesOther.trim() : species ?? '';
-  const hasGear = !!(lure || rig || bait);
+  const resolvedSpecies = species ?? '';
+  const hasGear = !!(lure || rig || bait || gearOther);
+
+  // A gear pick fills its category's slot; a free-typed entry goes to its own.
+  const onPickGear = useCallback((name: string, custom: boolean) => {
+    if (custom) {
+      setGearOther(name);
+      return;
+    }
+    const item = LURES.find((l) => l.name === name);
+    if (!item) return;
+    if (item.category === 'lure') setLure(name);
+    else if (item.category === 'rig') setRig(name);
+    else setBait(name);
+  }, []);
 
   const pickPhoto = useCallback(async () => {
     setError(null);
@@ -120,36 +177,66 @@ export function CatchLogScreen({ snapshot }: Props) {
   }, []);
 
   const onSave = useCallback(async () => {
+    // Free tier caps *new* catches; editing an existing one is always allowed.
+    if (!editingId && !isPro && limitsActive && catches.length >= FREE_LIMITS.catches) {
+      showPaywall();
+      return;
+    }
     if (!resolvedSpecies) {
-      setError(
-        species === 'Other'
-          ? 'Type the species name.'
-          : 'Pick a species.',
-      );
+      setError('Pick a species.');
       return;
     }
     if (!hasGear) {
-      setError('Pick at least one of lure, rig, or bait.');
+      setError('Add what caught it — a lure, rig, or bait.');
       return;
+    }
+
+    // New catches can be backdated (MM/DD/YYYY, today by default).
+    let dateISO: string | undefined;
+    let when: Date | null = null;
+    if (!editingId) {
+      when = parseCatchDate(catchDate);
+      if (!when) {
+        setError('Enter the catch date as MM/DD/YYYY.');
+        return;
+      }
+      if (when.getTime() > Date.now()) {
+        setError("The catch date can't be in the future.");
+        return;
+      }
+      const backdated = when.toDateString() !== new Date().toDateString();
+      if (backdated) dateISO = when.toISOString();
     }
     setSaving(true);
     setError(null);
 
     // When editing, keep the conditions and date the catch was first logged.
     const original = editingId ? catches.find((c) => c.id === editingId) : undefined;
+    // Attached conditions pick up the edited place label and, when backdated,
+    // move their timestamp to that day (local noon — exact hour unknown).
+    let conditions = editingId
+      ? original?.conditions
+      : attachConditions && snapshot
+        ? snapshot
+        : undefined;
+    if (!editingId && conditions && when) {
+      const place = placeLabel.trim() || conditions.place;
+      const capturedAt = dateISO
+        ? `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}T12:00`
+        : conditions.capturedAt;
+      conditions = { ...conditions, place, capturedAt };
+    }
     const record = {
       species: resolvedSpecies,
       lure: lure ?? undefined,
       rig: rig ?? undefined,
       bait: bait ?? undefined,
+      gearOther: gearOther ?? undefined,
       size: size.trim() || undefined,
       notes: notes.trim() || undefined,
       photoUri: photoUri ?? undefined,
-      conditions: editingId
-        ? original?.conditions
-        : attachConditions && snapshot
-          ? snapshot
-          : undefined,
+      dateISO,
+      conditions,
     };
 
     const persistRecord = (rec: typeof record) =>
@@ -176,7 +263,7 @@ export function CatchLogScreen({ snapshot }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [resolvedSpecies, species, hasGear, lure, rig, bait, size, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm]);
+  }, [resolvedSpecies, hasGear, lure, rig, bait, gearOther, size, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm, isPro, limitsActive, showPaywall, catchDate, placeLabel]);
 
   const onDelete = useCallback(async (id: string) => {
     const next = await deleteCatch(id);
@@ -186,12 +273,11 @@ export function CatchLogScreen({ snapshot }: Props) {
   const onEdit = useCallback((c: CatchRecord) => {
     setNotice(null);
     setError(null);
-    const known = c.species !== 'Other' && SPECIES_OPTIONS.includes(c.species);
-    setSpecies(known ? c.species : 'Other');
-    setSpeciesOther(known ? '' : c.species);
+    setSpecies(c.species || null);
     setLure(c.lure ?? null);
     setRig(c.rig ?? null);
     setBait(c.bait ?? null);
+    setGearOther(c.gearOther ?? null);
     setSize(c.size ?? '');
     setNotes(c.notes ?? '');
     setPhotoUri(c.photoUri ?? null);
@@ -222,6 +308,8 @@ export function CatchLogScreen({ snapshot }: Props) {
           onPress={() => {
             setNotice(null);
             setEditingId(null);
+            setCatchDate(todayInput());
+            setPlaceLabel(snapshot?.place ?? '');
             setFormOpen(true);
           }}
         >
@@ -245,46 +333,37 @@ export function CatchLogScreen({ snapshot }: Props) {
           }
         >
           <Text style={styles.fieldLabel}>Species</Text>
-          <View style={styles.chipWrap}>
-            {SPECIES_OPTIONS.map((label) => {
-              const active = species === label;
-              return (
-                <Pressable
-                  key={label}
-                  onPress={() => setSpecies(label)}
-                  style={({ pressed }) => [
-                    styles.chip,
-                    active && styles.chipActive,
-                    pressed && pressedStyle,
-                  ]}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          {species === 'Other' ? (
-            <TextInput
-              value={speciesOther}
-              onChangeText={setSpeciesOther}
-              placeholder="Type the species (e.g. Bowfin, Sheepshead)"
-              placeholderTextColor={colors.textMuted}
-              autoFocus
-              style={[styles.input, { marginTop: spacing.sm }]}
+          {species ? (
+            <View style={styles.chipWrap}>
+              <SelectedChip label={species} onRemove={() => setSpecies(null)} />
+            </View>
+          ) : (
+            <SearchPick
+              placeholder="Search species, or type your own…"
+              options={SPECIES_OPTIONS}
+              onPick={(name) => setSpecies(name)}
             />
-          ) : null}
+          )}
 
           <Text style={styles.fieldLabel}>What caught it?</Text>
-          <Text style={styles.subLabel}>Pick any that apply — tap again to clear.</Text>
-
-          <Text style={styles.gearHeading}>Lure</Text>
-          <LureSelect value={lure} onChange={setLure} category="lure" />
-          <Text style={styles.gearHeading}>Rig</Text>
-          <LureSelect value={rig} onChange={setRig} category="rig" />
-          <Text style={styles.gearHeading}>Bait</Text>
-          <LureSelect value={bait} onChange={setBait} category="bait" />
+          <Text style={styles.subLabel}>
+            Search lures, rigs, and bait — or type anything and tap “Use”.
+          </Text>
+          {lure || rig || bait || gearOther ? (
+            <View style={styles.chipWrap}>
+              {lure ? <SelectedChip label={lure} tag="LURE" onRemove={() => setLure(null)} /> : null}
+              {rig ? <SelectedChip label={rig} tag="RIG" onRemove={() => setRig(null)} /> : null}
+              {bait ? <SelectedChip label={bait} tag="BAIT" onRemove={() => setBait(null)} /> : null}
+              {gearOther ? (
+                <SelectedChip label={gearOther} tag="OTHER" onRemove={() => setGearOther(null)} />
+              ) : null}
+            </View>
+          ) : null}
+          <SearchPick
+            placeholder="Search lures, rigs, bait…"
+            options={GEAR_OPTIONS}
+            onPick={onPickGear}
+          />
 
           <Text style={styles.fieldLabel}>Size (optional)</Text>
           <TextInput
@@ -325,6 +404,23 @@ export function CatchLogScreen({ snapshot }: Props) {
             </Pressable>
           )}
 
+          {!editingId ? (
+            <>
+              <Text style={styles.fieldLabel}>Caught on</Text>
+              <TextInput
+                value={catchDate}
+                onChangeText={setCatchDate}
+                placeholder="MM/DD/YYYY"
+                placeholderTextColor={colors.textMuted}
+                autoCorrect={false}
+                style={styles.input}
+              />
+              <Text style={styles.subLabel}>
+                Change this to backdate a catch from an earlier day.
+              </Text>
+            </>
+          ) : null}
+
           {editingId ? (
             catches.find((c) => c.id === editingId)?.conditions ? (
               <Text style={styles.attachHint}>
@@ -332,23 +428,37 @@ export function CatchLogScreen({ snapshot }: Props) {
               </Text>
             ) : null
           ) : snapshot ? (
-            <Pressable
-              onPress={() => setAttachConditions((v) => !v)}
-              style={({ pressed }) => [styles.attachRow, pressed && pressedStyle]}
-            >
-              <View style={[styles.check, attachConditions && styles.checkOn]}>
-                {attachConditions ? (
-                  <Feather name="check" size={14} color={colors.card} />
-                ) : null}
-              </View>
-              <View style={styles.attachText}>
-                <Text style={styles.attachLabel}>Attach current conditions</Text>
-                <Text style={styles.attachPreview}>
-                  {snapshot.place ? `${snapshot.place} · ` : ''}
-                  {summarizeCatchConditions(snapshot)}
-                </Text>
-              </View>
-            </Pressable>
+            <>
+              <Pressable
+                onPress={() => setAttachConditions((v) => !v)}
+                style={({ pressed }) => [styles.attachRow, pressed && pressedStyle]}
+              >
+                <View style={[styles.check, attachConditions && styles.checkOn]}>
+                  {attachConditions ? (
+                    <Feather name="check" size={14} color={colors.card} />
+                  ) : null}
+                </View>
+                <View style={styles.attachText}>
+                  <Text style={styles.attachLabel}>Attach current conditions</Text>
+                  <Text style={styles.attachPreview}>
+                    {snapshot.place ? `${snapshot.place} · ` : ''}
+                    {summarizeCatchConditions(snapshot)}
+                  </Text>
+                </View>
+              </Pressable>
+              {attachConditions ? (
+                <>
+                  <Text style={styles.fieldLabel}>Location label</Text>
+                  <TextInput
+                    value={placeLabel}
+                    onChangeText={setPlaceLabel}
+                    placeholder="Where was this caught? (e.g. Balus Creek dock)"
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.input}
+                  />
+                </>
+              ) : null}
+            </>
           ) : (
             <Text style={styles.attachHint}>
               Run an analysis on the Plan tab first to attach live conditions to
@@ -375,6 +485,10 @@ export function CatchLogScreen({ snapshot }: Props) {
           </Pressable>
         </Section>
       )}
+
+      {!loading && catches.length > 0 ? (
+        <CatchReportCard catches={catches} forecast={forecast ?? null} />
+      ) : null}
 
       {loading ? (
         <ActivityIndicator color={colors.accent} style={{ marginTop: spacing.xl }} />
@@ -443,6 +557,7 @@ export function CatchLogScreen({ snapshot }: Props) {
                 c.lure ? `Lure: ${c.lure}` : null,
                 c.rig ? `Rig: ${c.rig}` : null,
                 c.bait ? `Bait: ${c.bait}` : null,
+                c.gearOther ? `Gear: ${c.gearOther}` : null,
               ]
                 .filter(Boolean)
                 .map((line, i) => (
@@ -477,6 +592,34 @@ function formatDate(iso: string): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+/** A picked species/gear entry: label, optional category tag, and an ✕. */
+function SelectedChip({
+  label,
+  tag,
+  onRemove,
+}: {
+  label: string;
+  tag?: string;
+  onRemove: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <Pressable
+      onPress={onRemove}
+      style={({ pressed }) => [styles.chip, styles.selChip, pressed && pressedStyle]}
+    >
+      <Text style={[styles.chipText, styles.chipTextActive]}>{label}</Text>
+      {tag ? (
+        <View style={styles.selChipTag}>
+          <Text style={styles.selChipTagText}>{tag}</Text>
+        </View>
+      ) : null}
+      <Feather name="x" size={13} color={colors.textMuted} />
+    </Pressable>
+  );
 }
 
 const useStyles = makeStyles((colors, { shadow }) => ({
@@ -552,6 +695,21 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   chipActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
   chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   chipTextActive: { color: colors.text },
+  selChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+    marginBottom: spacing.sm,
+  },
+  selChipTag: {
+    backgroundColor: colors.chip,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+  },
+  selChipTagText: { color: colors.textMuted, fontSize: 9, fontWeight: '700' },
   input: {
     backgroundColor: colors.bgElevated,
     borderColor: colors.cardBorder,

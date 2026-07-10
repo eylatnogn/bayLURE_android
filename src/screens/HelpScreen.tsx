@@ -4,6 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
 import { exportBackup, importBackup } from '@/utils/backup';
+import { usePro } from '@/purchases/pro';
 import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 interface Item {
@@ -74,8 +75,8 @@ const COMFORT: Item[] = [
   { name: 'Tape measure & a phone', why: 'Measure fish against size limits and log your catch in bayLURE.' },
 ];
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
+function plural(n: number, word: string, pluralWord?: string): string {
+  return n === 1 ? `${n} ${word}` : `${n} ${pluralWord ?? `${word}s`}`;
 }
 
 function BackupSection() {
@@ -100,10 +101,11 @@ function BackupSection() {
   return (
     <Section title="Backup & Restore">
       <Text style={styles.para}>
-        Your saved spots and presets live only on this device. Export them to a
-        backup file you keep (Files, Drive, email — anywhere), and import that
-        file later to restore them or move to a new phone. Importing only adds:
-        nothing already saved here is changed or deleted.
+        Your saved spots, presets, and catch log live only on this device.
+        Export them to a backup file you keep (Files, Drive, email — anywhere),
+        and import that file later to restore them or move to a new phone.
+        Importing only adds: nothing already saved here is changed or deleted.
+        Catch photos taken on this phone stay on this phone.
       </Text>
       <Pressable
         style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
@@ -111,8 +113,8 @@ function BackupSection() {
           run(async () => {
             const res = await exportBackup();
             return res
-              ? `Exported ${plural(res.spots, 'spot')} and ${plural(res.presets, 'preset')}.`
-              : 'Nothing saved yet — save a spot or preset first.';
+              ? `Exported ${plural(res.spots, 'spot')}, ${plural(res.presets, 'preset')}, and ${plural(res.catches, 'catch', 'catches')}.`
+              : 'Nothing saved yet — save a spot, preset, or catch first.';
           })
         }
       >
@@ -124,14 +126,74 @@ function BackupSection() {
           run(async () => {
             const res = await importBackup();
             if (!res) return null; // picker canceled
-            return res.spots === 0 && res.presets === 0
+            return res.spots === 0 && res.presets === 0 && res.catches === 0
               ? 'Nothing new to import — everything in that file is already here.'
-              : `Imported ${plural(res.spots, 'new spot')} and ${plural(res.presets, 'new preset')}.`;
+              : `Imported ${plural(res.spots, 'new spot')}, ${plural(res.presets, 'new preset')}, and ${plural(res.catches, 'new catch', 'new catches')}.`;
           })
         }
       >
         <Text style={styles.linkText}>Import backup file</Text>
       </Pressable>
+      {status ? <Text style={styles.backupStatus}>{status}</Text> : null}
+    </Section>
+  );
+}
+
+function ProSection() {
+  const styles = useStyles();
+  const { isPro, canSubscribe, showPaywall, restore, busy } = usePro();
+  const [status, setStatus] = useState<string | null>(null);
+
+  // A subscription follows the Google account that bought it — Play restores
+  // it automatically on reinstall/new phone, and this button forces a re-check
+  // for anyone it missed.
+  const onRestore = async () => {
+    if (busy) return;
+    setStatus(null);
+    const result = await restore();
+    if (result === 'restored') setStatus('Subscription restored — welcome back!');
+    if (result === 'none')
+      setStatus(
+        'No subscription found. Make sure this device is signed into the Google account that purchased Pro.',
+      );
+    if (result === 'error') setStatus('Could not reach Google Play. Check your connection and try again.');
+  };
+
+  return (
+    <Section title="bayLURE Pro">
+      {isPro ? (
+        <Text style={styles.para}>
+          You're a Pro subscriber — unlimited saved spots, presets, and catches,
+          with no ads. Manage or cancel anytime in Google Play → Subscriptions.
+        </Text>
+      ) : (
+        <>
+          <Text style={styles.para}>
+            {canSubscribe
+              ? 'Pro unlocks unlimited saved spots, presets, and catch log ' +
+                'entries, and removes ads. Already subscribed on another ' +
+                'phone? Your subscription follows your Google account — ' +
+                'restore it below.'
+              : 'Pro removes ads and keeps every spot, preset, and catch ' +
+                'unlocked. Subscriptions are coming soon — have a redeem ' +
+                'code? Enter it from the Pro screen below.'}
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
+            onPress={showPaywall}
+          >
+            <Text style={styles.linkText}>See bayLURE Pro</Text>
+          </Pressable>
+          {canSubscribe ? (
+            <Pressable
+              style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
+              onPress={onRestore}
+            >
+              <Text style={styles.linkText}>Restore purchases</Text>
+            </Pressable>
+          ) : null}
+        </>
+      )}
       {status ? <Text style={styles.backupStatus}>{status}</Text> : null}
     </Section>
   );
@@ -194,6 +256,8 @@ export function HelpScreen() {
       </Section>
 
       <BackupSection />
+
+      <ProSection />
 
       <Section title="A Simple First Rig">
         <Text style={styles.para}>

@@ -8,13 +8,15 @@ import {
   Fraunces_600SemiBold,
   Fraunces_700Bold,
 } from '@expo-google-fonts/fraunces';
-import type { CatchConditions } from '@/types';
+import type { CatchConditions, Conditions } from '@/types';
 import { HomeScreen } from '@/screens/HomeScreen';
 import { CatchLogScreen } from '@/screens/CatchLogScreen';
 import { HelpScreen } from '@/screens/HelpScreen';
 import { AdBanner } from '@/components/AdBanner';
+import { Paywall } from '@/components/Paywall';
 import { TabBar, type Tab } from '@/components/TabBar';
 import { ThemeProvider } from '@/ThemeProvider';
+import { ProProvider } from '@/purchases/pro';
 import { useTheme } from '@/theme';
 
 export default function App() {
@@ -42,7 +44,10 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AppShell fontsLoaded={fontsLoaded} />
+        <ProProvider>
+          <AppShell fontsLoaded={fontsLoaded} />
+          <Paywall />
+        </ProProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
@@ -53,6 +58,8 @@ function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
   const [tab, setTab] = useState<Tab>('plan');
   // The most recent analyzed conditions, offered to the catch log to attach.
   const [snapshot, setSnapshot] = useState<CatchConditions | null>(null);
+  // The most recent 7-day forecast, for the catch log's pattern matching.
+  const [forecast, setForecast] = useState<Conditions[] | null>(null);
 
   if (!fontsLoaded) {
     return <View style={[styles.root, { backgroundColor: colors.bg }]} />;
@@ -79,10 +86,10 @@ function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
             {/* Keep both mounted so the planner's snapshot and form state persist
                 across tab switches. */}
             <View style={[styles.screen, tab !== 'plan' && styles.hidden]}>
-              <HomeScreen onSnapshot={setSnapshot} />
+              <HomeScreen onSnapshot={setSnapshot} onForecast={setForecast} />
             </View>
             <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
-              <CatchLogScreen snapshot={snapshot} />
+              <CatchLogScreen snapshot={snapshot} forecast={forecast} />
             </View>
             <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
               <HelpScreen />

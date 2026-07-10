@@ -30,6 +30,7 @@ import {
   addFavorite,
   deleteFavorite,
 } from '@/storage/favorites';
+import { loadLastSpot, saveLastSpot } from '@/storage/lastSpot';
 import { loadSettings, saveSettings } from '@/storage/settings';
 import {
   loadPresets,
@@ -63,16 +64,20 @@ import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Button } from '@/components/Button';
 import { APP_VERSION } from '@/version';
+import { FREE_LIMITS, usePro } from '@/purchases/pro';
 import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
 
 interface Props {
   /** Called after an analysis so the catch log can attach these conditions. */
   onSnapshot?: (snapshot: CatchConditions) => void;
+  /** Called with the 7-day forecast so the catch log can match upcoming days. */
+  onForecast?: (forecast: Conditions[]) => void;
 }
 
-export function HomeScreen({ onSnapshot }: Props) {
+export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const { isPro, limitsActive, showPaywall } = usePro();
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
   const [place, setPlace] = useState<string>('');
   const [locating, setLocating] = useState(false);
@@ -189,6 +194,11 @@ export function HomeScreen({ onSnapshot }: Props) {
   }, []);
 
   const onSavePreset = useCallback(async () => {
+    // Free tier: one preset. Existing presets always stay usable.
+    if (!isPro && limitsActive && customPresets.length >= FREE_LIMITS.presets) {
+      showPaywall();
+      return;
+    }
     const next = await addPreset(presetLabel, {
       waterType,
       species,
@@ -200,7 +210,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     setCustomPresets(next);
     setSavingPreset(false);
     setPresetLabel('');
-  }, [presetLabel, waterType, species, structures, clarity, depth, pressureLevel]);
+  }, [presetLabel, waterType, species, structures, clarity, depth, pressureLevel, isPro, limitsActive, customPresets.length, showPaywall]);
 
   const onDeletePreset = useCallback(async (id: string) => {
     setCustomPresets(await deletePreset(id));
@@ -267,6 +277,22 @@ export function HomeScreen({ onSnapshot }: Props) {
     void loadFavorites().then(setFavorites);
   }, []);
 
+  // Reopen on the last spot the angler viewed — the auto-analyze effect then
+  // rebuilds the forecast for it. Skipped if they set a location even faster.
+  useEffect(() => {
+    void loadLastSpot().then((last) => {
+      if (!last) return;
+      setCoordinates((prev) => prev ?? last.coordinates);
+      setPlace((prev) => prev || last.place);
+    });
+  }, []);
+
+  // Remember the current spot (and its label as it refines) for next launch.
+  useEffect(() => {
+    if (!coordinates) return;
+    void saveLastSpot(coordinates, place);
+  }, [coordinates, place]);
+
   // Pre-fill the form with the angler's last-used settings.
   useEffect(() => {
     void loadSettings().then((s) => {
@@ -307,6 +333,11 @@ export function HomeScreen({ onSnapshot }: Props) {
 
   const onSaveFavorite = useCallback(async () => {
     if (!coordinates) return;
+    // Free tier: one saved spot. Existing spots always stay usable.
+    if (!isPro && limitsActive && favorites.length >= FREE_LIMITS.spots) {
+      showPaywall();
+      return;
+    }
     // `place` can be a raw "lat, long" string when the spot came from a pin
     // drop or GPS; never use that as a label.
     const placeLabel = /^-?\d+\.\d+, -?\d+\.\d+$/.test(place) ? '' : place;
@@ -314,7 +345,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     setFavorites(next);
     setSavingFav(false);
     setFavLabel('');
-  }, [coordinates, favLabel, place]);
+  }, [coordinates, favLabel, place, isPro, limitsActive, favorites.length, showPaywall]);
 
   const onLoadFavorite = useCallback((fav: FavoriteLocation) => {
     setCoordinates({ latitude: fav.latitude, longitude: fav.longitude });
@@ -362,6 +393,7 @@ export function HomeScreen({ onSnapshot }: Props) {
       ]);
       const strats = week.map((c) => buildStrategy(c));
       setForecast(week);
+      onForecast?.(week);
       setStrategies(strats);
       setSelectedDay((prev) => (prev < week.length ? prev : 0));
       setSelectedHour(null);
@@ -382,7 +414,7 @@ export function HomeScreen({ onSnapshot }: Props) {
     } finally {
       setAnalyzing(false);
     }
-  }, [coordinates, waterType, species, structures, pressureLevel, clarity, depth, place, onSnapshot]);
+  }, [coordinates, waterType, species, structures, pressureLevel, clarity, depth, place, onSnapshot, onForecast]);
 
   // Keep a live ref to the latest onAnalyze for the debounced auto-run.
   onAnalyzeRef.current = onAnalyze;
