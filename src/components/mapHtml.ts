@@ -160,6 +160,9 @@ export function buildMapHtml(
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
   <script>
     var map = L.map('map').setView([${c.latitude}, ${c.longitude}], ${zoom});
+    // Show only the data credit (USGS). The "Leaflet" prefix is a courtesy
+    // default, not a license requirement (BSD keeps its notice in source).
+    map.attributionControl.setPrefix('');
     // USGS The National Map topo tiles ({z}/{y}/{x} order). Native detail tops
     // out at 16; maxZoom 18 lets Leaflet upscale for precise pin placement.
     L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
