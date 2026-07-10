@@ -24,6 +24,10 @@ const adUnitId =
 /** The bottom banner, anchored above the tab bar. Android-only for now. */
 export function AdBanner() {
   const [ready, setReady] = useState(false);
+  // The layout gives the banner NO space until an ad has actually rendered —
+  // otherwise an unfilled request (common while a new app ramps up in AdMob)
+  // leaves a blank bar where the ad would sit.
+  const [loaded, setLoaded] = useState(false);
   // Pro subscribers get an ad-free app.
   const { isPro } = usePro();
 
@@ -40,13 +44,22 @@ export function AdBanner() {
   if (Platform.OS !== 'android' || !ready || isPro) return null;
 
   return (
-    <View style={{ alignItems: 'center' }}>
+    <View
+      style={
+        loaded
+          ? { alignItems: 'center' }
+          : // Keep the request alive but collapse the space until it fills.
+            { height: 0, overflow: 'hidden' }
+      }
+    >
       <BannerAd
         unitId={adUnitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         // Non-personalized requests keep us out of consent-framework
         // requirements while distribution is US-only.
         requestOptions={{ requestNonPersonalizedAdsOnly: true }}
+        onAdLoaded={() => setLoaded(true)}
+        onAdFailedToLoad={() => setLoaded(false)}
       />
     </View>
   );
