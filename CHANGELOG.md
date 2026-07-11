@@ -2,6 +2,16 @@
 
 All notable changes to bayLURE. Dates are release/build dates.
 
+## Unreleased (after versionCode 10)
+- **Tides & Bite graph** — "Tides & bite graph" button on the Forecast card
+  (saltwater spots) opens an hourly chart: NOAA tide-height curve with
+  high/low markers over the day's bite-score bars, fish icons on prime
+  hours, and a "now" cursor. Follows the selected forecast day.
+- Ad banner no longer holds blank space when no ad is served; Pro stays
+  fully bannerless.
+- Fixed a native "index is not in the allowed range" error when attaching
+  a photo to a catch; failed resizes now fall back to the original photo.
+
 ## v0.15.2 — 2026-07-10
 
 ### Plan tab

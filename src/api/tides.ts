@@ -130,6 +130,50 @@ export async function fetchWeekTides(
   return out;
 }
 
+/** One hourly predicted water level, for the tide graph. */
+export interface TideHeightPoint {
+  /** NOAA local time "YYYY-MM-DD HH:mm". */
+  time: string;
+  heightFt: number;
+}
+
+// The hourly series for a station+day never changes — cache per session.
+const heightsCache = new Map<string, TideHeightPoint[]>();
+
+/**
+ * Hourly predicted water heights (MLLW, feet) at a station for one local day —
+ * the curve behind the tide graph. Same free NOAA endpoint as the hi/lo events.
+ */
+export async function fetchTideHeights(
+  stationId: string,
+  date: Date,
+): Promise<TideHeightPoint[]> {
+  const key = `${stationId}|${yyyymmdd(date)}`;
+  const cached = heightsCache.get(key);
+  if (cached) return cached;
+
+  const params = new URLSearchParams({
+    product: 'predictions',
+    application: 'bayLURE',
+    begin_date: yyyymmdd(date),
+    end_date: yyyymmdd(date),
+    datum: 'MLLW',
+    station: stationId,
+    time_zone: 'lst_ldt',
+    units: 'english',
+    interval: 'h',
+    format: 'json',
+  });
+  const res = await fetch(`${DATA_URL}?${params.toString()}`);
+  if (!res.ok) throw new Error(`Tide heights failed (${res.status}).`);
+  const data = (await res.json()) as { predictions?: Array<{ t: string; v: string }> };
+  const points = (data.predictions ?? [])
+    .map((p) => ({ time: p.t, heightFt: Number(p.v) }))
+    .filter((p) => Number.isFinite(p.heightFt));
+  if (points.length) heightsCache.set(key, points);
+  return points;
+}
+
 /** Tide state at an arbitrary moment, from a day's hi/lo events. */
 export function tideStateAt(
   events: TideEvent[],

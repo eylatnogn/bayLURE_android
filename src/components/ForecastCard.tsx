@@ -23,6 +23,8 @@ interface Props {
   /** Index into the day's hours, or null for the whole-day overview. */
   selectedHour: number | null;
   onSelectHour: (hour: number | null) => void;
+  /** Opens the tide + bite graph (shown only when the spot has a tide station). */
+  onShowTideGraph?: () => void;
 }
 
 const trendArrow: Record<string, string> = {
@@ -57,6 +59,7 @@ export function ForecastCard({
   onSelectDay,
   selectedHour,
   onSelectHour,
+  onShowTideGraph,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -131,6 +134,17 @@ export function ForecastCard({
           );
         })}
       </ScrollView>
+
+      {conditions.tide && onShowTideGraph ? (
+        <Pressable
+          onPress={onShowTideGraph}
+          style={({ pressed }) => [styles.tideBtn, pressed && pressedStyle]}
+        >
+          <Feather name="bar-chart-2" size={15} color={colors.accent} />
+          <Text style={styles.tideBtnText}>Tides & bite graph</Text>
+          <Feather name="chevron-right" size={15} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
 
       {strategy.bestWindows.length > 0 ? (
         <View style={styles.windows}>
@@ -338,6 +352,21 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
   },
   dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
+
+  // Tide graph opener
+  tideBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  tideBtnText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '700' },
 
   // Best windows
   windows: { gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.md },

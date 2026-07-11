@@ -49,6 +49,7 @@ import { onBackupImported } from '@/utils/backup';
 import { buildCatchConditions } from '@/utils/snapshot';
 import { addDays, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
 import { ForecastCard } from '@/components/ForecastCard';
+import { TideGraphModal } from '@/components/TideGraphModal';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
 import { PicksCard } from '@/components/PicksCard';
@@ -107,6 +108,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const [quickStartOpen, setQuickStartOpen] = useState(false);
   const [fineTuneOpen, setFineTuneOpen] = useState(true);
   const [savedSpotsOpen, setSavedSpotsOpen] = useState(false);
+  // The "Tides & Bite" hourly graph modal (saltwater spots only).
+  const [tideGraphOpen, setTideGraphOpen] = useState(false);
   // The angler's own saved condition configurations.
   const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);
   const [savingPreset, setSavingPreset] = useState(false);
@@ -812,9 +815,20 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             }}
             selectedHour={selectedHour}
             onSelectHour={setSelectedHour}
+            onShowTideGraph={() => setTideGraphOpen(true)}
           />
         ) : null}
       </View>
+      {strategy && conditions?.tide ? (
+        <TideGraphModal
+          visible={tideGraphOpen}
+          onClose={() => setTideGraphOpen(false)}
+          tide={conditions.tide}
+          hourly={strategy.hourly}
+          dayLabel={dayLabel(addDays(new Date(), selectedDay), selectedDay)}
+          date={conditions.date}
+        />
+      ) : null}
       {strategy ? <PicksCard strategy={strategy} /> : null}
       {strategy ? <InsightsCard strategy={strategy} /> : null}
       {strategy ? (
