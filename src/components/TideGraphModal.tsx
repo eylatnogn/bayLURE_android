@@ -344,7 +344,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
     // A floating sheet, not a Modal: everything above it (the map!) stays live.
     <View style={styles.overlay} pointerEvents="box-none">
       <View style={styles.sheet}>
-        <ScrollView bounces={false}>
+        <View>
             <View style={styles.head}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.title}>Tides & Bite</Text>
@@ -410,7 +410,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
               />
               <MiniStat
                 label="Pressure"
-                value={`${hourWeather.pressureInHg}"`}
+                value={`${hourWeather.pressureInHg}`}
                 hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
               />
               <MiniStat label="Sky" value={`${hourWeather.cloudCoverPct}%`} hint="cloud" />
@@ -452,11 +452,10 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
                 ★ highlighted = peak
               </Text>
             </View>
-            <Text style={styles.finePrint}>
-              NOAA tide predictions · bite graded hourly from the day's forecast.
-              Moving water near highs and lows usually fishes best.
+            <Text style={styles.finePrint} numberOfLines={1}>
+              NOAA predictions · moving water near highs & lows fishes best
             </Text>
-        </ScrollView>
+        </View>
       </View>
     </View>
   );
@@ -473,27 +472,27 @@ const useStyles = makeStyles((c, t) => ({
   },
   sheet: {
     width: '100%',
-    maxWidth: 680,
+    maxWidth: 800,
     backgroundColor: c.card,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     borderWidth: 1,
     borderBottomWidth: 0,
     borderColor: c.cardBorder,
-    padding: spacing.lg,
-    paddingBottom: spacing.xl,
-    maxHeight: 560,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
     elevation: 14,
     ...t.shadow.card,
   },
   head: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.sm,
+    alignItems: 'center',
+    marginBottom: spacing.xs,
   },
   title: {
     fontFamily: fonts.displayBold,
-    fontSize: 22,
+    fontSize: 19,
     color: c.text,
   },
   subtitle: {
@@ -504,11 +503,11 @@ const useStyles = makeStyles((c, t) => ({
   close: {
     padding: spacing.xs,
   },
-  dayRow: { gap: spacing.sm, paddingVertical: spacing.xs },
+  dayRow: { gap: spacing.xs + 2, paddingVertical: 2 },
   day: {
-    width: 54,
+    width: 50,
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: radius.md,
     backgroundColor: c.bgElevated,
     borderWidth: 1,
@@ -531,8 +530,8 @@ const useStyles = makeStyles((c, t) => ({
     flexDirection: 'row',
     alignItems: 'baseline',
     justifyContent: 'space-between',
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
   condTitle: {
     fontFamily: fonts.display,
@@ -551,9 +550,9 @@ const useStyles = makeStyles((c, t) => ({
   miniRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
-  mini: { width: '16.6%', minWidth: 62, marginBottom: spacing.sm },
+  mini: { width: '16.6%', minWidth: 58, marginBottom: spacing.xs },
   miniValue: { color: c.text, fontSize: 17, fontWeight: '800' },
   miniLabel: { color: c.textMuted, fontSize: 12, marginTop: 1 },
   miniHint: { color: c.accent, fontSize: 11, marginTop: 1 },
@@ -572,8 +571,8 @@ const useStyles = makeStyles((c, t) => ({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+    gap: spacing.xs + 2,
+    marginTop: spacing.xs,
   },
   swatch: {
     width: 12,
@@ -587,8 +586,7 @@ const useStyles = makeStyles((c, t) => ({
   },
   finePrint: {
     color: c.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: spacing.sm,
+    fontSize: 11,
+    marginTop: spacing.xs,
   },
 }));
