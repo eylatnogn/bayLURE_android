@@ -121,6 +121,14 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // Scroll plumbing for the floating jump button (top <-> bite forecast).
   const scrollRef = useRef<ScrollView>(null);
   const bodyY = useRef(0); // body offset within the scroll content
+  // The map's wrapper, measured when the tide sheet opens so the map — not
+  // the page top — lands in the strip above the sheet.
+  const mapWrapRef = useRef<View>(null);
+  // The forecast card's wrapper, for the jump button's fresh measurements.
+  const forecastWrapRef = useRef<View>(null);
+  const scrollYRef = useRef(0);
+  // Collapse "Fine-tune your read" once, when the first results land.
+  const hadResults = useRef(false);
   const forecastRelY = useRef(0); // forecast card offset within the body
   const [nearForecast, setNearForecast] = useState(false);
 
@@ -403,6 +411,12 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       setAreaFish(fish);
       setRegion(reg);
       setError(null); // a successful run clears any earlier failure
+      // First results: tuck the fine-tune form away so the forecast is the
+      // star. Only once — re-runs while the angler tweaks it shouldn't fight.
+      if (!hadResults.current) {
+        hadResults.current = true;
+        setFineTuneOpen(false);
+      }
       // Catch log always attaches *today's* conditions, not a future forecast.
       if (week[0] && strats[0]) {
         onSnapshot?.(buildCatchConditions(week[0], strats[0].biteScore, place));
@@ -439,21 +453,54 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     return () => clearTimeout(timer);
   }, [coordinates, waterType, species, structures, clarity, depth, pressureLevel, analyzing]);
 
-  // Floating jump button: hop between the top of the form and the bite forecast.
+  // Floating jump button: hop between the map and the bite forecast.
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
+    scrollYRef.current = y;
     const near = y >= bodyY.current + forecastRelY.current - 120;
     setNearForecast((prev) => (prev === near ? prev : near));
   }, []);
 
-  const jumpToForecast = useCallback(() => {
-    if (nearForecast) {
-      scrollRef.current?.scrollTo({ y: 0, animated: true });
-    } else {
-      const target = Math.max(0, bodyY.current + forecastRelY.current - 8);
-      scrollRef.current?.scrollTo({ y: target, animated: true });
+  // Fresh y-offset of a wrapper inside the scroll content. Collapsing sections
+  // shifts everything, so stored offsets go stale — measure at press time.
+  const measureInScroll = useCallback((ref: React.RefObject<View | null>) => {
+    return new Promise<number | null>((resolve) => {
+      const scroller = scrollRef.current;
+      const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
+        ?.getInnerViewNode?.();
+      const node = ref.current as unknown as {
+        measureLayout?: (n: unknown, ok: (x: number, y: number) => void, fail: () => void) => void;
+      } | null;
+      if (!inner || !node?.measureLayout) {
+        resolve(null);
+        return;
+      }
+      node.measureLayout(inner, (_x, y) => resolve(y), () => resolve(null));
+    });
+  }, []);
+
+  const jumpToForecast = useCallback(async () => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const [mapY, forecastY] = await Promise.all([
+      measureInScroll(mapWrapRef),
+      measureInScroll(forecastWrapRef),
+    ]);
+    if (mapY == null || forecastY == null) {
+      // Fallback to the stored offsets if measuring isn't available.
+      scroller.scrollTo({
+        y: nearForecast ? 0 : Math.max(0, bodyY.current + forecastRelY.current - 8),
+        animated: true,
+      });
+      return;
     }
-  }, [nearForecast]);
+    // At (or past) the forecast → hop up to the map; otherwise → the forecast.
+    const atForecast = scrollYRef.current >= forecastY - 160;
+    scroller.scrollTo({
+      y: Math.max(0, (atForecast ? mapY : forecastY) - 8),
+      animated: true,
+    });
+  }, [nearForecast, measureInScroll]);
 
   return (
     <View style={styles.root}>
@@ -530,13 +577,16 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         </View>
 
         <Text style={styles.orLabel}>or drop a pin on the map</Text>
-        <MapPicker
-          center={coordinates}
-          onPick={onPickOnMap}
-          windTargetLabel={windTargetLabel}
-          windMph={windWx?.windMph ?? null}
-          windDirDeg={windWx?.windDirectionDeg ?? null}
-        />
+        {/* collapsable=false so the wrapper stays measurable on Android. */}
+        <View ref={mapWrapRef} collapsable={false}>
+          <MapPicker
+            center={coordinates}
+            onPick={onPickOnMap}
+            windTargetLabel={windTargetLabel}
+            windMph={windWx?.windMph ?? null}
+            windDirDeg={windWx?.windDirectionDeg ?? null}
+          />
+        </View>
 
         <Text style={styles.selected}>
           {coordinates
@@ -795,6 +845,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       ) : null}
 
       <View
+        ref={forecastWrapRef}
+        collapsable={false}
         onLayout={(e) => {
           forecastRelY.current = e.nativeEvent.layout.y;
         }}
@@ -816,8 +868,27 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             selectedHour={selectedHour}
             onSelectHour={setSelectedHour}
             onShowTideGraph={() => {
-              // Bring the map into the strip above the sheet — spot + graph together.
-              scrollRef.current?.scrollTo({ y: 0, animated: true });
+              // Scroll the MAP (not the page top) into the strip above the
+              // sheet, so the spot and the graph are visible together.
+              const scroller = scrollRef.current;
+              const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
+                ?.getInnerViewNode?.();
+              const mapNode = mapWrapRef.current as unknown as {
+                measureLayout?: (
+                  node: unknown,
+                  ok: (x: number, y: number) => void,
+                  fail: () => void,
+                ) => void;
+              } | null;
+              if (scroller && inner && mapNode?.measureLayout) {
+                mapNode.measureLayout(
+                  inner,
+                  (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 6), animated: true }),
+                  () => scroller.scrollTo({ y: 0, animated: true }),
+                );
+              } else {
+                scroller?.scrollTo({ y: 0, animated: true });
+              }
               setTideGraphOpen(true);
             }}
           />
@@ -859,7 +930,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           onPress={jumpToForecast}
           hitSlop={8}
           style={({ pressed }) => [styles.jumpBtn, pressed && pressedStyle]}
-          accessibilityLabel={nearForecast ? 'Jump to top' : 'Jump to bite forecast'}
+          accessibilityLabel={nearForecast ? 'Jump to the map' : 'Jump to bite forecast'}
         >
           <Feather
             name={nearForecast ? 'chevron-up' : 'chevron-down'}

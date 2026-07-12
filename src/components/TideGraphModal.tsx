@@ -2,11 +2,14 @@
 // see that moment's weather next to the NOAA tide curve and bite bars — with
 // the day's peak hours highlighted. Rendered as a floating bottom sheet (NOT
 // a Modal) so the map above it stays fully interactive; the host scrolls the
-// map into view when it opens.
-import { useEffect, useState } from 'react';
+// map into view when it opens. A grab handle above the title lets the angler
+// drag the sheet shorter/taller (it locks where they leave it).
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Dimensions,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -18,7 +21,7 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 import type { Conditions, Strategy } from '@/types';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { hourOf, localDateStr } from '@/utils/dates';
-import { fonts, makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
+import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
 
 export interface TideGraphDay {
   label: string;
@@ -40,16 +43,18 @@ interface Props {
 }
 
 // Chart geometry (SVG viewBox units; rendered responsive via aspectRatio).
-// Text sizes are generous on purpose — readable for anglers without glasses.
+// Kept short on purpose so the map above the sheet gets its full height.
 const W = 360;
-const H = 235;
-const M = { top: 30, right: 10, bottom: 36, left: 10 };
+const H = 190;
+const M = { top: 24, right: 10, bottom: 30, left: 10 };
 const IW = W - M.left - M.right;
 const IH = H - M.top - M.bottom;
 /** Bite bars rise from the axis up to this many px. */
-const BAR_MAX = 56;
+const BAR_MAX = 40;
 /** Hours scoring at least this get a fish marker. */
 const PRIME = 65;
+/** How short/tall the sheet can be dragged. */
+const MIN_SHEET_H = 150;
 
 /** Catmull-Rom → cubic bezier path through the points (smooth tide curve). */
 function smoothPath(pts: Array<{ x: number; y: number }>): string {
@@ -85,6 +90,13 @@ const TREND_ARROW: Record<string, string> = {
   unknown: '·',
 };
 
+const TIDE_SHORT: Record<string, string> = {
+  incoming: 'In',
+  outgoing: 'Out',
+  slack: 'Slack',
+  unknown: '—',
+};
+
 function MiniStat({ label, value, hint, warn }: { label: string; value: string; hint?: string; warn?: boolean }) {
   const styles = useStyles();
   return (
@@ -103,6 +115,28 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
   const [selHour, setSelHour] = useState<number | null>(null);
   const [heights, setHeights] = useState<TideHeightPoint[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // Dragged sheet height; null = fit the content. Locks where the drag ends
+  // and survives close/reopen, so the angler sets it once.
+  const [sheetH, setSheetH] = useState<number | null>(null);
+  const sheetHRef = useRef<number | null>(null);
+  const naturalH = useRef(0); // last laid-out height, the drag baseline
+  const dragBase = useRef(0);
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 3,
+      onPanResponderGrant: () => {
+        dragBase.current = sheetHRef.current ?? naturalH.current;
+      },
+      onPanResponderMove: (_e, g) => {
+        const maxH = Dimensions.get('window').height * 0.9;
+        const h = Math.min(maxH, Math.max(MIN_SHEET_H, dragBase.current - g.dy));
+        sheetHRef.current = h;
+        setSheetH(h);
+      },
+    }),
+  ).current;
 
   // Opening the sheet re-syncs to the Plan tab's selected day.
   useEffect(() => {
@@ -246,7 +280,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
               key={`f${hr}`}
               x={x(hr)}
               y={M.top + IH - BAR_MAX - (peak ? 8 : 5)}
-              fontSize={peak ? 15 : 10}
+              fontSize={peak ? 14 : 9}
               opacity={peak ? 1 : 0.55}
               textAnchor="middle"
             >
@@ -259,7 +293,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
             <SvgText
               key={`s${hr}`}
               x={x(hr)}
-              y={M.top + IH - BAR_MAX - 24}
+              y={M.top + IH - BAR_MAX - 21}
               fontSize={11}
               fontWeight="800"
               fill={colors.warn}
@@ -274,8 +308,8 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
         {firstPeakHr >= 0 ? (
           <SvgText
             x={Math.min(Math.max(x(firstPeakHr), 58), W - 58)}
-            y={14}
-            fontSize={14}
+            y={13}
+            fontSize={13}
             fontWeight="800"
             fill={colors.warn}
             textAnchor="middle"
@@ -315,7 +349,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
         {/* Hour axis. */}
         <Line x1={M.left} y1={M.top + IH} x2={M.left + IW} y2={M.top + IH} stroke={colors.cardBorder} strokeWidth={1} />
         {[0, 4, 8, 12, 16, 20].map((hr) => (
-          <SvgText key={`h${hr}`} x={x(hr)} y={H - 13} fontSize={11} fill={colors.textMuted} textAnchor="middle">
+          <SvgText key={`h${hr}`} x={x(hr)} y={H - 12} fontSize={11} fill={colors.textMuted} textAnchor="middle">
             {hr === 0 ? '12a' : hr < 12 ? `${hr}a` : hr === 12 ? '12p' : `${hr - 12}p`}
           </SvgText>
         ))}
@@ -343,8 +377,17 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
   return (
     // A floating sheet, not a Modal: everything above it (the map!) stays live.
     <View style={styles.overlay} pointerEvents="box-none">
-      <View style={styles.sheet}>
-        <View>
+      <View
+        style={[styles.sheet, sheetH != null && { height: sheetH }]}
+        onLayout={(e) => {
+          naturalH.current = e.nativeEvent.layout.height;
+        }}
+      >
+        {/* Drag handle: pull down for more map, up for more graph. */}
+        <View style={styles.grabRow} {...pan.panHandlers}>
+          <View style={styles.grab} />
+        </View>
+        <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
             <View style={styles.head}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.title}>Tides & Bite</Text>
@@ -417,7 +460,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
               {selTide ? (
                 <MiniStat
                   label="Tide"
-                  value={selTide.state === 'unknown' ? '—' : selTide.state}
+                  value={TIDE_SHORT[selTide.state] ?? '—'}
                   hint={
                     selTide.nextEvent
                       ? `${selTide.nextEvent.type} ${fmtEventTime(selTide.nextEvent.time)}`
@@ -444,18 +487,15 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
 
             <View style={styles.legend}>
               <View style={[styles.swatch, { backgroundColor: colors.water }]} />
-              <Text style={styles.legendText}>Tide height (ft, MLLW)</Text>
+              <Text style={styles.legendText}>Tide ft</Text>
               <View style={[styles.swatch, { backgroundColor: colors.good, opacity: 0.6 }]} />
-              <Text style={styles.legendText}>Bite score</Text>
-              <Text style={styles.legendText}>🐟 good hours</Text>
+              <Text style={styles.legendText}>Bite</Text>
+              <Text style={styles.legendText}>🐟 good</Text>
               <Text style={[styles.legendText, { color: colors.warn, fontWeight: '700' }]}>
-                ★ highlighted = peak
+                ★ peak
               </Text>
             </View>
-            <Text style={styles.finePrint} numberOfLines={1}>
-              NOAA predictions · moving water near highs & lows fishes best
-            </Text>
-        </View>
+        </ScrollView>
       </View>
     </View>
   );
@@ -473,32 +513,43 @@ const useStyles = makeStyles((c, t) => ({
   sheet: {
     width: '100%',
     maxWidth: 800,
-    backgroundColor: c.card,
+    // A shade darker than the page/cards so the sheet reads as its own layer.
+    backgroundColor: t.mode === 'dark' ? '#0a120d' : '#dfe8d9',
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: c.cardBorder,
+    borderColor: t.mode === 'dark' ? '#33443a' : c.cardBorder,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
     elevation: 14,
     ...t.shadow.card,
+  },
+  grabRow: {
+    alignItems: 'center',
+    paddingVertical: spacing.xs + 2,
+  },
+  grab: {
+    width: 52,
+    height: 6,
+    borderRadius: radius.pill,
+    backgroundColor: c.textMuted,
+    opacity: 0.6,
   },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    marginBottom: 2,
   },
   title: {
-    fontFamily: fonts.displayBold,
     fontSize: 19,
+    fontWeight: '800',
     color: c.text,
   },
   subtitle: {
     color: c.textMuted,
-    fontSize: 14,
-    marginTop: 2,
+    fontSize: 13,
+    marginTop: 1,
   },
   close: {
     padding: spacing.xs,
@@ -534,13 +585,13 @@ const useStyles = makeStyles((c, t) => ({
     marginBottom: spacing.xs,
   },
   condTitle: {
-    fontFamily: fonts.display,
     color: c.text,
-    fontSize: 17,
+    fontSize: 15,
+    fontWeight: '800',
   },
   allday: {
     color: c.accent,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   tapHint: {
@@ -550,12 +601,12 @@ const useStyles = makeStyles((c, t) => ({
   miniRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: spacing.xs,
+    marginBottom: 2,
   },
-  mini: { width: '16.6%', minWidth: 58, marginBottom: spacing.xs },
-  miniValue: { color: c.text, fontSize: 17, fontWeight: '800' },
-  miniLabel: { color: c.textMuted, fontSize: 12, marginTop: 1 },
-  miniHint: { color: c.accent, fontSize: 11, marginTop: 1 },
+  mini: { width: '16.6%', minWidth: 54, marginBottom: spacing.xs },
+  miniValue: { color: c.text, fontSize: 14, fontWeight: '800' },
+  miniLabel: { color: c.textMuted, fontSize: 11, marginTop: 1 },
+  miniHint: { color: c.accent, fontSize: 10, marginTop: 1 },
   miniHintWarn: { color: c.warn },
   error: {
     color: c.errorText,
@@ -570,8 +621,8 @@ const useStyles = makeStyles((c, t) => ({
   legend: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.xs + 2,
+    justifyContent: 'center',
+    gap: spacing.sm,
     marginTop: spacing.xs,
   },
   swatch: {
@@ -581,12 +632,7 @@ const useStyles = makeStyles((c, t) => ({
   },
   legendText: {
     color: c.textMuted,
-    fontSize: 13,
-    marginRight: spacing.sm,
-  },
-  finePrint: {
-    color: c.textMuted,
-    fontSize: 11,
-    marginTop: spacing.xs,
+    fontSize: 12,
+    marginRight: spacing.xs,
   },
 }));

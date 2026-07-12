@@ -20,6 +20,17 @@ All notable changes to bayLURE. Dates are release/build dates.
   sky, tide state), and the map scrolls into view above the sheet. The map
   stays fully interactive while the sheet is open (it floats, no modal),
   the sheet is wider, and all text sizes were raised for readability.
+  Opening the sheet now shows the FULL map above it (the sheet is compact
+  enough to fit both without scrolling), a centered grab handle drags the
+  sheet taller/shorter and locks where you leave it, the sheet sits on a
+  darker background so it reads as its own layer, fonts are uniform, and
+  the legend fits one row.
+- **Map rotation** — two-finger twist (touch), shift+drag (desktop), and a
+  compass control that resets north.
+- After the first analysis, "Fine-tune your read" auto-collapses so the
+  forecast is front and center; the floating jump button now hops between
+  the map and the Pick-a-day forecast only, measured fresh so collapsed
+  sections can't throw off its target.
 - Ad banner no longer holds blank space when no ad is served; Pro stays
   fully bannerless.
 - Fixed a native "index is not in the allowed range" error when attaching

@@ -163,9 +163,19 @@ export function buildMapHtml(
   </div>
   <div class="windread" id="windread"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
   <script>
-    var map = L.map('map').setView([${c.latitude}, ${c.longitude}], ${zoom});
+    // Rotation via leaflet-rotate: two-finger twist on touch, shift+drag on
+    // desktop, and a compass control that resets north. If the plugin's CDN
+    // script didn't load, Leaflet ignores these options and the map simply
+    // stays north-up.
+    var map = L.map('map', {
+      rotate: true,
+      touchRotate: true,
+      shiftKeyRotate: true,
+      rotateControl: { closeOnZeroBearing: false }
+    }).setView([${c.latitude}, ${c.longitude}], ${zoom});
     // Show only the data credit (USGS). The "Leaflet" prefix is a courtesy
     // default, not a license requirement (BSD keeps its notice in source).
     map.attributionControl.setPrefix('');
