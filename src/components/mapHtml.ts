@@ -143,10 +143,11 @@ export function buildMapHtml(
   <button class="maptoggle" id="windtoggle">Wind: on</button>
   <button class="maptoggle off" id="depthtoggle">Depth: off</button>
   <button class="maptoggle" id="sattoggle">Sat: on</button>
-  <div class="legendbox" id="legendbox">
+  <!-- Starts minimized — the expanded key crowds the map (esp. with Depth on). -->
+  <div class="legendbox min" id="legendbox">
     <div class="legend-head">
       <span class="legend-title">Map key</span>
-      <span class="legend-min" id="legendmin">–</span>
+      <span class="legend-min" id="legendmin">+</span>
     </div>
     <div class="legend-body">
       <div class="legendsec" id="windlegend">
@@ -248,8 +249,8 @@ export function buildMapHtml(
       box.style.display = any ? 'block' : 'none';
     }
 
-    // Let the angler collapse the legend to a small chip when it crowds the map.
-    var legendMin = false;
+    // Let the angler expand the legend from its small default chip.
+    var legendMin = true;
     var legendMinBtn = document.getElementById('legendmin');
     if (legendMinBtn) {
       if (L.DomEvent) {
