@@ -50,8 +50,10 @@ function esc(s: string): string {
  * so the map still works as a plain spot-picker.
  *
  * Radar (toggle, off by default): NWS NEXRAD reflectivity tiles from the Iowa
- * Environmental Mesonet cache — an animated ~50-minute loop in 5-minute steps,
- * so storm direction and speed read at a glance. Free, no key, US coverage.
+ * Environmental Mesonet cache — an animated loop from 50 minutes ago through
+ * now, then NOAA HRRR model frames carry it 2 hours into the future, so storm
+ * direction, speed, and where it's headed all read at a glance. Free, no key,
+ * US coverage.
  *
  * The same HTML drives both the native WebView and the web <iframe>.
  */
@@ -89,22 +91,27 @@ export function buildMapHtml(
       padding: 6px 10px; border-radius: 8px; white-space: nowrap;
     }
     .maptoggle {
-      position: absolute; z-index: 1000; right: 8px; border: none;
+      border: none;
       background: #3a7d52; color: #f7faf3; cursor: pointer;
       font: 600 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
     }
     .maptoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
-    #windtoggle { top: 8px; }
-    #depthtoggle { top: 42px; }
-    #sattoggle { top: 76px; }
-    #radartoggle { top: 110px; }
     .mapicon { padding: 8px; line-height: 0; }
     /* Make the icon itself non-interactive so taps always land on the button —
        on touch devices the SVG can otherwise swallow the tap. */
     .mapicon svg { display: block; pointer-events: none; }
-    #fsbtn { top: 8px; left: 8px; right: auto; }
-    #centerbtn { top: 42px; left: 8px; right: auto; }
+    #fsbtn, #centerbtn, #layersbtn { position: absolute; z-index: 1000; }
+    #fsbtn { top: 8px; left: 8px; }
+    #centerbtn { top: 42px; left: 8px; }
+    /* One Layers button in the top-right corner; tapping it opens a column of
+       the overlay toggles instead of stacking four chips over the map. */
+    #layersbtn { top: 8px; right: 8px; }
+    #layerspanel {
+      position: absolute; z-index: 1000; right: 8px; top: 42px;
+      display: none; flex-direction: column; gap: 6px; align-items: flex-end;
+    }
+    #layerspanel.open { display: flex; }
     .legendbox {
       position: absolute; z-index: 1000; right: 8px; bottom: 8px; display: none;
       background: rgba(34,46,28,0.82); color: #f8faf1;
@@ -147,10 +154,13 @@ export function buildMapHtml(
   <div class="hint">Tap or drag to set your spot</div>
   <button class="maptoggle mapicon" id="fsbtn" aria-label="Full screen"></button>
   <button class="maptoggle mapicon" id="centerbtn" aria-label="Center on pin"></button>
-  <button class="maptoggle" id="windtoggle">Wind: on</button>
-  <button class="maptoggle off" id="depthtoggle">Depth: off</button>
-  <button class="maptoggle" id="sattoggle">Sat: on</button>
-  <button class="maptoggle off" id="radartoggle">Radar: off</button>
+  <button class="maptoggle mapicon" id="layersbtn" aria-label="Map layers"></button>
+  <div id="layerspanel">
+    <button class="maptoggle" id="windtoggle">Wind: on</button>
+    <button class="maptoggle off" id="depthtoggle">Depth: off</button>
+    <button class="maptoggle" id="sattoggle">Sat: on</button>
+    <button class="maptoggle off" id="radartoggle">Radar: off</button>
+  </div>
   <!-- Starts minimized — the expanded key crowds the map (esp. with Depth on). -->
   <div class="legendbox min" id="legendbox">
     <div class="legend-head">
@@ -176,7 +186,6 @@ export function buildMapHtml(
     </div>
   </div>
   <div class="windread" id="windread"></div>
-  <div class="windread" id="radarlabel" style="bottom: 40px;"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
@@ -223,6 +232,9 @@ export function buildMapHtml(
     map.createPane('depthshade', paneParent); map.getPane('depthshade').style.zIndex = 350;
     map.createPane('charts', paneParent); map.getPane('charts').style.zIndex = 360;
     map.createPane('radar', paneParent); map.getPane('radar').style.zIndex = 370;
+    // Forecast radar gets its own pane: HRRR's ~3 km cells need a stronger
+    // blur than NEXRAD's ~1 km to look equally smooth.
+    map.createPane('radarfcst', paneParent); map.getPane('radarfcst').style.zIndex = 371;
 
     var marker = L.marker([${c.latitude}, ${c.longitude}], { draggable: true }).addTo(map);
     // Post any object back to the host (React Native or the parent window).
@@ -451,6 +463,26 @@ export function buildMapHtml(
       });
     }
 
+    // Layers menu: the top-right button shows/hides the overlay toggles, so
+    // the corner holds one clean control instead of a stack of four chips.
+    var SVG_LAYERS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
+    var layersBtn = document.getElementById('layersbtn');
+    var layersPanel = document.getElementById('layerspanel');
+    if (layersBtn) {
+      layersBtn.innerHTML = SVG_LAYERS;
+      if (L.DomEvent) {
+        L.DomEvent.disableClickPropagation(layersBtn);
+        L.DomEvent.disableScrollPropagation(layersBtn);
+      }
+      layersBtn.addEventListener('click', function () {
+        if (layersPanel) { layersPanel.classList.toggle('open'); }
+      });
+    }
+    if (layersPanel && L.DomEvent) {
+      L.DomEvent.disableClickPropagation(layersPanel);
+      L.DomEvent.disableScrollPropagation(layersPanel);
+    }
+
     // Satellite/topo base-layer toggle, same chip pattern as Wind/Depth.
     var satBtn = document.getElementById('sattoggle');
     if (satBtn && L.DomEvent) {
@@ -474,28 +506,38 @@ export function buildMapHtml(
       });
     }
 
-    // ---- Weather radar: animated NWS NEXRAD loop ----
-    // Reflectivity tiles from the Iowa Environmental Mesonet cache (free, no
-    // key, US coverage — blank elsewhere, same as the USGS base maps). Eleven
-    // frames step from 50 minutes ago to now, looping so storm direction and
-    // speed are readable at a glance.
+    // ---- Weather radar: animated NWS NEXRAD loop + HRRR forecast ----
+    // Reflectivity tiles from the Iowa Environmental Mesonet (free, no key,
+    // US coverage — blank elsewhere, same as the USGS base maps). Eleven
+    // observed frames step from 50 minutes ago to now, then eight NOAA HRRR
+    // model frames carry the loop 2 hours into the future, so storm direction
+    // AND where it's headed both read at a glance.
     var RADAR_STEPS = ['-m50m','-m45m','-m40m','-m35m','-m30m','-m25m','-m20m','-m15m','-m10m','-m05m',''];
+    var HRRR_WMS = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/hrrr/refd.cgi';
     var radarEnabled = false;
-    var radarLayers = [];
+    var radarPaused = false; // true while the host's timeline is scrubbing
+    var radarFrames = []; // { label, layer, opacity } — past frames then forecast
     var radarIdx = 0;
+    var radarNowIdx = RADAR_STEPS.length - 1; // where "now" sits in the loop
     var radarAnimTimer = null;
     var radarRefreshTimer = null;
 
-    function radarLabel(msg) {
-      var el = document.getElementById('radarlabel');
-      if (!el) { return; }
-      if (msg) { el.textContent = msg; el.style.display = 'block'; }
-      else { el.style.display = 'none'; }
+    // Radar cells rendered crisply read as hard squares once zoomed in. Blur
+    // each pane by ~a third of a cell's on-screen size so the returns look
+    // like weather, not pixels (capped so deep zooms stay usable). NEXRAD
+    // observations are ~1 km cells; HRRR forecast frames are ~3 km, so they
+    // get triple the blur to match the observed frames' smoothness.
+    function smoothRadar() {
+      var cellPx = 256 * Math.pow(2, map.getZoom()) / 40075; // ~1 km in px
+      var obs = map.getPane('radar');
+      if (obs) { obs.style.filter = 'blur(' + Math.min(10, Math.max(1, cellPx / 3)).toFixed(1) + 'px)'; }
+      var fc = map.getPane('radarfcst');
+      if (fc) { fc.style.filter = 'blur(' + Math.min(14, Math.max(1.5, cellPx)).toFixed(1) + 'px)'; }
     }
 
     function removeRadarLayers() {
-      for (var i = 0; i < radarLayers.length; i++) { map.removeLayer(radarLayers[i]); }
-      radarLayers = [];
+      for (var i = 0; i < radarFrames.length; i++) { map.removeLayer(radarFrames[i].layer); }
+      radarFrames = [];
     }
 
     function buildRadarLayers() {
@@ -503,54 +545,108 @@ export function buildMapHtml(
       // session or a re-toggle pulls fresh frames, not the browser's old loop.
       var bucket = Math.floor(Date.now() / 300000);
       removeRadarLayers();
+      var frames = [];
       for (var i = 0; i < RADAR_STEPS.length; i++) {
-        var lyr = L.tileLayer(
-          'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913' + RADAR_STEPS[i] + '/{z}/{x}/{y}.png?_=' + bucket,
-          { pane: 'radar', opacity: 0, maxNativeZoom: 12, maxZoom: 18, attribution: 'Radar: NWS / IEM' }
-        );
-        // Every frame mounts at opacity 0 so its tiles preload; the animation
-        // just flips opacities, which keeps the loop smooth.
-        lyr.addTo(map);
-        radarLayers.push(lyr);
+        var back = (RADAR_STEPS.length - 1 - i) * 5;
+        frames.push({
+          label: back === 0 ? 'Radar · now' : 'Radar · ' + back + ' min ago',
+          opacity: 0.7,
+          layer: L.tileLayer(
+            'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913' + RADAR_STEPS[i] + '/{z}/{x}/{y}.png?_=' + bucket,
+            { pane: 'radar', opacity: 0, maxNativeZoom: 12, maxZoom: 18 }
+          )
+        });
       }
+      radarNowIdx = frames.length - 1;
+      // Next 2 hours: HRRR simulated reflectivity (NOAA's rapid-refresh
+      // forecast model, 15-min steps). The WMS serves the latest run and its
+      // layers are minutes-from-run-init; runs land ~55 minutes after init,
+      // so anchor on that to translate "now + k" into a run-relative minute.
+      // Slightly dimmer than the observed frames — it's a forecast.
+      var initGuess = Math.floor((Date.now() - 55 * 60000) / 3600000) * 3600000;
+      for (var k = 1; k <= 8; k++) {
+        var m = Math.round((Date.now() + k * 15 * 60000 - initGuess) / 60000 / 15) * 15;
+        if (m > 1080) { break; }
+        frames.push({
+          label: 'Radar · +' + (k * 15) + ' min forecast',
+          opacity: 0.55,
+          layer: L.tileLayer.wms(HRRR_WMS + '?_=' + bucket, {
+            layers: 'refd_' + ('0000' + m).slice(-4),
+            format: 'image/png', transparent: true,
+            pane: 'radarfcst', opacity: 0, maxZoom: 18
+          })
+        });
+      }
+      // Every frame mounts at opacity 0 so its tiles preload; the animation
+      // just flips opacities, which keeps the loop smooth.
+      for (var j = 0; j < frames.length; j++) { frames[j].layer.addTo(map); }
+      radarFrames = frames;
     }
 
     function showRadarFrame(idx) {
-      if (!radarLayers.length) { return; }
-      radarIdx = ((idx % radarLayers.length) + radarLayers.length) % radarLayers.length;
-      for (var i = 0; i < radarLayers.length; i++) {
-        radarLayers[i].setOpacity(i === radarIdx ? 0.7 : 0);
+      if (!radarFrames.length) { return; }
+      radarIdx = ((idx % radarFrames.length) + radarFrames.length) % radarFrames.length;
+      for (var i = 0; i < radarFrames.length; i++) {
+        radarFrames[i].layer.setOpacity(i === radarIdx ? radarFrames[i].opacity : 0);
       }
-      var back = (radarLayers.length - 1 - radarIdx) * 5;
-      radarLabel(back === 0 ? 'Radar · now' : 'Radar · ' + back + ' min ago');
+      // The host's external timeline shows the frame's time and tracks the
+      // loop; the map itself stays clean (no in-map radar readout).
+      postHost({ type: 'radarFrame', idx: radarIdx });
     }
 
     function stepRadar() {
-      if (!radarEnabled || !radarLayers.length) { return; }
-      var next = (radarIdx + 1) % radarLayers.length;
+      if (!radarEnabled || radarPaused || !radarFrames.length) { return; }
+      var next = (radarIdx + 1) % radarFrames.length;
       showRadarFrame(next);
-      // Hold on the newest frame so "now" reads clearly before the loop repeats.
-      radarAnimTimer = setTimeout(stepRadar, next === radarLayers.length - 1 ? 1600 : 450);
+      // Hold at "now" (the observed/forecast seam) and at the end of the
+      // forecast, so both moments read clearly before the loop moves on.
+      var hold = next === radarNowIdx || next === radarFrames.length - 1 ? 1500 : 450;
+      radarAnimTimer = setTimeout(stepRadar, hold);
     }
 
     function startRadar() {
+      radarPaused = false;
       buildRadarLayers();
-      showRadarFrame(radarLayers.length - 1);
+      smoothRadar();
+      showRadarFrame(radarNowIdx);
+      // Tell the host what's in the loop so it can draw its timeline.
+      postHost({
+        type: 'radar', on: true, idx: radarIdx, nowIdx: radarNowIdx,
+        frames: radarFrames.map(function (f) { return f.label; })
+      });
       if (radarAnimTimer) { clearTimeout(radarAnimTimer); }
       radarAnimTimer = setTimeout(stepRadar, 1600);
-      // Rebuild while enabled so the loop tracks the latest sweeps.
+      // Rebuild while enabled so the loop tracks the latest sweeps — but not
+      // while the angler has the timeline paused on a frame they're studying.
       if (radarRefreshTimer) { clearInterval(radarRefreshTimer); }
       radarRefreshTimer = setInterval(function () {
-        if (radarEnabled) { buildRadarLayers(); showRadarFrame(radarIdx); }
+        if (radarEnabled && !radarPaused) { buildRadarLayers(); showRadarFrame(radarIdx); }
       }, 300000);
     }
 
     function stopRadar() {
       if (radarAnimTimer) { clearTimeout(radarAnimTimer); radarAnimTimer = null; }
       if (radarRefreshTimer) { clearInterval(radarRefreshTimer); radarRefreshTimer = null; }
+      radarPaused = false;
       removeRadarLayers();
-      radarLabel(null);
+      postHost({ type: 'radar', on: false });
     }
+
+    // Host hooks for the external timeline (drawn by the app below the inline
+    // map and along the bottom of full screen): scrubbing pauses the loop on
+    // a frame; play resumes the animation from wherever the thumb sits.
+    window.__radarScrub = function (idx) {
+      if (!radarFrames.length) { return; }
+      radarPaused = true;
+      if (radarAnimTimer) { clearTimeout(radarAnimTimer); }
+      showRadarFrame(idx);
+    };
+    window.__radarPlay = function () {
+      if (!radarFrames.length) { return; }
+      radarPaused = false;
+      if (radarAnimTimer) { clearTimeout(radarAnimTimer); }
+      radarAnimTimer = setTimeout(stepRadar, 200);
+    };
 
     var radarBtn = document.getElementById('radartoggle');
     if (radarBtn && L.DomEvent) {
@@ -709,6 +805,10 @@ export function buildMapHtml(
         window.__moveSpot(d.lat, d.lng);
       } else if (d.type === 'balure:setWind') {
         window.__setWind(d.mph, d.dir, d.label);
+      } else if (d.type === 'balure:radarScrub' && typeof d.idx === 'number') {
+        window.__radarScrub(d.idx);
+      } else if (d.type === 'balure:radarPlay') {
+        window.__radarPlay();
       } else if (d.type === 'balure:fullscreen') {
         var fb = document.getElementById('fsbtn');
         if (fb) { fb.innerHTML = d.value ? SVG_SHRINK : SVG_EXPAND; }
@@ -724,7 +824,7 @@ export function buildMapHtml(
       // never visible. invalidateSize settles it before the layer is added.
       setTimeout(function () { map.invalidateSize(); refreshWind(); }, 250);
     });
-    map.on('moveend', function () { scheduleWind(); scheduleDepth(); });
+    map.on('moveend', function () { scheduleWind(); scheduleDepth(); smoothRadar(); });
     // Belt-and-suspenders: if the container resizes after load, redraw the wind.
     window.addEventListener('resize', function () { map.invalidateSize(); scheduleWind(); });
   </script>

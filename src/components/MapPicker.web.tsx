@@ -1,8 +1,13 @@
-import { createElement, useEffect, useMemo, useRef, useState } from 'react';
+import { createElement, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { StyleSheet, View } from 'react-native';
 import { makeStyles, radius, useTheme } from '@/theme';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
+import {
+  RadarTimeline,
+  type RadarControl,
+  type RadarTimelineState,
+} from '@/components/RadarTimeline';
 
 // Web implementation. Renders the shared Leaflet document inside an <iframe>
 // (a real DOM element, since Expo web runs on react-dom) and listens for the
@@ -28,6 +33,15 @@ export function MapPicker({
   // available on iPhone Safari, and a portal escapes every stacking context so
   // it reliably sits above the whole app).
   const [expanded, setExpanded] = useState(false);
+  // Radar timeline state — per iframe (inline and full screen each run their
+  // own radar loop, just like they keep their own zoom).
+  const [inlineRadar, setInlineRadar] = useState<RadarTimelineState | null>(null);
+  const [fullRadar, setFullRadar] = useState<RadarTimelineState | null>(null);
+
+  // The full-screen iframe unmounts with the overlay; drop its timeline too.
+  useEffect(() => {
+    if (!expanded) setFullRadar(null);
+  }, [expanded]);
 
   useEffect(() => {
     function handler(event: MessageEvent) {
@@ -35,6 +49,25 @@ export function MapPicker({
         const data = JSON.parse(event.data);
         if (data?.type === 'fullscreen') {
           setExpanded((v) => !v);
+          return;
+        }
+        if (data?.type === 'radar' || data?.type === 'radarFrame') {
+          const set =
+            event.source === fullRef.current?.contentWindow ? setFullRadar : setInlineRadar;
+          if (data.type === 'radar') {
+            set(
+              data.on
+                ? {
+                    frames: Array.isArray(data.frames) ? data.frames : [],
+                    idx: data.idx ?? 0,
+                    nowIdx: data.nowIdx ?? -1,
+                    playing: true,
+                  }
+                : null,
+            );
+          } else if (typeof data.idx === 'number') {
+            set((r) => (r ? { ...r, idx: data.idx } : r));
+          }
           return;
         }
         if (typeof data?.latitude === 'number') {
@@ -95,6 +128,42 @@ export function MapPicker({
     [expanded],
   );
 
+  // Scrub/play commands for one iframe's radar loop, over postMessage.
+  const controlFor = (ref: MutableRefObject<HTMLIFrameElement | null>): RadarControl => ({
+    scrub: (idx) =>
+      ref.current?.contentWindow?.postMessage({ type: 'balure:radarScrub', idx: Math.round(idx) }, '*'),
+    play: () => ref.current?.contentWindow?.postMessage({ type: 'balure:radarPlay' }, '*'),
+  });
+
+  const timelineFor = (
+    radar: RadarTimelineState | null,
+    control: RadarControl,
+    set: (fn: (r: RadarTimelineState | null) => RadarTimelineState | null) => void,
+  ) => {
+    if (!radar || radar.frames.length < 2) return null;
+    return (
+      <RadarTimeline
+        frames={radar.frames}
+        index={radar.idx}
+        nowIndex={radar.nowIdx}
+        playing={radar.playing}
+        onScrub={(i) => {
+          control.scrub(i);
+          set((r) => (r ? { ...r, idx: i, playing: false } : r));
+        }}
+        onPlayPause={() => {
+          if (radar.playing) {
+            control.scrub(radar.idx);
+            set((r) => (r ? { ...r, playing: false } : r));
+          } else {
+            control.play();
+            set((r) => (r ? { ...r, playing: true } : r));
+          }
+        }}
+      />
+    );
+  };
+
   const inlineIframe = createElement('iframe', {
     ref: inlineRef,
     srcDoc,
@@ -102,45 +171,62 @@ export function MapPicker({
     title: 'Pick your fishing spot',
   });
 
+  // Full screen: the iframe fills the overlay; the radar timeline (when the
+  // radar is on in THAT map) floats along the bottom, outside the map itself.
   const fullscreen =
     expanded && typeof document !== 'undefined'
       ? createPortal(
-          createElement('iframe', {
-            ref: fullRef,
-            srcDoc: srcDocFull,
-            style: {
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              width: '100vw',
-              height: '100vh',
-              zIndex: 2147483647,
-              border: 'none',
-              display: 'block',
-              background: colors.bgElevated,
+          createElement(
+            'div',
+            {
+              style: {
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                zIndex: 2147483647,
+                background: colors.bgElevated,
+              },
             },
-            title: 'Pick your fishing spot (full screen)',
-          }),
+            createElement('iframe', {
+              ref: fullRef,
+              srcDoc: srcDocFull,
+              style: { width: '100%', height: '100%', border: 'none', display: 'block' },
+              title: 'Pick your fishing spot (full screen)',
+            }),
+            fullRadar
+              ? createElement(
+                  'div',
+                  { style: { position: 'absolute', left: 12, right: 12, bottom: 12 } },
+                  timelineFor(fullRadar, controlFor(fullRef), setFullRadar),
+                )
+              : null,
+          ),
           document.body,
         )
       : null;
 
   return (
-    <View style={styles.frame}>
-      {inlineIframe}
+    <View style={styles.outer}>
+      <View style={styles.frame}>{inlineIframe}</View>
+      {timelineFor(inlineRadar, controlFor(inlineRef), setInlineRadar)}
       {fullscreen}
     </View>
   );
 }
 
 const useStyles = makeStyles((colors) => ({
-  frame: {
+  outer: {
     width: '100%',
     // Phone-width browsers stay below this, so mobile is unchanged; on a wide
     // desktop viewport the square stops growing and centers instead of
-    // spanning the whole page.
+    // spanning the whole page. The radar timeline below shares the width.
     maxWidth: 520,
     alignSelf: 'center',
+  },
+  frame: {
+    width: '100%',
     aspectRatio: 1,
     borderRadius: radius.md,
     overflow: 'hidden',
