@@ -197,9 +197,14 @@ export function buildMapHtml(
     var satEnabled = true;
     satLayer.addTo(map);
 
-    // Panes so the stack is OSM < GEBCO shading < NOAA charts < wind < markers.
-    map.createPane('depthshade'); map.getPane('depthshade').style.zIndex = 350;
-    map.createPane('charts'); map.getPane('charts').style.zIndex = 360;
+    // Panes so the stack is base tiles < GEBCO shading < NOAA charts < wind <
+    // markers. With leaflet-rotate active the base tile pane lives inside its
+    // rotatePane (zIndex 400), so these MUST be created inside that same pane —
+    // as siblings of mapPane they'd be painted over by the rotated tiles (the
+    // "depth overlay disappeared" bug) and wouldn't turn with the map.
+    var paneParent = map.getPane('rotatePane') || undefined;
+    map.createPane('depthshade', paneParent); map.getPane('depthshade').style.zIndex = 350;
+    map.createPane('charts', paneParent); map.getPane('charts').style.zIndex = 360;
 
     var marker = L.marker([${c.latitude}, ${c.longitude}], { draggable: true }).addTo(map);
     // Post any object back to the host (React Native or the parent window).
