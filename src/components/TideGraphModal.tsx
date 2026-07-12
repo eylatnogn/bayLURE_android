@@ -59,6 +59,10 @@ const BAR_MAX = 40;
 const PRIME = 65;
 /** How short/tall the sheet can be dragged. */
 const MIN_SHEET_H = 150;
+/** Flick-to-dismiss: release faster than this (px/ms) AND... */
+const DISMISS_VELOCITY = 0.85;
+/** ...having travelled at least this far (px) closes the sheet. */
+const DISMISS_DISTANCE = 70;
 
 /** Catmull-Rom → cubic bezier path through the points (smooth tide curve). */
 function smoothPath(pts: Array<{ x: number; y: number }>): string {
@@ -137,6 +141,37 @@ export function TideGraphModal({
   const naturalH = useRef(0); // last laid-out height, the drag baseline
   const dragBase = useRef(0);
 
+  // Drag-to-scrub across the chart: a horizontal drag maps the finger's page-X
+  // to an hour and selects it live. We keep the chart's on-screen X + width
+  // (measured on layout) so the pan handler can convert a touch into an hour.
+  const chartRef = useRef<View>(null);
+  const chartWRef = useRef(0);
+  const chartXRef = useRef(0);
+  const selectHourRef = useRef(onSelectHour);
+  selectHourRef.current = onSelectHour;
+  const pickHour = (pageX: number) => {
+    const w = chartWRef.current;
+    if (!w) return;
+    const svgX = ((pageX - chartXRef.current) / w) * W;
+    const hr = Math.max(0, Math.min(23, Math.round(((svgX - M.left) / IW) * 23)));
+    selectHourRef.current(hr);
+  };
+  const hourPan = useRef(
+    PanResponder.create({
+      // Let plain taps fall through to the SVG hour targets; claim only a
+      // clearly-horizontal drag so vertical scroll still works.
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderGrant: (_e, g) => pickHour(g.x0),
+      onPanResponderMove: (_e, g) => pickHour(g.moveX),
+    }),
+  ).current;
+
+  // Stable handle to the latest onClose so the once-created pan responder can
+  // dismiss the sheet on a fast flick.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -152,6 +187,14 @@ export function TideGraphModal({
         const next = h >= maxH - 2 ? null : h;
         sheetHRef.current = next;
         setSheetH(next);
+      },
+      onPanResponderRelease: (_e, g) => {
+        // A fast, medium-to-long vertical flick — down OR up — dismisses the
+        // sheet, so the angler can fling it away without reaching for the ✕.
+        // Both conditions are required so a slow resize drag never closes it.
+        if (Math.abs(g.vy) > DISMISS_VELOCITY && Math.abs(g.dy) > DISMISS_DISTANCE) {
+          onCloseRef.current();
+        }
       },
     }),
   ).current;
@@ -244,6 +287,16 @@ export function TideGraphModal({
     const nowX = x(now.getHours() + now.getMinutes() / 60);
 
     chart = (
+      <View
+        ref={chartRef}
+        onLayout={() =>
+          chartRef.current?.measureInWindow((px, _py, w) => {
+            chartXRef.current = px;
+            if (w) chartWRef.current = w;
+          })
+        }
+        {...hourPan.panHandlers}
+      >
       <Svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', aspectRatio: W / H }}>
         {/* Peak-hour highlight bands — the "go NOW" hours. */}
         {biteByHour.map((score, hr) =>
@@ -388,6 +441,7 @@ export function TideGraphModal({
           ),
         )}
       </Svg>
+      </View>
     );
   }
 
@@ -407,7 +461,8 @@ export function TideGraphModal({
           }
         }}
       >
-        {/* Drag handle: pull down for more map, up for more graph. */}
+        {/* Drag handle: pull down for more map, up for more graph — or fling
+            it quickly in either direction to dismiss the sheet. */}
         <View style={styles.grabRow} {...pan.panHandlers}>
           <View style={styles.grab} />
         </View>
@@ -578,7 +633,7 @@ const useStyles = makeStyles((c, t) => ({
   close: {
     padding: spacing.xs,
   },
-  dayRow: { gap: spacing.xs + 2, paddingVertical: 2 },
+  dayRow: { gap: spacing.xs + 2, paddingVertical: 2, flexGrow: 1, justifyContent: 'center' },
   day: {
     width: 50,
     alignItems: 'center',
