@@ -26,6 +26,9 @@ interface Props {
   onSelectHour: (hour: number | null) => void;
   /** Opens the tide + bite graph (shown only when the spot has a tide station). */
   onShowTideGraph?: () => void;
+  /** Anchor for the host's jump button: the "Pick a day" section, so a jump
+   * lands on the day picker + conditions rather than the score header. */
+  pickDayRef?: React.RefObject<View | null>;
 }
 
 const trendArrow: Record<string, string> = {
@@ -61,6 +64,7 @@ export function ForecastCard({
   selectedHour,
   onSelectHour,
   onShowTideGraph,
+  pickDayRef,
 }: Props) {
   const { colors, gradients } = useTheme();
   const styles = useStyles();
@@ -127,8 +131,10 @@ export function ForecastCard({
 
       <View style={styles.divider} />
 
-      {/* Day picker */}
-      <Text style={styles.subhead}>Pick a day</Text>
+      {/* Day picker — the wrapper is the jump button's landing anchor. */}
+      <View ref={pickDayRef} collapsable={false}>
+        <Text style={styles.subhead}>Pick a day</Text>
+      </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}

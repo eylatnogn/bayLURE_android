@@ -126,6 +126,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const mapWrapRef = useRef<View>(null);
   // The forecast card's wrapper, for the jump button's fresh measurements.
   const forecastWrapRef = useRef<View>(null);
+  // The "Pick a day" anchor inside the card — the jump button lands here, on
+  // the day picker + conditions, not on the score header above them.
+  const pickDayRef = useRef<View>(null);
   const scrollYRef = useRef(0);
   // Collapse "Fine-tune your read" once, when the first results land.
   const hadResults = useRef(false);
@@ -482,11 +485,14 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const jumpToForecast = useCallback(async () => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const [mapY, forecastY] = await Promise.all([
+    const [mapY, forecastY, pickDayY] = await Promise.all([
       measureInScroll(mapWrapRef),
       measureInScroll(forecastWrapRef),
+      measureInScroll(pickDayRef),
     ]);
-    if (mapY == null || forecastY == null) {
+    // Land on "Pick a day" (day picker + conditions), not the score header.
+    const targetY = pickDayY ?? forecastY;
+    if (mapY == null || targetY == null) {
       // Fallback to the stored offsets if measuring isn't available.
       scroller.scrollTo({
         y: nearForecast ? 0 : Math.max(0, bodyY.current + forecastRelY.current - 8),
@@ -494,10 +500,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       });
       return;
     }
-    // At (or past) the forecast → hop up to the map; otherwise → the forecast.
-    const atForecast = scrollYRef.current >= forecastY - 160;
+    // At (or past) the target → hop up to the map; otherwise → down to it.
+    const atForecast = scrollYRef.current >= targetY - 160;
     scroller.scrollTo({
-      y: Math.max(0, (atForecast ? mapY : forecastY) - 8),
+      y: Math.max(0, (atForecast ? mapY : targetY) - 8),
       animated: true,
     });
   }, [nearForecast, measureInScroll]);
@@ -867,6 +873,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             }}
             selectedHour={selectedHour}
             onSelectHour={setSelectedHour}
+            pickDayRef={pickDayRef}
             onShowTideGraph={() => {
               // Scroll the MAP (not the page top) into the strip above the
               // sheet, so the spot and the graph are visible together.
