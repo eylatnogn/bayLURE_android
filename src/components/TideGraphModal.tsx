@@ -91,6 +91,16 @@ export function TideGraphModal({ visible, onClose, tide, hourly, dayLabel, date 
     if (!Number.isNaN(hr)) biteByHour[hr] = h.score;
   }
 
+  // The day's peak: the best-scoring hour(s), highlighted so "when exactly?"
+  // has a one-glance answer. Hours within 3 points of the max count as peak.
+  const scores = biteByHour.filter((s): s is number => s != null);
+  const maxScore = scores.length ? Math.max(...scores) : 0;
+  const isPeak = (s: number | null): s is number => s != null && s >= maxScore - 3 && s >= PRIME;
+  const firstPeakHr = biteByHour.findIndex((s) => isPeak(s));
+
+  const hr12 = (hr: number) =>
+    hr === 0 ? '12 AM' : hr < 12 ? `${hr} AM` : hr === 12 ? '12 PM' : `${hr - 12} PM`;
+
   let chart = null;
   if (heights && heights.length >= 2) {
     const values = heights.map((p) => p.heightFt);
@@ -115,6 +125,21 @@ export function TideGraphModal({ visible, onClose, tide, hourly, dayLabel, date 
 
     chart = (
       <Svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', aspectRatio: W / H }}>
+        {/* Peak-hour highlight bands — the "go NOW" hours. */}
+        {biteByHour.map((score, hr) =>
+          isPeak(score) ? (
+            <Rect
+              key={`p${hr}`}
+              x={x(hr) - IW / 24 / 2}
+              y={M.top - 4}
+              width={IW / 24}
+              height={IH + 4}
+              fill={colors.warn}
+              opacity={0.14}
+            />
+          ) : null,
+        )}
+
         {/* Bite bars — the "when they're biting" layer. */}
         {biteByHour.map((score, hr) =>
           score == null ? null : (
@@ -126,18 +151,58 @@ export function TideGraphModal({ visible, onClose, tide, hourly, dayLabel, date 
               height={Math.max(3, (score / 100) * BAR_MAX)}
               rx={2}
               fill={scoreColor(score, colors)}
-              opacity={0.55}
+              opacity={isPeak(score) ? 0.95 : 0.5}
             />
           ),
         )}
-        {/* Prime-hour fish markers. */}
-        {biteByHour.map((score, hr) =>
-          score != null && score >= PRIME ? (
-            <SvgText key={`f${hr}`} x={x(hr)} y={M.top + IH - BAR_MAX - 6} fontSize={10} textAnchor="middle">
+
+        {/* Prime-hour markers, tiered: peak hours get a big fish + the score,
+            other good hours a smaller, dimmer one. */}
+        {biteByHour.map((score, hr) => {
+          if (score == null || score < PRIME) return null;
+          const peak = isPeak(score);
+          return (
+            <SvgText
+              key={`f${hr}`}
+              x={x(hr)}
+              y={M.top + IH - BAR_MAX - (peak ? 8 : 5)}
+              fontSize={peak ? 13 : 8}
+              opacity={peak ? 1 : 0.55}
+              textAnchor="middle"
+            >
               🐟
+            </SvgText>
+          );
+        })}
+        {biteByHour.map((score, hr) =>
+          isPeak(score) ? (
+            <SvgText
+              key={`s${hr}`}
+              x={x(hr)}
+              y={M.top + IH - BAR_MAX - 22}
+              fontSize={9}
+              fontWeight="800"
+              fill={colors.warn}
+              textAnchor="middle"
+            >
+              {score}
             </SvgText>
           ) : null,
         )}
+
+        {/* Peak callout pill. */}
+        {firstPeakHr >= 0 ? (
+          <SvgText
+            x={Math.min(Math.max(x(firstPeakHr), 44), W - 44)}
+            y={12}
+            fontSize={11}
+            fontWeight="800"
+            fill={colors.warn}
+            textAnchor="middle"
+          >
+            {`★ Peak bite · ${hr12(firstPeakHr)}`}
+          </SvgText>
+        ) : null}
 
         {/* Tide curve + fill. */}
         <Path d={area} fill={colors.water} opacity={0.16} />
@@ -212,7 +277,10 @@ export function TideGraphModal({ visible, onClose, tide, hourly, dayLabel, date 
             <Text style={styles.legendText}>Tide height (ft, MLLW)</Text>
             <View style={[styles.swatch, { backgroundColor: colors.good, opacity: 0.6 }]} />
             <Text style={styles.legendText}>Bite score</Text>
-            <Text style={styles.legendText}>🐟 prime hours</Text>
+            <Text style={styles.legendText}>🐟 good hours</Text>
+            <Text style={[styles.legendText, { color: colors.warn, fontWeight: '700' }]}>
+              ★ highlighted = peak
+            </Text>
           </View>
           <Text style={styles.finePrint}>
             NOAA tide predictions · bite graded hourly from the day's forecast.

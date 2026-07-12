@@ -12,7 +12,9 @@ All notable changes to bayLURE. Dates are release/build dates.
 - **Tides & Bite graph** — "Tides & bite graph" button on the Forecast card
   (saltwater spots) opens an hourly chart: NOAA tide-height curve with
   high/low markers over the day's bite-score bars, fish icons on prime
-  hours, and a "now" cursor. Follows the selected forecast day.
+  hours, and a "now" cursor. Follows the selected forecast day. Peak hours
+  stand out: a "★ Peak bite · 5 AM" callout, gold highlight bands, and the
+  score shown on the day's best hours (lesser hours get smaller markers).
 - Ad banner no longer holds blank space when no ad is served; Pro stays
   fully bannerless.
 - Fixed a native "index is not in the allowed range" error when attaching
