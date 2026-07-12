@@ -38,8 +38,12 @@ interface Props {
   strategies: Strategy[];
   /** Day chips (label/date/score), aligned with `forecast`. */
   days: TideGraphDay[];
-  /** Which day to open on (the Plan tab's selection). */
-  initialDay: number;
+  /** Selected day — SHARED with the Plan tab so the map wind overlay tracks it. */
+  selectedDay: number;
+  onSelectDay: (day: number) => void;
+  /** Selected hour (null = whole-day). Shared so the map wind follows the hour. */
+  selectedHour: number | null;
+  onSelectHour: (hour: number | null) => void;
 }
 
 // Chart geometry (SVG viewBox units; rendered responsive via aspectRatio).
@@ -108,11 +112,22 @@ function MiniStat({ label, value, hint, warn }: { label: string; value: string; 
   );
 }
 
-export function TideGraphModal({ visible, onClose, forecast, strategies, days, initialDay }: Props) {
+export function TideGraphModal({
+  visible,
+  onClose,
+  forecast,
+  strategies,
+  days,
+  selectedDay,
+  onSelectDay,
+  selectedHour,
+  onSelectHour,
+}: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const [selDay, setSelDay] = useState(initialDay);
-  const [selHour, setSelHour] = useState<number | null>(null);
+  // Aliases so the rest of the body reads the same as before.
+  const selDay = selectedDay;
+  const selHour = selectedHour;
   const [heights, setHeights] = useState<TideHeightPoint[] | null>(null);
   const [failed, setFailed] = useState(false);
   // Dragged sheet height; null = fit the content. Locks where the drag ends
@@ -141,13 +156,14 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
     }),
   ).current;
 
-  // Opening the sheet re-syncs to the Plan tab's selected day.
+  // Every open starts at the default (content-fit) height — never the height
+  // it was dragged to last time.
   useEffect(() => {
     if (visible) {
-      setSelDay(initialDay);
-      setSelHour(null);
+      sheetHRef.current = null;
+      setSheetH(null);
     }
-  }, [visible, initialDay]);
+  }, [visible]);
 
   // Without a Modal, Android's back button needs wiring by hand.
   useEffect(() => {
@@ -367,7 +383,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
               width={IW / 24}
               height={IH + 6}
               fill="transparent"
-              onPress={() => setSelHour(selHour === hr ? null : hr)}
+              onPress={() => onSelectHour(selHour === hr ? null : hr)}
             />
           ),
         )}
@@ -418,8 +434,8 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
                   <Pressable
                     key={i}
                     onPress={() => {
-                      setSelDay(i);
-                      setSelHour(null);
+                      onSelectDay(i);
+                      onSelectHour(null);
                     }}
                     style={({ pressed }) => [styles.day, active && styles.dayActive, pressed && pressedStyle]}
                   >
@@ -439,7 +455,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
                 {days[selDay]?.label ?? ''} · {selHour != null ? hr12(selHour) : 'all day'}
               </Text>
               {selHour != null ? (
-                <Pressable onPress={() => setSelHour(null)} hitSlop={8}>
+                <Pressable onPress={() => onSelectHour(null)} hitSlop={8}>
                   <Text style={styles.allday}>All day</Text>
                 </Pressable>
               ) : (

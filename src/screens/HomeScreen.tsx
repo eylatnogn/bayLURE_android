@@ -952,7 +952,13 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             num: dayNumber(addDays(new Date(), i)),
             score: s.biteScore,
           }))}
-          initialDay={selectedDay}
+          selectedDay={selectedDay}
+          onSelectDay={(day) => {
+            setSelectedDay(day);
+            setSelectedHour(null);
+          }}
+          selectedHour={selectedHour}
+          onSelectHour={setSelectedHour}
         />
       ) : null}
     </View>

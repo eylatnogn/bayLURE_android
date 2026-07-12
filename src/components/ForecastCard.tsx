@@ -160,9 +160,9 @@ export function ForecastCard({
           onPress={onShowTideGraph}
           style={({ pressed }) => [styles.tideBtn, pressed && pressedStyle]}
         >
-          <Feather name="bar-chart-2" size={17} color={colors.onAccent} />
+          <Feather name="bar-chart-2" size={17} color="#12332a" />
           <Text style={styles.tideBtnText}>Tides & Bite Graph</Text>
-          <Feather name="chevron-right" size={17} color={colors.onAccent} />
+          <Feather name="chevron-right" size={17} color="#12332a" />
         </Pressable>
       ) : null}
 
@@ -390,7 +390,7 @@ const useStyles = makeStyles((colors) => ({
   },
   dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
 
-  // Tide graph opener — solid tide-teal so it pops off the card.
+  // Tide graph opener — a raised white pill so it pops off the dark card.
   tideBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -399,14 +399,16 @@ const useStyles = makeStyles((colors) => ({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: colors.water,
-    shadowColor: colors.water,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOpacity: 0.35,
+    shadowRadius: 9,
+    elevation: 5,
   },
-  tideBtnText: { flex: 1, color: colors.onAccent, fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
+  tideBtnText: { flex: 1, color: '#12332a', fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
 
   // Best windows
   windows: { gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.md },
