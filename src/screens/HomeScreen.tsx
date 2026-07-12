@@ -815,18 +815,26 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             }}
             selectedHour={selectedHour}
             onSelectHour={setSelectedHour}
-            onShowTideGraph={() => setTideGraphOpen(true)}
+            onShowTideGraph={() => {
+              // Bring the map into the strip above the sheet — spot + graph together.
+              scrollRef.current?.scrollTo({ y: 0, animated: true });
+              setTideGraphOpen(true);
+            }}
           />
         ) : null}
       </View>
-      {strategy && conditions?.tide ? (
+      {strategies && forecast ? (
         <TideGraphModal
           visible={tideGraphOpen}
           onClose={() => setTideGraphOpen(false)}
-          tide={conditions.tide}
-          hourly={strategy.hourly}
-          dayLabel={dayLabel(addDays(new Date(), selectedDay), selectedDay)}
-          date={conditions.date}
+          forecast={forecast}
+          strategies={strategies}
+          days={strategies.map((s, i) => ({
+            label: dayLabel(addDays(new Date(), i), i),
+            num: dayNumber(addDays(new Date(), i)),
+            score: s.biteScore,
+          }))}
+          initialDay={selectedDay}
         />
       ) : null}
       {strategy ? <PicksCard strategy={strategy} /> : null}
