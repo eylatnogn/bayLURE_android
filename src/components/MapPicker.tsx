@@ -33,13 +33,23 @@ function MapCanvas({
   // moved the view, so we must NOT re-inject (which could disturb the zoom).
   const internalPick = useRef(false);
 
-  // Rebuild the document only when the baked-in wind (or this instance's
-  // fullscreen flag) changes. Center changes are pushed via injectJavaScript
-  // instead, so selecting a spot never reloads the WebView or resets the zoom.
+  // Build the document ONCE per instance. Center changes are pushed via
+  // injectJavaScript (__moveSpot) and wind changes via __setWind, so nothing
+  // ever reloads the WebView — a reload resets the view to the default zoom,
+  // which read as the map "glitching out and zooming out" every time the
+  // shared day/hour selection changed.
+  const initialWind = useRef({ label: windTargetLabel, mph: windMph, dir: windDirDeg });
   const html = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetLabel, fullscreen, windMph, windDirDeg),
+    () =>
+      buildMapHtml(
+        centerRef.current,
+        initialWind.current.label,
+        fullscreen,
+        initialWind.current.mph,
+        initialWind.current.dir,
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windTargetLabel, windMph, windDirDeg, fullscreen],
+    [fullscreen],
   );
 
   useEffect(() => {
@@ -52,6 +62,15 @@ function MapCanvas({
       `window.__moveSpot && window.__moveSpot(${center.latitude}, ${center.longitude}); true;`,
     );
   }, [center]);
+
+  // Re-time the wind overlay in the live document (no reload, zoom kept).
+  useEffect(() => {
+    webRef.current?.injectJavaScript(
+      `window.__setWind && window.__setWind(${windMph == null ? 'null' : Number(windMph)}, ${
+        windDirDeg == null ? 'null' : Number(windDirDeg)
+      }, ${JSON.stringify(windTargetLabel)}); true;`,
+    );
+  }, [windTargetLabel, windMph, windDirDeg]);
 
   return (
     <WebView

@@ -49,6 +49,10 @@ function esc(s: string): string {
  * reads the GEBCO depth at that point. All best-effort — failures are swallowed
  * so the map still works as a plain spot-picker.
  *
+ * Radar (toggle, off by default): NWS NEXRAD reflectivity tiles from the Iowa
+ * Environmental Mesonet cache — an animated ~50-minute loop in 5-minute steps,
+ * so storm direction and speed read at a glance. Free, no key, US coverage.
+ *
  * The same HTML drives both the native WebView and the web <iframe>.
  */
 export function buildMapHtml(
@@ -94,6 +98,7 @@ export function buildMapHtml(
     #windtoggle { top: 8px; }
     #depthtoggle { top: 42px; }
     #sattoggle { top: 76px; }
+    #radartoggle { top: 110px; }
     .mapicon { padding: 8px; line-height: 0; }
     /* Make the icon itself non-interactive so taps always land on the button —
        on touch devices the SVG can otherwise swallow the tap. */
@@ -101,7 +106,7 @@ export function buildMapHtml(
     #fsbtn { top: 8px; left: 8px; right: auto; }
     #centerbtn { top: 42px; left: 8px; right: auto; }
     .legendbox {
-      position: absolute; z-index: 1000; right: 8px; bottom: 22px; display: none;
+      position: absolute; z-index: 1000; right: 8px; bottom: 8px; display: none;
       background: rgba(34,46,28,0.82); color: #f8faf1;
       font: 11px -apple-system, Roboto, sans-serif;
       padding: 6px 8px; border-radius: 8px; width: 140px;
@@ -125,6 +130,8 @@ export function buildMapHtml(
       #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240); }
     .depthgrad { background: linear-gradient(to right,
       #cfe8f5, #7fc4e8, #3e8fc4, #2c6aa0, #1d4373, #0e2647); }
+    .radargrad { background: linear-gradient(to right,
+      #5ad2f0, #3ecc4a, #f5e63d, #f0a03c, #e03c32, #c130c9); }
     .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
     .windread {
       position: absolute; z-index: 1000; left: 8px; bottom: 8px; display: none;
@@ -143,15 +150,16 @@ export function buildMapHtml(
   <button class="maptoggle" id="windtoggle">Wind: on</button>
   <button class="maptoggle off" id="depthtoggle">Depth: off</button>
   <button class="maptoggle" id="sattoggle">Sat: on</button>
+  <button class="maptoggle off" id="radartoggle">Radar: off</button>
   <!-- Starts minimized — the expanded key crowds the map (esp. with Depth on). -->
   <div class="legendbox min" id="legendbox">
     <div class="legend-head">
-      <span class="legend-title">Map key</span>
+      <span class="legend-title" id="legendtitle">Map key</span>
       <span class="legend-min" id="legendmin">+</span>
     </div>
     <div class="legend-body">
       <div class="legendsec" id="windlegend">
-        <div class="legend-when">${whenText}</div>
+        <div class="legend-when" id="windwhen">${whenText}</div>
         <div class="legend-bar windgrad"></div>
         <div class="legend-scale"><span>0</span><span>15</span><span>30+ mph</span></div>
       </div>
@@ -160,9 +168,15 @@ export function buildMapHtml(
         <div class="legend-bar depthgrad"></div>
         <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
       </div>
+      <div class="legendsec" id="radarlegend">
+        <div class="legend-when">Radar (rain)</div>
+        <div class="legend-bar radargrad"></div>
+        <div class="legend-scale"><span>Light</span><span>Heavy</span></div>
+      </div>
     </div>
   </div>
   <div class="windread" id="windread"></div>
+  <div class="windread" id="radarlabel" style="bottom: 40px;"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.js"></script>
@@ -175,11 +189,13 @@ export function buildMapHtml(
       rotate: true,
       touchRotate: true,
       shiftKeyRotate: true,
-      rotateControl: { closeOnZeroBearing: false }
+      rotateControl: { closeOnZeroBearing: false },
+      // No attribution strip: USGS/NWS data are US-government public domain
+      // (no credit required), and the Leaflet prefix is a courtesy default,
+      // not a license term (BSD keeps its notice in source). Keeps the map
+      // corner clean for the Map key.
+      attributionControl: false
     }).setView([${c.latitude}, ${c.longitude}], ${zoom});
-    // Show only the data credit (USGS). The "Leaflet" prefix is a courtesy
-    // default, not a license requirement (BSD keeps its notice in source).
-    map.attributionControl.setPrefix('');
     // USGS The National Map tiles ({z}/{y}/{x} order), both US-government data
     // (free, commercial OK — coverage is US only, blank elsewhere). Native
     // detail tops out at 16; maxZoom 18 lets Leaflet upscale for precise pin
@@ -198,14 +214,15 @@ export function buildMapHtml(
     var satEnabled = true;
     satLayer.addTo(map);
 
-    // Panes so the stack is base tiles < GEBCO shading < NOAA charts < wind <
-    // markers. With leaflet-rotate active the base tile pane lives inside its
-    // rotatePane (zIndex 400), so these MUST be created inside that same pane —
+    // Panes so the stack is base tiles < GEBCO shading < NOAA charts < radar <
+    // wind < markers. With leaflet-rotate active the base tile pane lives inside
+    // its rotatePane (zIndex 400), so these MUST be created inside that same pane —
     // as siblings of mapPane they'd be painted over by the rotated tiles (the
     // "depth overlay disappeared" bug) and wouldn't turn with the map.
     var paneParent = map.getPane('rotatePane') || undefined;
     map.createPane('depthshade', paneParent); map.getPane('depthshade').style.zIndex = 350;
     map.createPane('charts', paneParent); map.getPane('charts').style.zIndex = 360;
+    map.createPane('radar', paneParent); map.getPane('radar').style.zIndex = 370;
 
     var marker = L.marker([${c.latitude}, ${c.longitude}], { draggable: true }).addTo(map);
     // Post any object back to the host (React Native or the parent window).
@@ -245,7 +262,9 @@ export function buildMapHtml(
       if (!box) { return; }
       var w = document.getElementById('windlegend');
       var d = document.getElementById('depthlegend');
-      var any = (w && w.style.display === 'block') || (d && d.style.display === 'block');
+      var r = document.getElementById('radarlegend');
+      var any = (w && w.style.display === 'block') || (d && d.style.display === 'block') ||
+        (r && r.style.display === 'block');
       box.style.display = any ? 'block' : 'none';
     }
 
@@ -272,6 +291,16 @@ export function buildMapHtml(
     // current view. No weather requests happen from the map.
     var windMph = ${windMph == null ? 'null' : Number(windMph)};
     var windDirDeg = ${windDirDeg == null ? '0' : Number(windDirDeg)};
+    var windWhenLabel = ${JSON.stringify(windTargetLabel)};
+
+    // The previewed day/hour shows in the expanded wind row AND in the
+    // collapsed "Map key" chip, so minimizing the key never hides it.
+    function updateWhenLabels() {
+      var t = document.getElementById('legendtitle');
+      if (t) { t.textContent = 'Map key · ' + windWhenLabel; }
+      var ww = document.getElementById('windwhen');
+      if (ww) { ww.textContent = 'Wind · ' + windWhenLabel; }
+    }
     var GRID = 5;           // GRID x GRID field points over the view
     var windLayer = null;
     var windTimer = null;
@@ -414,11 +443,11 @@ export function buildMapHtml(
         L.DomEvent.disableClickPropagation(centerBtn);
         L.DomEvent.disableScrollPropagation(centerBtn);
       }
-      // Always land at zoom 14: close enough to read the water around the
-      // pin, wide enough to keep the surrounding area in view (native tile
-      // detail tops out at 16, so 14 stays crisp).
+      // Always land at zoom 17: tight on the pin so the water right around it
+      // reads clearly. One past native tile detail (16), so Leaflet upscales
+      // slightly — still sharp enough at this range.
       centerBtn.addEventListener('click', function () {
-        map.setView(marker.getLatLng(), 14);
+        map.setView(marker.getLatLng(), 17);
       });
     }
 
@@ -441,6 +470,106 @@ export function buildMapHtml(
           satBtn.classList.add('off');
           map.removeLayer(satLayer);
           topoLayer.addTo(map);
+        }
+      });
+    }
+
+    // ---- Weather radar: animated NWS NEXRAD loop ----
+    // Reflectivity tiles from the Iowa Environmental Mesonet cache (free, no
+    // key, US coverage — blank elsewhere, same as the USGS base maps). Eleven
+    // frames step from 50 minutes ago to now, looping so storm direction and
+    // speed are readable at a glance.
+    var RADAR_STEPS = ['-m50m','-m45m','-m40m','-m35m','-m30m','-m25m','-m20m','-m15m','-m10m','-m05m',''];
+    var radarEnabled = false;
+    var radarLayers = [];
+    var radarIdx = 0;
+    var radarAnimTimer = null;
+    var radarRefreshTimer = null;
+
+    function radarLabel(msg) {
+      var el = document.getElementById('radarlabel');
+      if (!el) { return; }
+      if (msg) { el.textContent = msg; el.style.display = 'block'; }
+      else { el.style.display = 'none'; }
+    }
+
+    function removeRadarLayers() {
+      for (var i = 0; i < radarLayers.length; i++) { map.removeLayer(radarLayers[i]); }
+      radarLayers = [];
+    }
+
+    function buildRadarLayers() {
+      // Cache-bust on a 5-minute bucket (NEXRAD's update cadence) so a long
+      // session or a re-toggle pulls fresh frames, not the browser's old loop.
+      var bucket = Math.floor(Date.now() / 300000);
+      removeRadarLayers();
+      for (var i = 0; i < RADAR_STEPS.length; i++) {
+        var lyr = L.tileLayer(
+          'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913' + RADAR_STEPS[i] + '/{z}/{x}/{y}.png?_=' + bucket,
+          { pane: 'radar', opacity: 0, maxNativeZoom: 12, maxZoom: 18, attribution: 'Radar: NWS / IEM' }
+        );
+        // Every frame mounts at opacity 0 so its tiles preload; the animation
+        // just flips opacities, which keeps the loop smooth.
+        lyr.addTo(map);
+        radarLayers.push(lyr);
+      }
+    }
+
+    function showRadarFrame(idx) {
+      if (!radarLayers.length) { return; }
+      radarIdx = ((idx % radarLayers.length) + radarLayers.length) % radarLayers.length;
+      for (var i = 0; i < radarLayers.length; i++) {
+        radarLayers[i].setOpacity(i === radarIdx ? 0.7 : 0);
+      }
+      var back = (radarLayers.length - 1 - radarIdx) * 5;
+      radarLabel(back === 0 ? 'Radar · now' : 'Radar · ' + back + ' min ago');
+    }
+
+    function stepRadar() {
+      if (!radarEnabled || !radarLayers.length) { return; }
+      var next = (radarIdx + 1) % radarLayers.length;
+      showRadarFrame(next);
+      // Hold on the newest frame so "now" reads clearly before the loop repeats.
+      radarAnimTimer = setTimeout(stepRadar, next === radarLayers.length - 1 ? 1600 : 450);
+    }
+
+    function startRadar() {
+      buildRadarLayers();
+      showRadarFrame(radarLayers.length - 1);
+      if (radarAnimTimer) { clearTimeout(radarAnimTimer); }
+      radarAnimTimer = setTimeout(stepRadar, 1600);
+      // Rebuild while enabled so the loop tracks the latest sweeps.
+      if (radarRefreshTimer) { clearInterval(radarRefreshTimer); }
+      radarRefreshTimer = setInterval(function () {
+        if (radarEnabled) { buildRadarLayers(); showRadarFrame(radarIdx); }
+      }, 300000);
+    }
+
+    function stopRadar() {
+      if (radarAnimTimer) { clearTimeout(radarAnimTimer); radarAnimTimer = null; }
+      if (radarRefreshTimer) { clearInterval(radarRefreshTimer); radarRefreshTimer = null; }
+      removeRadarLayers();
+      radarLabel(null);
+    }
+
+    var radarBtn = document.getElementById('radartoggle');
+    if (radarBtn && L.DomEvent) {
+      L.DomEvent.disableClickPropagation(radarBtn);
+      L.DomEvent.disableScrollPropagation(radarBtn);
+    }
+    if (radarBtn) {
+      radarBtn.addEventListener('click', function () {
+        radarEnabled = !radarEnabled;
+        if (radarEnabled) {
+          radarBtn.textContent = 'Radar: on';
+          radarBtn.classList.remove('off');
+          setLegend('radarlegend', true);
+          startRadar();
+        } else {
+          radarBtn.textContent = 'Radar: off';
+          radarBtn.classList.add('off');
+          setLegend('radarlegend', false);
+          stopRadar();
         }
       });
     }
@@ -560,12 +689,26 @@ export function buildMapHtml(
       if (map.getZoom() < 10) { map.setView(ll, 12); } else { map.panTo(ll); }
       updatePinDepth(ll, false);
     };
+    // Host hook: re-time the wind overlay (new day/hour or fresh analysis)
+    // WITHOUT rebuilding the document. Reloading the WebView/iframe resets the
+    // view to the default zoom — the "map keeps zooming out" bug — so wind
+    // updates must flow through here, never through a new srcDoc/html.
+    window.__setWind = function (mph, dirDeg, label) {
+      windMph = (mph == null ? null : Number(mph));
+      windDirDeg = (dirDeg == null ? 0 : Number(dirDeg));
+      if (label != null) { windWhenLabel = String(label); }
+      updateWhenLabels();
+      if (windMph == null && windLayer && map.hasLayer(windLayer)) { map.removeLayer(windLayer); }
+      refreshWind();
+    };
     // On web the host can't inject JS, so it posts messages in instead.
     window.addEventListener('message', function (e) {
       var d = e.data;
       if (!d) { return; }
       if (d.type === 'balure:moveSpot' && typeof d.lat === 'number') {
         window.__moveSpot(d.lat, d.lng);
+      } else if (d.type === 'balure:setWind') {
+        window.__setWind(d.mph, d.dir, d.label);
       } else if (d.type === 'balure:fullscreen') {
         var fb = document.getElementById('fsbtn');
         if (fb) { fb.innerHTML = d.value ? SVG_SHRINK : SVG_EXPAND; }
@@ -573,6 +716,7 @@ export function buildMapHtml(
     });
 
     map.whenReady(function () {
+      updateWhenLabels();
       updatePinDepth(marker.getLatLng(), false);
       // Defer the first wind draw a tick. In a just-inserted container (e.g. the
       // web full-screen overlay) the map can mis-measure its size at whenReady,

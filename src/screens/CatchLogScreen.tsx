@@ -231,7 +231,12 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       : attachConditions && snapshot
         ? snapshot
         : undefined;
-    if (!editingId && conditions && when) {
+    if (editingId && conditions) {
+      // Editing keeps the logged conditions as-is, except the location label,
+      // which the angler can rename (or clear) from the edit form.
+      const place = placeLabel.trim();
+      conditions = { ...conditions, place: place || undefined };
+    } else if (!editingId && conditions && when) {
       const place = placeLabel.trim() || conditions.place;
       const capturedAt = dateISO
         ? `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}T12:00`
@@ -293,6 +298,7 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setSize(c.size ?? '');
     setNotes(c.notes ?? '');
     setPhotoUri(c.photoUri ?? null);
+    setPlaceLabel(c.conditions?.place ?? '');
     setEditingId(c.id);
     setFormOpen(true);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -435,9 +441,19 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
 
           {editingId ? (
             catches.find((c) => c.id === editingId)?.conditions ? (
-              <Text style={styles.attachHint}>
-                The conditions logged with this catch are kept as they were.
-              </Text>
+              <>
+                <Text style={styles.fieldLabel}>Location label</Text>
+                <TextInput
+                  value={placeLabel}
+                  onChangeText={setPlaceLabel}
+                  placeholder="Where was this caught? (e.g. Balus Creek dock)"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                />
+                <Text style={styles.attachHint}>
+                  The other conditions logged with this catch are kept as they were.
+                </Text>
+              </>
             ) : null
           ) : snapshot ? (
             <>

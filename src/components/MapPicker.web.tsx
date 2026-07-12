@@ -66,20 +66,33 @@ export function MapPicker({
     fullRef.current?.contentWindow?.postMessage(msg, '*');
   }, [center]);
 
-  // Rebuild a document only when the baked-in wind changes (to re-time the
-  // overlay). Center changes are pushed via postMessage instead. The
-  // full-screen variant bakes the "shrink" icon (fullscreen=true).
+  // Latest wind — read when a srcDoc is (re)built, so the full-screen map
+  // bakes in the current values when it opens.
+  const windRef = useRef({ label: windTargetLabel, mph: windMph, dir: windDirDeg });
+  windRef.current = { label: windTargetLabel, mph: windMph, dir: windDirDeg };
+
+  // Push wind changes into the LIVE documents instead of rebuilding them: an
+  // iframe reload resets the view to the default zoom, which read as the map
+  // "glitching out and zooming out" whenever the day/hour selection changed.
+  useEffect(() => {
+    const msg = { type: 'balure:setWind', mph: windMph, dir: windDirDeg, label: windTargetLabel };
+    inlineRef.current?.contentWindow?.postMessage(msg, '*');
+    fullRef.current?.contentWindow?.postMessage(msg, '*');
+  }, [windTargetLabel, windMph, windDirDeg]);
+
+  // Build each document ONCE. Center changes are pushed via postMessage
+  // (balure:moveSpot) and wind via balure:setWind — never a new srcDoc.
   const srcDoc = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetLabel, false, windMph, windDirDeg),
+    () => buildMapHtml(centerRef.current, windRef.current.label, false, windRef.current.mph, windRef.current.dir),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windTargetLabel, windMph, windDirDeg],
+    [],
   );
-  // Keyed on `expanded` too, so each time it opens it bakes in the *current*
-  // location; it stays stable while open (no reload).
+  // Keyed on `expanded`, so each time it opens it bakes in the *current*
+  // location and wind; it stays stable while open (no reload).
   const srcDocFull = useMemo(
-    () => buildMapHtml(centerRef.current, windTargetLabel, true, windMph, windDirDeg),
+    () => buildMapHtml(centerRef.current, windRef.current.label, true, windRef.current.mph, windRef.current.dir),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windTargetLabel, windMph, windDirDeg, expanded],
+    [expanded],
   );
 
   const inlineIframe = createElement('iframe', {
