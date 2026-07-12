@@ -76,6 +76,10 @@ export function buildMapHtml(
   <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css" />
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
+    /* Deep-water blue behind the tiles: USGS coverage is US-only and skips
+       some open-ocean tiles, which otherwise show as stark white boxes while
+       zooming out. Missing areas now read as ocean instead. */
+    #map { background: #0b2e40; }
     /* Stop iOS from flashing a tap highlight / selecting text on every tap,
        which otherwise makes the map feel stuck. The pin still drops normally. */
     * { -webkit-tap-highlight-color: transparent; }
