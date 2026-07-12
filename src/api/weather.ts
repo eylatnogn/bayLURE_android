@@ -55,6 +55,13 @@ interface GridProperties {
   windDirection?: GridSeriesJson;
   probabilityOfPrecipitation?: GridSeriesJson;
   waveHeight?: GridSeriesJson;
+  /** Categorical weather periods — the source for thunderstorm warnings. */
+  weather?: {
+    values?: Array<{
+      validTime: string;
+      value?: Array<{ weather?: string | null; coverage?: string | null }>;
+    }>;
+  };
 }
 
 /** A field expanded into a step function over epoch-ms intervals. */
@@ -128,6 +135,29 @@ function asIs(v: number): number {
   return v;
 }
 
+/**
+ * Expand the categorical `weather` grid into thunderstorm intervals. NWS lists
+ * one or more phenomena per period; any mention of thunderstorms (unless the
+ * coverage is explicitly "none") flags the whole period as a lightning risk.
+ */
+function parseThunder(
+  json: GridProperties['weather'],
+): Array<{ start: number; end: number }> {
+  const out: Array<{ start: number; end: number }> = [];
+  for (const entry of json?.values ?? []) {
+    const hasThunder = (entry.value ?? []).some(
+      (v) =>
+        (v.weather ?? '').toLowerCase().includes('thunder') &&
+        (v.coverage ?? '') !== 'none',
+    );
+    if (!hasThunder) continue;
+    const start = new Date(entry.validTime.split('/')[0] ?? '').getTime();
+    if (Number.isNaN(start)) continue;
+    out.push({ start, end: start + durationMs(entry.validTime) });
+  }
+  return out;
+}
+
 function skyFromCloudCover(pct: number): SkyCondition {
   if (pct < 30) return 'clear';
   if (pct < 70) return 'partly_cloudy';
@@ -184,6 +214,9 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   const windDir = parseSeries(grid.windDirection, asIs);
   const precipProb = parseSeries(grid.probabilityOfPrecipitation, asIs);
   const wave = parseSeries(grid.waveHeight, toFt);
+  const thunderPeriods = parseThunder(grid.weather);
+  const thunderAt = (ms: number) =>
+    thunderPeriods.some((p) => ms >= p.start && ms < p.end);
 
   const base = new Date();
   const nowMs = base.getTime();
@@ -203,10 +236,13 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
         ? ms >= sun.sunriseMs && ms < sun.sunsetMs
         : new Date(ms).getHours() >= 6 && new Date(ms).getHours() < 20;
 
-    // Synthesize a WMO-style code (the labels the UI shows) from precip
-    // probability + cloud cover; the NWS "weather" field is too sparse.
+    // Synthesize a WMO-style code (the labels the UI shows) from the
+    // thunderstorm flag, precip probability, and cloud cover.
     const pop = valueAt(precipProb, ms) ?? 0;
-    const code = pop >= 60 ? 63 : pop >= 35 ? 61 : cloud < 30 ? 0 : cloud < 70 ? 2 : 3;
+    const thunder = thunderAt(ms);
+    const code = thunder
+      ? 95
+      : pop >= 60 ? 63 : pop >= 35 ? 61 : cloud < 30 ? 0 : cloud < 70 ? 2 : 3;
 
     return {
       airTempF: round(valueAt(temp, ms) ?? 0),
@@ -221,6 +257,8 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
       cloudCoverPct: round(cloud),
       sky: skyFromCloudCover(cloud),
       humidityPct: round(valueAt(humidity, ms) ?? 0),
+      precipChancePct: round(pop),
+      thunder,
       isDay,
       weatherCode: code,
       weatherLabel: weatherCodeLabel(code),

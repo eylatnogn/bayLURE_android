@@ -398,8 +398,11 @@ export function buildMapHtml(
         L.DomEvent.disableClickPropagation(centerBtn);
         L.DomEvent.disableScrollPropagation(centerBtn);
       }
+      // Always land at zoom 14: close enough to read the water around the
+      // pin, wide enough to keep the surrounding area in view (native tile
+      // detail tops out at 16, so 14 stays crisp).
       centerBtn.addEventListener('click', function () {
-        map.setView(marker.getLatLng(), Math.max(map.getZoom(), 12));
+        map.setView(marker.getLatLng(), 14);
       });
     }
 

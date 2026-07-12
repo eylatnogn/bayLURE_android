@@ -3,6 +3,12 @@
 All notable changes to bayLURE. Dates are release/build dates.
 
 ## Unreleased (after versionCode 10)
+- **Rain & lightning** — the conditions grid shows chance of rain for the
+  selected day/hour, and a warning banner calls out forecast thunderstorm
+  hours ("lightning and open water don't mix"). Data from the NWS
+  categorical weather grid.
+- **Re-center zoom** — the map's re-center button now always lands at zoom
+  14: close to the pin with the surrounding water still in view.
 - **Tides & Bite graph** — "Tides & bite graph" button on the Forecast card
   (saltwater spots) opens an hourly chart: NOAA tide-height curve with
   high/low markers over the day's bite-score bars, fish icons on prime

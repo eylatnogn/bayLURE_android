@@ -76,6 +76,10 @@ export interface WeatherConditions {
   cloudCoverPct: number;
   sky: SkyCondition;
   humidityPct: number;
+  /** Chance of precipitation, 0-100. */
+  precipChancePct: number;
+  /** True when NWS forecasts thunderstorms for this hour — lightning risk. */
+  thunder: boolean;
   isDay: boolean;
   weatherCode: number;
   weatherLabel: string;

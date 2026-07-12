@@ -81,6 +81,15 @@ export function ForecastCard({
   const whenText =
     selectedHour != null ? `${dayText} · ${hourLabel(w.timeISO)}` : `${dayText} · all day`;
 
+  // Lightning is a get-off-the-water hazard — call out the day's storm hours.
+  const thunderHours = hours.filter((h) => h.thunder);
+  const thunderRange =
+    thunderHours.length > 0
+      ? thunderHours.length === 1
+        ? `around ${hourLabel(thunderHours[0]!.timeISO)}`
+        : `${hourLabel(thunderHours[0]!.timeISO)} – ${hourLabel(thunderHours[thunderHours.length - 1]!.timeISO)}`
+      : null;
+
   return (
     <Section
       title="Forecast"
@@ -103,6 +112,17 @@ export function ForecastCard({
         />
       </View>
       <Text style={styles.summary}>{strategy.summary}</Text>
+
+      {thunderRange ? (
+        <View style={styles.thunder}>
+          <Feather name="zap" size={15} color={colors.warn} />
+          <Text style={styles.thunderText}>
+            Thunderstorms forecast {thunderRange}{' '}
+            ({dayText === 'Tom' ? 'tomorrow' : dayText.toLowerCase()}) —
+            lightning and open water don't mix. Plan around it.
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.divider} />
 
@@ -242,6 +262,11 @@ export function ForecastCard({
           hint={`${w.windDirectionLabel} · g${w.windGustMph}`}
         />
         <Stat label="Sky" value={skyShort(w.sky)} hint={`${w.cloudCoverPct}% cloud`} />
+        <Stat
+          label="Rain"
+          value={`${w.precipChancePct}%`}
+          hint={w.thunder ? '⚡ thunderstorms' : w.precipChancePct >= 35 ? w.weatherLabel : 'chance'}
+        />
         <Stat label="Clarity" value={cap(conditions.clarity)} />
         <Stat label="Humidity" value={`${w.humidityPct}%`} hint={w.weatherLabel} />
         <Stat label="Sunrise" value={w.sunrise} />
@@ -321,6 +346,18 @@ const useStyles = makeStyles((colors) => ({
   summary: { color: colors.text, fontSize: 14, lineHeight: 20 },
 
   divider: { height: 1, backgroundColor: colors.cardBorder, marginVertical: spacing.md },
+  thunder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.errorBg,
+    borderWidth: 1,
+    borderColor: colors.errorBorder,
+  },
+  thunderText: { flex: 1, color: colors.errorText, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   subhead: {
     color: colors.textMuted,
     fontSize: 12,
