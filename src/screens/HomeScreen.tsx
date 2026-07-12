@@ -823,20 +823,6 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           />
         ) : null}
       </View>
-      {strategies && forecast ? (
-        <TideGraphModal
-          visible={tideGraphOpen}
-          onClose={() => setTideGraphOpen(false)}
-          forecast={forecast}
-          strategies={strategies}
-          days={strategies.map((s, i) => ({
-            label: dayLabel(addDays(new Date(), i), i),
-            num: dayNumber(addDays(new Date(), i)),
-            score: s.biteScore,
-          }))}
-          initialDay={selectedDay}
-        />
-      ) : null}
       {strategy ? <PicksCard strategy={strategy} /> : null}
       {strategy ? <InsightsCard strategy={strategy} /> : null}
       {strategy ? (
@@ -881,6 +867,22 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             color={colors.onAccent}
           />
         </Pressable>
+      ) : null}
+
+      {/* Floating bottom sheet — NOT a Modal, so the map above stays live. */}
+      {strategies && forecast ? (
+        <TideGraphModal
+          visible={tideGraphOpen}
+          onClose={() => setTideGraphOpen(false)}
+          forecast={forecast}
+          strategies={strategies}
+          days={strategies.map((s, i) => ({
+            label: dayLabel(addDays(new Date(), i), i),
+            num: dayNumber(addDays(new Date(), i)),
+            score: s.biteScore,
+          }))}
+          initialDay={selectedDay}
+        />
       ) : null}
     </View>
   );

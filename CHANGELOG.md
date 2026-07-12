@@ -17,7 +17,9 @@ All notable changes to bayLURE. Dates are release/build dates.
   score shown on the day's best hours (lesser hours get smaller markers).
   The sheet is a full planner: pick any day inside it, tap an hour on the
   chart to see that moment's weather (air, rain/storms, wind, pressure,
-  sky, tide state), and the map scrolls into view above the sheet.
+  sky, tide state), and the map scrolls into view above the sheet. The map
+  stays fully interactive while the sheet is open (it floats, no modal),
+  the sheet is wider, and all text sizes were raised for readability.
 - Ad banner no longer holds blank space when no ad is served; Pro stays
   fully bannerless.
 - Fixed a native "index is not in the allowed range" error when attaching

@@ -1,16 +1,17 @@
 // The Tides & Bite planner sheet: pick a day, tap an hour on the chart, and
 // see that moment's weather next to the NOAA tide curve and bite bars — with
-// the day's peak hours highlighted. Opened from the Forecast card (saltwater
-// spots); the host scrolls the map into view above the sheet.
+// the day's peak hours highlighted. Rendered as a floating bottom sheet (NOT
+// a Modal) so the map above it stays fully interactive; the host scrolls the
+// map into view when it opens.
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
+  BackHandler,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
@@ -39,13 +40,14 @@ interface Props {
 }
 
 // Chart geometry (SVG viewBox units; rendered responsive via aspectRatio).
+// Text sizes are generous on purpose — readable for anglers without glasses.
 const W = 360;
-const H = 205;
-const M = { top: 24, right: 10, bottom: 30, left: 10 };
+const H = 235;
+const M = { top: 30, right: 10, bottom: 36, left: 10 };
 const IW = W - M.left - M.right;
 const IH = H - M.top - M.bottom;
 /** Bite bars rise from the axis up to this many px. */
-const BAR_MAX = 52;
+const BAR_MAX = 56;
 /** Hours scoring at least this get a fish marker. */
 const PRIME = 65;
 
@@ -97,7 +99,6 @@ function MiniStat({ label, value, hint, warn }: { label: string; value: string; 
 export function TideGraphModal({ visible, onClose, forecast, strategies, days, initialDay }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const { width } = useWindowDimensions();
   const [selDay, setSelDay] = useState(initialDay);
   const [selHour, setSelHour] = useState<number | null>(null);
   const [heights, setHeights] = useState<TideHeightPoint[] | null>(null);
@@ -110,6 +111,16 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
       setSelHour(null);
     }
   }, [visible, initialDay]);
+
+  // Without a Modal, Android's back button needs wiring by hand.
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
 
   const day = forecast[selDay];
   const strategy = strategies[selDay];
@@ -235,7 +246,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
               key={`f${hr}`}
               x={x(hr)}
               y={M.top + IH - BAR_MAX - (peak ? 8 : 5)}
-              fontSize={peak ? 13 : 8}
+              fontSize={peak ? 15 : 10}
               opacity={peak ? 1 : 0.55}
               textAnchor="middle"
             >
@@ -248,8 +259,8 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
             <SvgText
               key={`s${hr}`}
               x={x(hr)}
-              y={M.top + IH - BAR_MAX - 22}
-              fontSize={9}
+              y={M.top + IH - BAR_MAX - 24}
+              fontSize={11}
               fontWeight="800"
               fill={colors.warn}
               textAnchor="middle"
@@ -262,9 +273,9 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
         {/* Peak callout pill. */}
         {firstPeakHr >= 0 ? (
           <SvgText
-            x={Math.min(Math.max(x(firstPeakHr), 44), W - 44)}
-            y={12}
-            fontSize={11}
+            x={Math.min(Math.max(x(firstPeakHr), 58), W - 58)}
+            y={14}
+            fontSize={14}
             fontWeight="800"
             fill={colors.warn}
             textAnchor="middle"
@@ -284,7 +295,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
           const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
           const ey = y(e.heightFt);
           return (
-            <SvgText key={`e${i}`} x={Math.min(Math.max(ex, 26), W - 26)} y={ey - 8} fontSize={9} fontWeight="700" fill={colors.text} textAnchor="middle">
+            <SvgText key={`e${i}`} x={Math.min(Math.max(ex, 26), W - 26)} y={ey - 9} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
               {`${e.type === 'high' ? 'H' : 'L'} ${e.heightFt}ft · ${fmtEventTime(e.time)}`}
             </SvgText>
           );
@@ -304,7 +315,7 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
         {/* Hour axis. */}
         <Line x1={M.left} y1={M.top + IH} x2={M.left + IW} y2={M.top + IH} stroke={colors.cardBorder} strokeWidth={1} />
         {[0, 4, 8, 12, 16, 20].map((hr) => (
-          <SvgText key={`h${hr}`} x={x(hr)} y={H - 12} fontSize={9} fill={colors.textMuted} textAnchor="middle">
+          <SvgText key={`h${hr}`} x={x(hr)} y={H - 13} fontSize={11} fill={colors.textMuted} textAnchor="middle">
             {hr === 0 ? '12a' : hr < 12 ? `${hr}a` : hr === 12 ? '12p' : `${hr - 12}p`}
           </SvgText>
         ))}
@@ -327,13 +338,13 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
     );
   }
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        {/* Tapping the map preview above the sheet closes it. */}
-        <Pressable style={styles.backdropTap} onPress={onClose} />
-        <View style={[styles.sheet, width > 500 && styles.sheetWide]}>
-          <ScrollView bounces={false}>
+    // A floating sheet, not a Modal: everything above it (the map!) stays live.
+    <View style={styles.overlay} pointerEvents="box-none">
+      <View style={styles.sheet}>
+        <ScrollView bounces={false}>
             <View style={styles.head}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.title}>Tides & Bite</Text>
@@ -445,34 +456,35 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
               NOAA tide predictions · bite graded hourly from the day's forecast.
               Moving water near highs and lows usually fishes best.
             </Text>
-          </ScrollView>
-        </View>
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const useStyles = makeStyles((c, t) => ({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(10, 18, 12, 0.35)',
-    justifyContent: 'flex-end',
+  overlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    zIndex: 40,
   },
-  backdropTap: { flex: 1 },
   sheet: {
+    width: '100%',
+    maxWidth: 680,
     backgroundColor: c.card,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: c.cardBorder,
     padding: spacing.lg,
     paddingBottom: spacing.xl,
-    maxHeight: '88%',
+    maxHeight: 560,
+    elevation: 14,
     ...t.shadow.card,
-  },
-  sheetWide: {
-    alignSelf: 'center',
-    width: 560,
-    borderRadius: radius.xl,
-    marginBottom: spacing.xl,
   },
   head: {
     flexDirection: 'row',
@@ -481,12 +493,12 @@ const useStyles = makeStyles((c, t) => ({
   },
   title: {
     fontFamily: fonts.displayBold,
-    fontSize: 20,
+    fontSize: 22,
     color: c.text,
   },
   subtitle: {
     color: c.textMuted,
-    fontSize: 12,
+    fontSize: 14,
     marginTop: 2,
   },
   close: {
@@ -504,9 +516,9 @@ const useStyles = makeStyles((c, t) => ({
     gap: 3,
   },
   dayActive: { backgroundColor: c.accentDim, borderColor: c.accent },
-  dayLabel: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  dayLabel: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
   dayLabelActive: { color: c.text },
-  dayNum: { color: c.textMuted, fontSize: 11 },
+  dayNum: { color: c.textMuted, fontSize: 12 },
   dayPill: {
     minWidth: 28,
     paddingHorizontal: 5,
@@ -514,7 +526,7 @@ const useStyles = makeStyles((c, t) => ({
     borderRadius: 10,
     alignItems: 'center',
   },
-  dayPillText: { color: '#0e1f12', fontSize: 12, fontWeight: '900' },
+  dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
   condHead: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -525,26 +537,26 @@ const useStyles = makeStyles((c, t) => ({
   condTitle: {
     fontFamily: fonts.display,
     color: c.text,
-    fontSize: 15,
+    fontSize: 17,
   },
   allday: {
     color: c.accent,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
   },
   tapHint: {
     color: c.textMuted,
-    fontSize: 11,
+    fontSize: 12,
   },
   miniRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: spacing.sm,
   },
-  mini: { width: '16.6%', minWidth: 56, marginBottom: spacing.sm },
-  miniValue: { color: c.text, fontSize: 14, fontWeight: '800' },
-  miniLabel: { color: c.textMuted, fontSize: 10, marginTop: 1 },
-  miniHint: { color: c.accent, fontSize: 9, marginTop: 1 },
+  mini: { width: '16.6%', minWidth: 62, marginBottom: spacing.sm },
+  miniValue: { color: c.text, fontSize: 17, fontWeight: '800' },
+  miniLabel: { color: c.textMuted, fontSize: 12, marginTop: 1 },
+  miniHint: { color: c.accent, fontSize: 11, marginTop: 1 },
   miniHintWarn: { color: c.warn },
   error: {
     color: c.errorText,
@@ -570,13 +582,13 @@ const useStyles = makeStyles((c, t) => ({
   },
   legendText: {
     color: c.textMuted,
-    fontSize: 11,
+    fontSize: 13,
     marginRight: spacing.sm,
   },
   finePrint: {
     color: c.textMuted,
-    fontSize: 10,
-    lineHeight: 14,
+    fontSize: 12,
+    lineHeight: 17,
     marginTop: spacing.sm,
   },
 }));
