@@ -130,10 +130,13 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
         dragBase.current = sheetHRef.current ?? naturalH.current;
       },
       onPanResponderMove: (_e, g) => {
-        const maxH = Dimensions.get('window').height * 0.9;
+        // Shrink-only: the default (content-fit) height is the ceiling —
+        // dragging back up to it snaps the sheet back to auto-fit.
+        const maxH = naturalH.current || Dimensions.get('window').height * 0.6;
         const h = Math.min(maxH, Math.max(MIN_SHEET_H, dragBase.current - g.dy));
-        sheetHRef.current = h;
-        setSheetH(h);
+        const next = h >= maxH - 2 ? null : h;
+        sheetHRef.current = next;
+        setSheetH(next);
       },
     }),
   ).current;
@@ -380,7 +383,12 @@ export function TideGraphModal({ visible, onClose, forecast, strategies, days, i
       <View
         style={[styles.sheet, sheetH != null && { height: sheetH }]}
         onLayout={(e) => {
-          naturalH.current = e.nativeEvent.layout.height;
+          // Only record the content-fit height while no custom height is
+          // applied — otherwise the drag ceiling would shrink to wherever
+          // the sheet was last dragged.
+          if (sheetHRef.current == null) {
+            naturalH.current = e.nativeEvent.layout.height;
+          }
         }}
       >
         {/* Drag handle: pull down for more map, up for more graph. */}
