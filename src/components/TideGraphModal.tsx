@@ -189,11 +189,17 @@ export function TideGraphModal({
         setSheetH(next);
       },
       onPanResponderRelease: (_e, g) => {
-        // A fast, medium-to-long vertical flick — down OR up — dismisses the
-        // sheet, so the angler can fling it away without reaching for the ✕.
-        // Both conditions are required so a slow resize drag never closes it.
+        // A fast, medium-to-long vertical flick reacts by direction: fling
+        // DOWN to dismiss the sheet; fling UP to snap it back to the default
+        // (content-fit) height. Both need real speed + distance so a slow
+        // resize drag never triggers either.
         if (Math.abs(g.vy) > DISMISS_VELOCITY && Math.abs(g.dy) > DISMISS_DISTANCE) {
-          onCloseRef.current();
+          if (g.dy > 0) {
+            onCloseRef.current();
+          } else {
+            sheetHRef.current = null;
+            setSheetH(null);
+          }
         }
       },
     }),
@@ -461,8 +467,8 @@ export function TideGraphModal({
           }
         }}
       >
-        {/* Drag handle: pull down for more map, up for more graph — or fling
-            it quickly in either direction to dismiss the sheet. */}
+        {/* Drag handle: pull down for more map, up for more graph. Fling it
+            down quickly to dismiss, or up quickly to snap back to full height. */}
         <View style={styles.grabRow} {...pan.panHandlers}>
           <View style={styles.grab} />
         </View>

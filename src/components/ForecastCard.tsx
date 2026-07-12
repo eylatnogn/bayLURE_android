@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { Conditions, Strategy } from '@/types';
 import { Section } from '@/components/Section';
 import { tideAt } from '@/api/tides';
@@ -61,7 +62,7 @@ export function ForecastCard({
   onSelectHour,
   onShowTideGraph,
 }: Props) {
-  const { colors } = useTheme();
+  const { colors, gradients } = useTheme();
   const styles = useStyles();
   const { water, chartedDepth } = conditions;
   const hours = conditions.hourlyWeather;
@@ -160,9 +161,16 @@ export function ForecastCard({
           onPress={onShowTideGraph}
           style={({ pressed }) => [styles.tideBtn, pressed && pressedStyle]}
         >
-          <Feather name="bar-chart-2" size={17} color="#0891b2" />
-          <Text style={styles.tideBtnText}>Tides & Bite Graph</Text>
-          <Feather name="chevron-right" size={17} color="#12332a" />
+          <LinearGradient
+            colors={gradients.button}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.tideBtnFill}
+          >
+            <Feather name="bar-chart-2" size={17} color={colors.onAccent} />
+            <Text style={styles.tideBtnText}>Tides & Bite Graph</Text>
+            <Feather name="chevron-right" size={17} color={colors.onAccent} />
+          </LinearGradient>
         </Pressable>
       ) : null}
 
@@ -390,25 +398,27 @@ const useStyles = makeStyles((colors) => ({
   },
   dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
 
-  // Tide graph opener — a raised bright-green pill so it pops off the dark card.
+  // Tide graph opener — the same foliage-green gradient as the primary
+  // "Analyze my spot" button, so the two read as one system.
   tideBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
     marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: '#22c55e',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.12)',
-    shadowColor: '#000000',
+    shadowColor: colors.accentDeep,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.34,
     shadowRadius: 9,
     elevation: 5,
   },
-  tideBtnText: { flex: 1, color: '#0b2f1a', fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
+  tideBtnFill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  tideBtnText: { flex: 1, color: colors.onAccent, fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
 
   // Best windows
   windows: { gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.md },
