@@ -153,6 +153,8 @@ export function buildMapHtml(
       #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240); }
     .depthgrad { background: linear-gradient(to right,
       #cfe8f5, #7fc4e8, #3e8fc4, #2c6aa0, #1d4373, #0e2647); }
+    .contourgrad { background: linear-gradient(to right,
+      #96f3e0, #4adcc9, #2ab0c4, #2180a8, #1a5c8c, #103656); }
     .radargrad { background: linear-gradient(to right,
       #5ad2f0, #3ecc4a, #f5e63d, #f0a03c, #e03c32, #c130c9); }
     .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
@@ -214,7 +216,9 @@ export function buildMapHtml(
         <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
       </div>
       <div class="legendsec" id="contourlegend">
-        <div class="legend-when">Contours</div>
+        <div class="legend-when">Contours (ft)</div>
+        <div class="legend-bar contourgrad"></div>
+        <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
         <div class="legend-scale"><span>lines labeled in ft · NOAA DEM</span></div>
       </div>
       <div class="legendsec" id="radarlegend">
@@ -762,6 +766,14 @@ export function buildMapHtml(
       return stops[Math.floor(t * stops.length)];
     }
 
+    // The contour overlay's own shading: light teal flats → dark deep water.
+    // Independent of the Depth overlay so contours visualize depth on their own.
+    function contourColorFt(ft) {
+      var stops = ['#96f3e0', '#4adcc9', '#2ab0c4', '#2180a8', '#1a5c8c', '#103656'];
+      var t = Math.max(0, Math.min(0.999, ft / 200));
+      return stops[Math.floor(t * stops.length)];
+    }
+
     // Depth shading + contour grid over the view. We hand the sample grid to
     // the host (React Native / parent window), which reads it from NOAA's NCEI
     // coastal DEM and injects the elevations back via window.__depthCells.
@@ -890,6 +902,14 @@ export function buildMapHtml(
           depthShade.addLayer(L.rectangle(
             [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
             { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
+          ));
+        }
+        // The contour overlay's own teal depth tint, drawn before the lines so
+        // the lines stay on top (insertion order = paint order within the pane).
+        if (contourEnabled) {
+          contourLines.addLayer(L.rectangle(
+            [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
+            { stroke: false, fill: true, fillColor: contourColorFt(ft), fillOpacity: 0.45, pane: 'contours' }
           ));
         }
       }
