@@ -12,8 +12,14 @@ interface Props<T> {
   gap?: number;
   /** Called with the new order after a drag settles. */
   onReorder: (items: T[]) => void;
-  /** Row body (the drag handle is drawn by this component alongside it). */
+  /** The row's main content (icon + label). This whole area is the drag/tap
+   * zone: a quick tap runs `onItemPress`, a 1.5s hold starts a reorder. */
   renderItem: (item: T) => ReactNode;
+  /** Quick tap on the main content (e.g. load the item). */
+  onItemPress?: (item: T) => void;
+  /** Trailing actions (e.g. a delete button) drawn to the right of the content
+   * but outside the drag zone, so tapping them never starts a reorder. */
+  renderTrailing?: (item: T) => ReactNode;
   /** Visual style for each row container (card bg/border), grip included. */
   rowStyle?: StyleProp<ViewStyle>;
   /** Fires true when a drag arms (reorder mode) and false when it settles, so
@@ -31,21 +37,27 @@ function move<T>(list: T[], from: number, to: number): T[] {
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-/** Hold the grip this long before a drag starts, so a stray touch or a scroll
+/** Hold a row this long before a drag starts, so a stray touch or a scroll
  * never reorders by accident. */
 const HOLD_MS = 1500;
+
+/** Finger travel (px) before the hold is treated as a scroll/tap, not a hold:
+ * it cancels the pending arm and disqualifies the touch from being a tap. */
+const MOVE_CANCEL = 8;
 
 /** How much the picked-up row grows, to read as "lifted / magnified". */
 const DRAG_SCALE = 1.06;
 
 /**
  * A dependency-free drag-to-reorder vertical list (core PanResponder +
- * Animated only — no gesture-handler/reanimated). Each row owns its own
- * PanResponder on its grip handle, so grabbing a grip picks that exact row
- * up, the others open a gap where it will land, and releasing commits the new
- * order. Critically it refuses the responder-termination request, so the
+ * Animated only — no gesture-handler/reanimated). The whole row content is a
+ * drag handle: pressing and holding it for 1.5s picks that row up (the grip on
+ * the right does the same), the others open a gap where it will land, and
+ * releasing commits the new order. A quick tap instead runs `onItemPress`.
+ * Critically it refuses the responder-termination request once armed, so the
  * surrounding ScrollView can't steal the drag mid-gesture (which on native
- * otherwise made the row not move at all).
+ * otherwise made the row not move at all); before arming it lets go, so a
+ * normal drag still scrolls the page.
  */
 export function ReorderableList<T>({
   items,
@@ -54,6 +66,8 @@ export function ReorderableList<T>({
   gap = spacing.xs,
   onReorder,
   renderItem,
+  onItemPress,
+  renderTrailing,
   rowStyle,
   onActiveChange,
 }: Props<T>) {
@@ -117,6 +131,8 @@ export function ReorderableList<T>({
           onStart={onStart}
           onMove={onMove}
           onEnd={onEnd}
+          onPress={onItemPress ? () => onItemPress(item) : undefined}
+          trailing={renderTrailing?.(item)}
         >
           {renderItem(item)}
         </DragRow>
@@ -136,6 +152,8 @@ interface RowProps {
   onStart: (index: number) => void;
   onMove: (dy: number) => void;
   onEnd: () => void;
+  onPress?: () => void;
+  trailing?: ReactNode;
   children: ReactNode;
 }
 
@@ -150,18 +168,21 @@ function DragRow({
   onStart,
   onMove,
   onEnd,
+  onPress,
+  trailing,
   children,
 }: RowProps) {
   const { colors } = useTheme();
   const styles = useStyles();
-  // Refs so the once-created PanResponder always sees the latest index and
+  // Refs so the once-created PanResponders always see the latest index and
   // callbacks (they are recreated each render of the parent).
   const indexRef = useRef(index);
   indexRef.current = index;
-  const cbRef = useRef({ onStart, onMove, onEnd });
-  cbRef.current = { onStart, onMove, onEnd };
-  // Hold-to-drag: the drag only arms after HOLD_MS on the grip.
+  const cbRef = useRef({ onStart, onMove, onEnd, onPress });
+  cbRef.current = { onStart, onMove, onEnd, onPress };
+  // Hold-to-drag: the drag only arms after HOLD_MS without much movement.
   const activeRef = useRef(false);
+  const movedRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [holding, setHolding] = useState(false);
 
@@ -180,7 +201,9 @@ function DragRow({
     }
   };
 
-  const pan = useRef(
+  // One responder shape, used for both the content zone and the grip. Only the
+  // content zone forwards a quick tap (to load the item); the grip never does.
+  const makePan = (forwardTap: boolean) =>
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       // Before the hold completes, let a real drag fall through to the page
@@ -188,6 +211,7 @@ function DragRow({
       onPanResponderTerminationRequest: () => !activeRef.current,
       onShouldBlockNativeResponder: () => activeRef.current,
       onPanResponderGrant: () => {
+        movedRef.current = false;
         setHolding(true);
         clearHold();
         timerRef.current = setTimeout(() => {
@@ -196,12 +220,30 @@ function DragRow({
         }, HOLD_MS);
       },
       onPanResponderMove: (_e, g) => {
-        if (activeRef.current) cbRef.current.onMove(g.dy);
+        if (activeRef.current) {
+          cbRef.current.onMove(g.dy);
+          return;
+        }
+        // Movement before arming means "scroll", not "hold": cancel the pending
+        // arm and remember it moved, so the release isn't counted as a tap.
+        if (Math.abs(g.dx) > MOVE_CANCEL || Math.abs(g.dy) > MOVE_CANCEL) {
+          movedRef.current = true;
+          clearHold();
+          setHolding(false);
+        }
       },
-      onPanResponderRelease: finish,
+      onPanResponderRelease: () => {
+        const wasActive = activeRef.current;
+        const moved = movedRef.current;
+        finish();
+        // A quick, still press that never became a drag is a tap.
+        if (forwardTap && !wasActive && !moved) cbRef.current.onPress?.();
+      },
       onPanResponderTerminate: finish,
-    }),
-  ).current;
+    });
+
+  const bodyPan = useRef(makePan(true)).current;
+  const gripPan = useRef(makePan(false)).current;
 
   const dragging = dragIndex === index;
   // Where this row rests while another row is dragged: rows between the
@@ -224,11 +266,14 @@ function DragRow({
     <Animated.View
       style={[styles.row, { height: rowHeight }, rowStyle, dragging && styles.rowDragging, pos]}
     >
-      <View style={styles.body}>{children}</View>
+      <View style={[styles.body, holding && styles.bodyHolding]} {...bodyPan.panHandlers}>
+        {children}
+      </View>
+      {trailing != null ? <View style={styles.trailing}>{trailing}</View> : null}
       <View
         style={styles.handle}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        {...pan.panHandlers}
+        {...gripPan.panHandlers}
       >
         <Feather name="menu" size={18} color={holding || dragging ? colors.accent : colors.textMuted} />
       </View>
@@ -254,10 +299,17 @@ const useStyles = makeStyles((c) => ({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  body: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  // The drag/tap zone — stretched to the full row height so the whole middle
+  // is easy to grab-and-hold.
+  body: { flex: 1, flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', gap: spacing.sm },
+  // Pressed/holding feedback while a finger is down before it arms.
+  bodyHolding: { opacity: 0.6 },
+  // Trailing actions (delete); padding here + the grip's left padding open a
+  // clear gap between the delete button and the reorder grip.
+  trailing: { alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: spacing.sm },
   handle: {
-    paddingHorizontal: spacing.xs,
-    paddingLeft: spacing.sm,
+    paddingRight: spacing.xs,
+    paddingLeft: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'stretch',

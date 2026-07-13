@@ -671,30 +671,28 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               />
             </Pressable>
             {savedSpotsOpen ? (
-              <ReorderableList
-                items={favorites}
-                keyOf={(f) => f.id}
-                rowHeight={44}
-                onReorder={onReorderFavorites}
-                onActiveChange={setReordering}
-                rowStyle={styles.favRowCard}
-                renderItem={(fav) => (
-                  <>
-                    <Pressable
-                      style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
-                      onPress={() => onLoadFavorite(fav)}
-                    >
-                      <Feather
-                        name="star"
-                        size={14}
-                        color={colors.warn}
-                        style={styles.favStar}
-                      />
+              <>
+                <Text style={styles.dragHint}>
+                  Tap to load · press and hold 1.5s to reorder
+                </Text>
+                <ReorderableList
+                  items={favorites}
+                  keyOf={(f) => f.id}
+                  rowHeight={44}
+                  onReorder={onReorderFavorites}
+                  onActiveChange={setReordering}
+                  rowStyle={styles.favRowCard}
+                  onItemPress={(fav) => onLoadFavorite(fav)}
+                  renderItem={(fav) => (
+                    <>
+                      <Feather name="star" size={14} color={colors.warn} />
                       <Text style={styles.favName} numberOfLines={1}>
                         {fav.label}
                       </Text>
-                    </Pressable>
-                    {confirmDeleteFav === fav.id ? (
+                    </>
+                  )}
+                  renderTrailing={(fav) =>
+                    confirmDeleteFav === fav.id ? (
                       <View style={styles.confirmDeleteRow}>
                         <Pressable
                           onPress={() => {
@@ -713,10 +711,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                       <Pressable onPress={() => setConfirmDeleteFav(fav.id)} hitSlop={8}>
                         <Feather name="trash-2" size={15} color={colors.textMuted} />
                       </Pressable>
-                    )}
-                  </>
-                )}
-              />
+                    )
+                  }
+                />
+              </>
             ) : null}
           </View>
         ) : null}
@@ -758,6 +756,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               right) so the order they see is the order they set. */}
           {customPresets.length > 0 ? (
             <View style={styles.presetList}>
+              <Text style={styles.dragHint}>
+                Tap to apply · press and hold 1.5s to reorder
+              </Text>
               <ReorderableList
                 items={customPresets}
                 keyOf={(p) => p.id}
@@ -765,39 +766,37 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                 onReorder={onReorderPresets}
                 onActiveChange={setReordering}
                 rowStyle={styles.presetRowCard}
+                onItemPress={(p) => applyCustomPreset(p)}
                 renderItem={(p) => (
                   <>
-                    <Pressable
-                      style={({ pressed }) => [styles.presetRowTap, pressed && pressedStyle]}
-                      onPress={() => applyCustomPreset(p)}
-                    >
-                      <Feather name="bookmark" size={13} color={colors.accent} />
-                      <Text style={styles.presetText} numberOfLines={1}>
-                        {p.label}
-                      </Text>
-                    </Pressable>
-                    {confirmDeletePreset === p.id ? (
-                      <View style={styles.confirmDeleteRow}>
-                        <Pressable
-                          onPress={() => {
-                            void onDeletePreset(p.id);
-                            setConfirmDeletePreset(null);
-                          }}
-                          hitSlop={8}
-                        >
-                          <Text style={styles.confirmDeleteText}>Delete</Text>
-                        </Pressable>
-                        <Pressable onPress={() => setConfirmDeletePreset(null)} hitSlop={8}>
-                          <Text style={styles.confirmCancelText}>Cancel</Text>
-                        </Pressable>
-                      </View>
-                    ) : (
-                      <Pressable onPress={() => setConfirmDeletePreset(p.id)} hitSlop={8}>
-                        <Feather name="trash-2" size={14} color={colors.textMuted} />
-                      </Pressable>
-                    )}
+                    <Feather name="bookmark" size={13} color={colors.accent} />
+                    <Text style={styles.presetText} numberOfLines={1}>
+                      {p.label}
+                    </Text>
                   </>
                 )}
+                renderTrailing={(p) =>
+                  confirmDeletePreset === p.id ? (
+                    <View style={styles.confirmDeleteRow}>
+                      <Pressable
+                        onPress={() => {
+                          void onDeletePreset(p.id);
+                          setConfirmDeletePreset(null);
+                        }}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.confirmDeleteText}>Delete</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setConfirmDeletePreset(null)} hitSlop={8}>
+                        <Text style={styles.confirmCancelText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable onPress={() => setConfirmDeletePreset(p.id)} hitSlop={8}>
+                      <Feather name="trash-2" size={14} color={colors.textMuted} />
+                    </Pressable>
+                  )
+                }
               />
             </View>
           ) : null}
@@ -1355,13 +1354,12 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     borderRadius: radius.sm,
     paddingLeft: spacing.md,
   },
-  favTap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  favStar: {
-    marginRight: spacing.sm,
+  // Small cue above the reorderable lists so the hold-to-reorder gesture is
+  // discoverable (a plain tap otherwise just loads/applies the row).
+  dragHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginBottom: spacing.sm,
   },
   favName: {
     color: colors.text,
@@ -1392,12 +1390,6 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     borderWidth: 1,
     borderColor: colors.accent,
     paddingLeft: spacing.md,
-  },
-  presetRowTap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
   },
   presetText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   collapse: {
