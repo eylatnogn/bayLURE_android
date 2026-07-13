@@ -292,6 +292,46 @@ export function TideGraphModal({
     const now = new Date();
     const nowX = x(now.getHours() + now.getMinutes() / 60);
 
+    // De-clutter the high/low labels. Each label is nearly half the chart wide,
+    // so when extremes bunch up in time the labels overlap into an unreadable
+    // smear. Place the most extreme events first (the true daily high & low read
+    // first), then keep another label only if it clears the ones already placed;
+    // the dropped events still keep their marker dot. Horizontal position is
+    // clamped by the label's real width so the end labels aren't clipped.
+    const CHAR_HALF = 2.9; // ~half a glyph's width in viewBox units at fontSize 11
+    const LABEL_GAP = 5; // min clear space between two labels
+    const LINE_H = 12; // labels only clash if within this vertical band (~one line)
+    const meanH = values.reduce((a, b) => a + b, 0) / values.length;
+    const tideLabels: { cx: number; cy: number; halfW: number; text: string }[] = [];
+    const candidates = tide.events
+      .map((e) => {
+        const hr = hourOf(e.time.replace(' ', 'T'));
+        if (Number.isNaN(hr)) return null;
+        const exact = hr + Number(e.time.slice(14, 16) || 0) / 60;
+        const text = `${e.type === 'high' ? 'H' : 'L'} ${e.heightFt}ft · ${fmtEventTime(e.time)}`;
+        const halfW = text.length * CHAR_HALF;
+        return {
+          text,
+          halfW,
+          cx: Math.min(Math.max(x(exact), halfW + 2), W - halfW - 2),
+          cy: y(e.heightFt) - 9,
+          rank: Math.abs(e.heightFt - meanH),
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .sort((a, b) => b.rank - a.rank);
+    for (const c of candidates) {
+      // Two labels clash only when they overlap horizontally AND sit on the same
+      // line — so a high and a low near the same time still both show, but a
+      // ripple crowding a neighbouring high on the same row is dropped.
+      const clashes = tideLabels.some(
+        (p) =>
+          Math.abs(p.cx - c.cx) < p.halfW + c.halfW + LABEL_GAP &&
+          Math.abs(p.cy - c.cy) < LINE_H,
+      );
+      if (!clashes) tideLabels.push(c);
+    }
+
     chart = (
       <View
         ref={chartRef}
@@ -400,18 +440,13 @@ export function TideGraphModal({
         <Path d={area} fill={colors.water} opacity={0.16} />
         <Path d={curve} stroke={colors.water} strokeWidth={2.5} fill="none" />
 
-        {/* High/low markers with time + height. */}
-        {tide.events.map((e, i) => {
-          const hr = hourOf(e.time.replace(' ', 'T'));
-          if (Number.isNaN(hr)) return null;
-          const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
-          const ey = y(e.heightFt);
-          return (
-            <SvgText key={`e${i}`} x={Math.min(Math.max(ex, 26), W - 26)} y={ey - 9} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
-              {`${e.type === 'high' ? 'H' : 'L'} ${e.heightFt}ft · ${fmtEventTime(e.time)}`}
-            </SvgText>
-          );
-        })}
+        {/* High/low markers with time + height (de-cluttered so clustered
+            extremes don't overlap; dropped ones keep their dot below). */}
+        {tideLabels.map((l, i) => (
+          <SvgText key={`e${i}`} x={l.cx} y={l.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
+            {l.text}
+          </SvgText>
+        ))}
         {tide.events.map((e, i) => {
           const hr = hourOf(e.time.replace(' ', 'T'));
           if (Number.isNaN(hr)) return null;
