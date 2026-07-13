@@ -951,18 +951,31 @@ export function buildMapHtml(
           color: contourColorFt(levels[li]), weight: 1.6, opacity: 0.95,
           interactive: false, pane: 'contours'
         }));
-        var mid = segs[Math.floor(segs.length / 2)];
-        contourLines.addLayer(L.marker(
-          [(mid[0][0] + mid[1][0]) / 2, (mid[0][1] + mid[1][1]) / 2],
-          {
+        // Several depth numbers along each line (not just one), spread through
+        // the segment list and kept a few grid cells apart, so the depth can be
+        // read wherever the line is met instead of traced back to one label.
+        var want = Math.min(4, Math.max(1, Math.round(segs.length / 8)));
+        var stride = Math.max(1, Math.floor(segs.length / want));
+        var placedPts = [];
+        for (var m = Math.floor(stride / 2); m < segs.length && placedPts.length < want; m += stride) {
+          var sm = segs[m];
+          var plat = (sm[0][0] + sm[1][0]) / 2, plon = (sm[0][1] + sm[1][1]) / 2;
+          var clear = true;
+          for (var q = 0; q < placedPts.length; q++) {
+            if (Math.abs(placedPts[q][0] - plat) < dLat * 4 &&
+                Math.abs(placedPts[q][1] - plon) < dLon * 4) { clear = false; break; }
+          }
+          if (!clear) { continue; }
+          placedPts.push([plat, plon]);
+          contourLines.addLayer(L.marker([plat, plon], {
             interactive: false,
             icon: L.divIcon({
               className: 'clabelwrap',
               html: '<span class="clabel">' + levels[li] + '</span>',
               iconSize: [0, 0]
             })
-          }
-        ));
+          }));
+        }
       }
     }
     window.__depthCells = drawDepthCells;
