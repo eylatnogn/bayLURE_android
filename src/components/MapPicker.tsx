@@ -110,6 +110,7 @@ function MapCanvas({
   // and inject the result back. The map computes the sample grid / point and
   // asks via {type:'depthReq'} / {type:'pinDepthReq'}; we echo its geometry so
   // it can draw without keeping pending state.
+  const latestDepthReq = useRef(0);
   const handleDepthReq = async (req: {
     id: number;
     locs: string;
@@ -117,14 +118,28 @@ function MapCanvas({
     dLat: number;
     dLon: number;
   }) => {
+    latestDepthReq.current = req.id;
     try {
-      const res = await fetch(
-        `https://api.opentopodata.org/v1/gebco2020?locations=${encodeURIComponent(req.locs)}`,
-      );
-      const j = await res.json();
-      const results: (number | null)[] = (j.results ?? []).map(
-        (r: { elevation: number | null } | null) => (r ? r.elevation : null),
-      );
+      // The contour grid is ~200 points but opentopodata caps a request at 100
+      // locations (and free tier at 1 call/sec), so fetch in spaced batches —
+      // bailing out if the map has already asked for a newer view.
+      const locs = req.locs.split('|');
+      const results: (number | null)[] = [];
+      for (let i = 0; i < locs.length; i += 100) {
+        if (latestDepthReq.current !== req.id) return;
+        if (i > 0) await new Promise((r) => setTimeout(r, 1100));
+        if (latestDepthReq.current !== req.id) return;
+        const res = await fetch(
+          `https://api.opentopodata.org/v1/gebco2020?locations=${encodeURIComponent(
+            locs.slice(i, i + 100).join('|'),
+          )}`,
+        );
+        const j = await res.json();
+        for (const r of (j.results ?? []) as ({ elevation: number | null } | null)[]) {
+          results.push(r ? r.elevation : null);
+        }
+      }
+      if (latestDepthReq.current !== req.id) return;
       const payload = { id: req.id, cells: req.cells, dLat: req.dLat, dLon: req.dLon, results };
       webRef.current?.injectJavaScript(
         `window.__depthCells && window.__depthCells(${JSON.stringify(payload)}); true;`,

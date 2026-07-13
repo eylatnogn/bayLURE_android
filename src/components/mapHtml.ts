@@ -161,6 +161,13 @@ export function buildMapHtml(
       font: 600 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
     }
+    /* Depth-contour line labels ("12" = 12 ft), halo so they read over any base. */
+    .clabelwrap { background: transparent; border: none; }
+    .clabel {
+      color: #f2fbff; font: 700 10px -apple-system, Roboto, sans-serif;
+      text-shadow: 0 0 3px rgba(8,26,36,0.95), 0 0 2px rgba(8,26,36,0.95);
+      white-space: nowrap;
+    }
     /* Shown only when Depth is on but the area has no charted depth, so the
        angler knows the overlay isn't broken — there's just no data here. */
     .depthnotice {
@@ -202,6 +209,7 @@ export function buildMapHtml(
         <div class="legend-when">Depth (ft)</div>
         <div class="legend-bar depthgrad"></div>
         <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
+        <div class="legend-scale"><span>lines = contours, labeled in ft</span></div>
       </div>
       <div class="legendsec" id="radarlegend">
         <div class="legend-when">Radar (rain)</div>
@@ -754,7 +762,9 @@ export function buildMapHtml(
         var west = b.getWest(), east = b.getEast();
         if (east - west > 30) { var mx = (east + west) / 2; west = mx - 15; east = mx + 15; }
         if (north - south > 30) { var my = (north + south) / 2; south = my - 15; north = my + 15; }
-        var n = 8;
+        // 14x14 = 196 samples: dense enough for contour lines; the host splits
+        // it into <=100-location calls (opentopodata's per-request cap).
+        var n = 14;
         var dLat = (north - south) / (n - 1), dLon = (east - west) / (n - 1);
         var locs = [], cells = [];
         for (var r = 0; r < n; r++) {
@@ -779,9 +789,71 @@ export function buildMapHtml(
       if (el) { el.style.display = (on && depthEnabled) ? 'block' : 'none'; }
     }
 
+    // Marching squares over the sampled grid: line segments where the water
+    // depth crosses the given level (ft). vals is row-major (north->south,
+    // west->east), NaN where GEBCO had no reading; land is negative so the
+    // shoreline interpolates naturally.
+    function contourSegs(vals, cells, n, level) {
+      var segs = [];
+      function ip(pA, pB, vA, vB) {
+        var t = (level - vA) / (vB - vA);
+        return [pA[0] + (pB[0] - pA[0]) * t, pA[1] + (pB[1] - pA[1]) * t];
+      }
+      for (var r = 0; r < n - 1; r++) {
+        for (var c = 0; c < n - 1; c++) {
+          var i00 = r * n + c, i01 = i00 + 1, i10 = i00 + n, i11 = i10 + 1;
+          var v00 = vals[i00], v01 = vals[i01], v10 = vals[i10], v11 = vals[i11];
+          if (isNaN(v00) || isNaN(v01) || isNaN(v10) || isNaN(v11)) { continue; }
+          var idx = (v00 >= level ? 8 : 0) | (v01 >= level ? 4 : 0) |
+                    (v11 >= level ? 2 : 0) | (v10 >= level ? 1 : 0);
+          if (idx === 0 || idx === 15) { continue; }
+          var p00 = cells[i00], p01 = cells[i01], p10 = cells[i10], p11 = cells[i11];
+          var top = ((v00 >= level) !== (v01 >= level)) ? ip(p00, p01, v00, v01) : null;
+          var right = ((v01 >= level) !== (v11 >= level)) ? ip(p01, p11, v01, v11) : null;
+          var bottom = ((v10 >= level) !== (v11 >= level)) ? ip(p10, p11, v10, v11) : null;
+          var left = ((v00 >= level) !== (v10 >= level)) ? ip(p00, p10, v00, v10) : null;
+          switch (idx) {
+            case 1: case 14: segs.push([left, bottom]); break;
+            case 2: case 13: segs.push([bottom, right]); break;
+            case 3: case 12: segs.push([left, right]); break;
+            case 4: case 11: segs.push([top, right]); break;
+            case 6: case 9: segs.push([top, bottom]); break;
+            case 7: case 8: segs.push([left, top]); break;
+            case 5: case 10:
+              // Saddle: split by the cell-centre average.
+              var hi = ((v00 + v01 + v10 + v11) / 4) >= level;
+              if ((idx === 5) === hi) { segs.push([top, right]); segs.push([left, bottom]); }
+              else { segs.push([left, top]); segs.push([bottom, right]); }
+              break;
+          }
+        }
+      }
+      return segs;
+    }
+
+    // Contour levels for the visible depths: the finest step (1 ft up) that
+    // keeps the view under ~10 lines, so a shallow flat gets foot-by-foot
+    // lines and the open ocean doesn't turn solid.
+    function contourLevels(minFt, maxFt) {
+      var steps = [1, 2, 5, 10, 20, 50, 100, 200];
+      for (var s = 0; s < steps.length; s++) {
+        var st = steps[s];
+        var lo = Math.max(st, Math.ceil(minFt / st) * st);
+        var hi = Math.floor(maxFt / st) * st;
+        var count = Math.floor((hi - lo) / st) + 1;
+        if (count <= 10 || s === steps.length - 1) {
+          var out = [];
+          for (var v = lo; v <= hi; v += st) { out.push(v); }
+          return out;
+        }
+      }
+      return [];
+    }
+
     // Host reply for a depthReq: elevations in metres (negative = below sea
     // level) in the same order as the grid cells we sent. Draw the stepped
-    // shading, and surface the notice when nothing in view is below the surface.
+    // shading plus labeled contour lines, and surface the notice when nothing
+    // in view is below the surface.
     function drawDepthCells(payload) {
       if (!depthEnabled || !payload || payload.id !== depthReqSeq) { return; }
       depthShade.clearLayers();
@@ -789,12 +861,17 @@ export function buildMapHtml(
       var cells = payload.cells || [];
       var dLat = payload.dLat, dLon = payload.dLon;
       var drawn = 0;
+      var vals = [];
+      var minFt = Infinity, maxFt = -Infinity;
       for (var i = 0; i < results.length; i++) {
         var el = results[i];
-        if (el == null || el >= 0) { continue; } // at/above sea level: no depth
-        var ft = -el * 3.28084;
         var cl = cells[i];
-        if (!cl) { continue; }
+        // Depth in ft (negative on land) for the contour grid; NaN = no data.
+        vals.push(el == null ? NaN : -el * 3.28084);
+        if (el == null || el >= 0 || !cl) { continue; } // at/above sea level: no shading
+        var ft = -el * 3.28084;
+        if (ft < minFt) { minFt = ft; }
+        if (ft > maxFt) { maxFt = ft; }
         depthShade.addLayer(L.rectangle(
           [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
           { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
@@ -802,6 +879,32 @@ export function buildMapHtml(
         drawn++;
       }
       showDepthNotice(drawn === 0);
+      if (drawn === 0) { return; }
+
+      // Contour lines with a depth label on each level.
+      var n = Math.round(Math.sqrt(cells.length));
+      if (n * n !== cells.length || n < 3) { return; }
+      var levels = contourLevels(minFt, maxFt);
+      for (var li = 0; li < levels.length; li++) {
+        var segs = contourSegs(vals, cells, n, levels[li]);
+        if (!segs.length) { continue; }
+        depthShade.addLayer(L.polyline(segs, {
+          color: '#eaf7ff', weight: 1, opacity: 0.8,
+          interactive: false, pane: 'depthshade'
+        }));
+        var mid = segs[Math.floor(segs.length / 2)];
+        depthShade.addLayer(L.marker(
+          [(mid[0][0] + mid[1][0]) / 2, (mid[0][1] + mid[1][1]) / 2],
+          {
+            interactive: false,
+            icon: L.divIcon({
+              className: 'clabelwrap',
+              html: '<span class="clabel">' + levels[li] + '</span>',
+              iconSize: [0, 0]
+            })
+          }
+        ));
+      }
     }
     window.__depthCells = drawDepthCells;
 
