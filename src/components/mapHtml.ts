@@ -539,6 +539,18 @@ export function buildMapHtml(
     // Baked in by the host so full screen inherits the inline map's radar loop.
     var radarEnabled = ${initialRadar ? 'true' : 'false'};
     var radarPaused = false; // true while the host's timeline is scrubbing
+    var isFullscreen = ${fullscreen ? 'true' : 'false'};
+
+    // In full screen the host draws the radar scrub timeline across the bottom,
+    // over (web) or right below (native) the map — so lift the in-map wind
+    // readout and map key above it whenever radar is on in full screen.
+    function setRadarBottomInset() {
+      var inset = (isFullscreen && radarEnabled) ? 72 : 0;
+      var wr = document.getElementById('windread');
+      var lb = document.getElementById('legendbox');
+      if (wr) { wr.style.bottom = (8 + inset) + 'px'; }
+      if (lb) { lb.style.bottom = (8 + inset) + 'px'; }
+    }
     var radarFrames = []; // { label, layer, opacity } — past frames then forecast
     var radarIdx = 0;
     var radarNowIdx = RADAR_STEPS.length - 1; // where "now" sits in the loop
@@ -631,6 +643,7 @@ export function buildMapHtml(
       radarPaused = false;
       buildRadarLayers();
       smoothRadar();
+      setRadarBottomInset();
       showRadarFrame(radarNowIdx);
       // Tell the host what's in the loop so it can draw its timeline.
       postHost({
@@ -652,6 +665,7 @@ export function buildMapHtml(
       if (radarRefreshTimer) { clearInterval(radarRefreshTimer); radarRefreshTimer = null; }
       radarPaused = false;
       removeRadarLayers();
+      setRadarBottomInset();
       postHost({ type: 'radar', on: false });
     }
 

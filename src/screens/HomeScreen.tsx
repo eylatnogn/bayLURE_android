@@ -1334,10 +1334,11 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 13,
     fontWeight: '600',
   },
-  // The map breaks out of the card padding so the preview spans the full
-  // card width — a wider look than the default inset.
+  // The map breaks out of most of the card padding for a wider preview, but
+  // stops short of the card edge so a strip stays on each side to grab for
+  // scrolling the page (the map itself captures vertical drags).
   mapWrap: {
-    marginHorizontal: -spacing.lg,
+    marginHorizontal: -spacing.sm,
   },
   // Card look for a reorderable saved-spot row (positioned by ReorderableList,
   // so no margin — the grip sits inside the card on the right).

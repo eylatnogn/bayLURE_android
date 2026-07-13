@@ -408,6 +408,9 @@ const useStyles = makeStyles((colors) => ({
   // "Analyze my spot" button, so the two read as one system.
   tideBtn: {
     marginTop: spacing.md,
+    // Space below so the next section (Best bite times, or the hour picker
+    // when there are none) never crowds the button or its shadow.
+    marginBottom: spacing.md,
     borderRadius: radius.md,
     shadowColor: colors.accentDeep,
     shadowOffset: { width: 0, height: 4 },
