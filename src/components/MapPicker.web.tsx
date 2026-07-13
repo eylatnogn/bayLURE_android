@@ -64,6 +64,56 @@ export function MapPicker({
           }
           return;
         }
+        if (data?.type === 'depthReq') {
+          // opentopodata sends no CORS header, so this browser fetch is usually
+          // blocked on web too — but attempt it and reply to the asking iframe,
+          // so web works automatically if the source ever allows CORS.
+          const src = event.source as Window | null;
+          void (async () => {
+            try {
+              const res = await fetch(
+                `https://api.opentopodata.org/v1/gebco2020?locations=${encodeURIComponent(data.locs)}`,
+              );
+              const j = await res.json();
+              const results = (j.results ?? []).map(
+                (r: { elevation: number | null } | null) => (r ? r.elevation : null),
+              );
+              src?.postMessage(
+                {
+                  type: 'balure:depthCells',
+                  payload: { id: data.id, cells: data.cells, dLat: data.dLat, dLon: data.dLon, results },
+                },
+                '*',
+              );
+            } catch {
+              // Depth shading is best-effort on web.
+            }
+          })();
+          return;
+        }
+        if (data?.type === 'pinDepthReq') {
+          const src = event.source as Window | null;
+          void (async () => {
+            try {
+              const res = await fetch(
+                `https://api.opentopodata.org/v1/gebco2020?locations=${data.lat},${data.lng}`,
+              );
+              const j = await res.json();
+              const el: number | null = j.results?.[0] ? j.results[0].elevation : null;
+              const text =
+                el != null && el < 0
+                  ? `≈${Math.round(-el * 3.28084)} ft deep (GEBCO)`
+                  : 'Bottom depth not charted here';
+              src?.postMessage(
+                { type: 'balure:pinDepth', payload: { text, autoOpen: !!data.autoOpen } },
+                '*',
+              );
+            } catch {
+              // Optional on web.
+            }
+          })();
+          return;
+        }
         if (data?.type === 'radar' || data?.type === 'radarFrame') {
           const fromFull = event.source === fullRef.current?.contentWindow;
           const set = fromFull ? setFullRadar : setInlineRadar;

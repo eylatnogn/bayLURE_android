@@ -127,6 +127,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   // Scroll plumbing for the floating jump button (top <-> bite forecast).
   const scrollRef = useRef<ScrollView>(null);
+  // While a saved-spot/preset row is being dragged, freeze the page so the
+  // reorder gesture can't scroll the screen out from under the finger.
+  const [reordering, setReordering] = useState(false);
   const bodyY = useRef(0); // body offset within the scroll content
   // The map's wrapper, measured when the tide sheet opens so the map — not
   // the page top — lands in the strip above the sheet.
@@ -534,6 +537,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       keyboardShouldPersistTaps="handled"
       onScroll={onScroll}
       scrollEventThrottle={16}
+      scrollEnabled={!reordering}
     >
       <BrandHeader
         heading="bayLURE"
@@ -672,6 +676,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                 keyOf={(f) => f.id}
                 rowHeight={44}
                 onReorder={onReorderFavorites}
+                onActiveChange={setReordering}
                 rowStyle={styles.favRowCard}
                 renderItem={(fav) => (
                   <>
@@ -758,6 +763,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                 keyOf={(p) => p.id}
                 rowHeight={42}
                 onReorder={onReorderPresets}
+                onActiveChange={setReordering}
                 rowStyle={styles.presetRowCard}
                 renderItem={(p) => (
                   <>

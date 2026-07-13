@@ -16,6 +16,9 @@ interface Props<T> {
   renderItem: (item: T) => ReactNode;
   /** Visual style for each row container (card bg/border), grip included. */
   rowStyle?: StyleProp<ViewStyle>;
+  /** Fires true when a drag arms (reorder mode) and false when it settles, so
+   * the parent can lock page scrolling while a row is being moved. */
+  onActiveChange?: (active: boolean) => void;
 }
 
 /** Move an array element from one index to another (immutably). */
@@ -30,7 +33,10 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 
 /** Hold the grip this long before a drag starts, so a stray touch or a scroll
  * never reorders by accident. */
-const HOLD_MS = 2000;
+const HOLD_MS = 1500;
+
+/** How much the picked-up row grows, to read as "lifted / magnified". */
+const DRAG_SCALE = 1.06;
 
 /**
  * A dependency-free drag-to-reorder vertical list (core PanResponder +
@@ -49,6 +55,7 @@ export function ReorderableList<T>({
   onReorder,
   renderItem,
   rowStyle,
+  onActiveChange,
 }: Props<T>) {
   const slot = rowHeight + gap;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -60,6 +67,8 @@ export function ReorderableList<T>({
   itemsRef.current = items;
   const onReorderRef = useRef(onReorder);
   onReorderRef.current = onReorder;
+  const onActiveChangeRef = useRef(onActiveChange);
+  onActiveChangeRef.current = onActiveChange;
 
   const onStart = (index: number) => {
     dragIndexRef.current = index;
@@ -67,6 +76,7 @@ export function ReorderableList<T>({
     dragY.setValue(0);
     setDragIndex(index);
     setHoverIndex(index);
+    onActiveChangeRef.current?.(true);
   };
   const onMove = (dy: number) => {
     dragY.setValue(dy);
@@ -86,6 +96,7 @@ export function ReorderableList<T>({
     dragY.setValue(0);
     setDragIndex(null);
     setHoverIndex(null);
+    onActiveChangeRef.current?.(false);
     if (from != null && to != null && from !== to) {
       onReorderRef.current(move(itemsRef.current, from, to));
     }
@@ -201,7 +212,12 @@ function DragRow({
     else if (dragIndex > hoverIndex && index >= hoverIndex && index < dragIndex) base += slot;
   }
   const pos = dragging
-    ? { top: dragIndex * slot, transform: [{ translateY: dragY }], zIndex: 20, elevation: 6 }
+    ? {
+        top: dragIndex * slot,
+        transform: [{ translateY: dragY }, { scale: DRAG_SCALE }],
+        zIndex: 20,
+        elevation: 6,
+      }
     : { top: base, zIndex: 1 };
 
   return (
@@ -229,7 +245,9 @@ const useStyles = makeStyles((c) => ({
     alignItems: 'center',
   },
   rowDragging: {
-    backgroundColor: c.bgElevated,
+    // A little lighter than the resting card so the picked-up row reads as
+    // lifted off the surface, paired with the scale-up in `pos`.
+    backgroundColor: c.card,
     borderRadius: radius.md,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },

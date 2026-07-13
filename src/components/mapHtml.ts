@@ -120,7 +120,9 @@ export function buildMapHtml(
        the overlay toggles instead of stacking four chips over the map. */
     #layersbtn { top: 8px; right: 8px; }
     #layerspanel {
-      position: absolute; z-index: 1000; right: 8px; top: 42px;
+      /* top: clear the Layers button (top 8px + ~34px tall) with a gap, so the
+         Wind toggle doesn't butt right up against the button above it. */
+      position: absolute; z-index: 1000; right: 8px; top: 50px;
       display: none; flex-direction: column; gap: 6px; align-items: flex-end;
     }
     #layerspanel.open { display: flex; }
@@ -159,11 +161,22 @@ export function buildMapHtml(
       font: 600 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
     }
+    /* Shown only when Depth is on but the area has no charted depth, so the
+       angler knows the overlay isn't broken — there's just no data here. */
+    .depthnotice {
+      position: absolute; z-index: 1000; left: 50%; bottom: 8px;
+      transform: translateX(-50%); display: none;
+      max-width: calc(100% - 16px);
+      background: rgba(34,46,28,0.82); color: #f2d9a0;
+      font: 600 12px -apple-system, Roboto, sans-serif;
+      padding: 6px 10px; border-radius: 8px; white-space: nowrap;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div class="hint">Tap or drag to set your spot</div>
+  <div class="depthnotice" id="depthnotice">No charted depth for this area</div>
   <button class="maptoggle mapicon" id="fsbtn" aria-label="Full screen"></button>
   <button class="maptoggle mapicon" id="centerbtn" aria-label="Center on pin"></button>
   <button class="maptoggle mapicon" id="layersbtn" aria-label="Map layers"></button>
@@ -727,6 +740,12 @@ export function buildMapHtml(
     }
 
     // Coarse GEBCO depth shading over the view (cells below sea level only).
+    // The GEBCO point API sends no CORS header, so an in-WebView fetch is
+    // blocked on device — the shading silently never drew. Instead we hand the
+    // sample grid to the host (React Native / parent window), which reads it
+    // with native networking (no CORS) and injects the elevations back via
+    // window.__depthCells. depthReqSeq lets us drop stale replies after a pan.
+    var depthReqSeq = 0;
     function refreshDepthShading() {
       if (!depthEnabled) { return; }
       try {
@@ -746,26 +765,45 @@ export function buildMapHtml(
             cells.push([lat, lon]);
           }
         }
-        fetch('https://api.opentopodata.org/v1/gebco2020?locations=' + locs.join('|'))
-          .then(function (res) { return res.json(); })
-          .then(function (j) {
-            if (!depthEnabled) { return; }
-            depthShade.clearLayers();
-            var results = j.results || [];
-            for (var i = 0; i < results.length; i++) {
-              var el = results[i] ? results[i].elevation : null;
-              if (el == null || el >= 0) { continue; } // at/above sea level: no depth
-              var ft = -el * 3.28084;
-              var cl = cells[i];
-              depthShade.addLayer(L.rectangle(
-                [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
-                { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
-              ));
-            }
-          })
-          .catch(function () { /* depth shading is optional */ });
+        depthReqSeq++;
+        postHost({ type: 'depthReq', id: depthReqSeq, locs: locs.join('|'),
+          cells: cells, dLat: dLat, dLon: dLon });
       } catch (e) { /* optional */ }
     }
+
+    // Show/hide the "no charted depth here" banner (only meaningful when depth
+    // is on — e.g. an inland freshwater lake reads above sea level, so GEBCO
+    // has no below-surface reading to shade).
+    function showDepthNotice(on) {
+      var el = document.getElementById('depthnotice');
+      if (el) { el.style.display = (on && depthEnabled) ? 'block' : 'none'; }
+    }
+
+    // Host reply for a depthReq: elevations in metres (negative = below sea
+    // level) in the same order as the grid cells we sent. Draw the stepped
+    // shading, and surface the notice when nothing in view is below the surface.
+    function drawDepthCells(payload) {
+      if (!depthEnabled || !payload || payload.id !== depthReqSeq) { return; }
+      depthShade.clearLayers();
+      var results = payload.results || [];
+      var cells = payload.cells || [];
+      var dLat = payload.dLat, dLon = payload.dLon;
+      var drawn = 0;
+      for (var i = 0; i < results.length; i++) {
+        var el = results[i];
+        if (el == null || el >= 0) { continue; } // at/above sea level: no depth
+        var ft = -el * 3.28084;
+        var cl = cells[i];
+        if (!cl) { continue; }
+        depthShade.addLayer(L.rectangle(
+          [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
+          { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
+        ));
+        drawn++;
+      }
+      showDepthNotice(drawn === 0);
+    }
+    window.__depthCells = drawDepthCells;
 
     function scheduleDepth() {
       if (!depthEnabled) { return; }
@@ -774,19 +812,16 @@ export function buildMapHtml(
     }
 
     // Charted depth at the pin (GEBCO single point), shown in the marker popup.
+    // Same CORS story as the shading: the host reads the point depth with
+    // native networking and hands the text back through window.__pinDepth.
     function updatePinDepth(ll, autoOpen) {
-      fetch('https://api.opentopodata.org/v1/gebco2020?locations=' + ll.lat + ',' + ll.lng)
-        .then(function (res) { return res.json(); })
-        .then(function (j) {
-          var el = j.results && j.results[0] ? j.results[0].elevation : null;
-          var txt = (el != null && el < 0)
-            ? '≈' + Math.round(-el * 3.28084) + ' ft deep (GEBCO)'
-            : 'Bottom depth not charted here';
-          marker.bindPopup(txt);
-          if (autoOpen) { marker.openPopup(); }
-        })
-        .catch(function () { /* optional */ });
+      postHost({ type: 'pinDepthReq', lat: ll.lat, lng: ll.lng, autoOpen: !!autoOpen });
     }
+    window.__pinDepth = function (payload) {
+      if (!payload) { return; }
+      marker.bindPopup(payload.text || '');
+      if (payload.autoOpen) { marker.openPopup(); }
+    };
 
     var depthBtn = document.getElementById('depthtoggle');
     if (L.DomEvent) {
@@ -819,6 +854,7 @@ export function buildMapHtml(
         if (noaaLayer) { map.removeLayer(noaaLayer); }
         map.removeLayer(depthShade);
         setLegend('depthlegend', false);
+        showDepthNotice(false);
       }
       postHost({ type: 'depth', on: on });
     }
@@ -862,6 +898,10 @@ export function buildMapHtml(
         window.__radarScrub(d.idx);
       } else if (d.type === 'balure:radarPlay') {
         window.__radarPlay();
+      } else if (d.type === 'balure:depthCells') {
+        drawDepthCells(d.payload);
+      } else if (d.type === 'balure:pinDepth') {
+        window.__pinDepth(d.payload);
       } else if (d.type === 'balure:fullscreen') {
         var fb = document.getElementById('fsbtn');
         if (fb) { fb.innerHTML = d.value ? SVG_SHRINK : SVG_EXPAND; }

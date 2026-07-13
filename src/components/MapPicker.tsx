@@ -105,6 +105,54 @@ function MapCanvas({
     );
   }, [windTargetLabel, windMph, windDirDeg]);
 
+  // GEBCO depth reads for the WebView. opentopodata sends no CORS header, so an
+  // in-WebView fetch is blocked — we do it here with native networking (no CORS)
+  // and inject the result back. The map computes the sample grid / point and
+  // asks via {type:'depthReq'} / {type:'pinDepthReq'}; we echo its geometry so
+  // it can draw without keeping pending state.
+  const handleDepthReq = async (req: {
+    id: number;
+    locs: string;
+    cells: [number, number][];
+    dLat: number;
+    dLon: number;
+  }) => {
+    try {
+      const res = await fetch(
+        `https://api.opentopodata.org/v1/gebco2020?locations=${encodeURIComponent(req.locs)}`,
+      );
+      const j = await res.json();
+      const results: (number | null)[] = (j.results ?? []).map(
+        (r: { elevation: number | null } | null) => (r ? r.elevation : null),
+      );
+      const payload = { id: req.id, cells: req.cells, dLat: req.dLat, dLon: req.dLon, results };
+      webRef.current?.injectJavaScript(
+        `window.__depthCells && window.__depthCells(${JSON.stringify(payload)}); true;`,
+      );
+    } catch {
+      // Depth shading is best-effort; leave the map as-is on a failed read.
+    }
+  };
+  const handlePinDepthReq = async (req: { lat: number; lng: number; autoOpen?: boolean }) => {
+    try {
+      const res = await fetch(
+        `https://api.opentopodata.org/v1/gebco2020?locations=${req.lat},${req.lng}`,
+      );
+      const j = await res.json();
+      const el: number | null = j.results?.[0] ? j.results[0].elevation : null;
+      const text =
+        el != null && el < 0
+          ? `≈${Math.round(-el * 3.28084)} ft deep (GEBCO)`
+          : 'Bottom depth not charted here';
+      const payload = { text, autoOpen: !!req.autoOpen };
+      webRef.current?.injectJavaScript(
+        `window.__pinDepth && window.__pinDepth(${JSON.stringify(payload)}); true;`,
+      );
+    } catch {
+      // Optional pin readout; skip on failure.
+    }
+  };
+
   // Hand the host timeline a way to drive this map's radar loop.
   useEffect(() => {
     controlRef.current = {
@@ -142,6 +190,14 @@ function MapCanvas({
           }
           if (data?.type === 'depth') {
             onDepth?.(!!data.on);
+            return;
+          }
+          if (data?.type === 'depthReq') {
+            void handleDepthReq(data);
+            return;
+          }
+          if (data?.type === 'pinDepthReq') {
+            void handlePinDepthReq(data);
             return;
           }
           if (typeof data.latitude === 'number') {
