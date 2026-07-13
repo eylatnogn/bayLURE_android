@@ -21,6 +21,8 @@ interface CanvasProps extends MapPickerProps {
   initialDepth?: boolean;
   /** Reports depth on/off so the host can seed the other map instance. */
   onDepth?: (on: boolean) => void;
+  /** Bake the radar loop on at mount (full screen inherits inline's state). */
+  initialRadar?: boolean;
 }
 
 // The Leaflet WebView. The expand/collapse control lives *inside* the map HTML
@@ -40,6 +42,7 @@ function MapCanvas({
   controlRef,
   initialDepth = false,
   onDepth,
+  initialRadar = false,
 }: CanvasProps) {
   const styles = useStyles();
   const webRef = useRef<WebView>(null);
@@ -57,6 +60,7 @@ function MapCanvas({
   // shared day/hour selection changed.
   const initialWind = useRef({ label: windTargetLabel, mph: windMph, dir: windDirDeg });
   const initialDepthRef = useRef(initialDepth);
+  const initialRadarRef = useRef(initialRadar);
   const html = useMemo(
     () =>
       buildMapHtml(
@@ -66,6 +70,7 @@ function MapCanvas({
         initialWind.current.mph,
         initialWind.current.dir,
         initialDepthRef.current,
+        initialRadarRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fullscreen],
@@ -254,6 +259,7 @@ export function MapPicker(props: MapPickerProps) {
                   controlRef={fullCtl}
                   initialDepth={depthOn}
                   onDepth={setDepthOn}
+                  initialRadar={inlineRadar != null}
                 />
               </View>
               {fullRadar ? (

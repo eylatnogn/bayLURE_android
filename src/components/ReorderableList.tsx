@@ -28,13 +28,18 @@ function move<T>(list: T[], from: number, to: number): T[] {
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
+/** Hold the grip this long before a drag starts, so a stray touch or a scroll
+ * never reorders by accident. */
+const HOLD_MS = 2000;
+
 /**
  * A dependency-free drag-to-reorder vertical list (core PanResponder +
- * Animated only — no gesture-handler/reanimated). Rows are absolutely
- * positioned in fixed-height slots; grabbing a row's grip handle picks it up,
- * the other rows open a gap where it will land, and releasing commits the new
- * order. The handle claims the touch on start so a drag never scrolls the
- * surrounding page.
+ * Animated only — no gesture-handler/reanimated). Each row owns its own
+ * PanResponder on its grip handle, so grabbing a grip picks that exact row
+ * up, the others open a gap where it will land, and releasing commits the new
+ * order. Critically it refuses the responder-termination request, so the
+ * surrounding ScrollView can't steal the drag mid-gesture (which on native
+ * otherwise made the row not move at all).
  */
 export function ReorderableList<T>({
   items,
@@ -45,111 +50,173 @@ export function ReorderableList<T>({
   renderItem,
   rowStyle,
 }: Props<T>) {
-  const { colors } = useTheme();
-  const styles = useStyles();
   const slot = rowHeight + gap;
-
-  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const dragY = useRef(new Animated.Value(0)).current;
-  const startIndex = useRef(0);
-  const containerTop = useRef(0);
-  const containerRef = useRef<View>(null);
-  // Latest values for the once-created PanResponder to read.
+  const dragIndexRef = useRef<number | null>(null);
+  const hoverRef = useRef<number | null>(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
-  const hoverRef = useRef<number | null>(null);
   const onReorderRef = useRef(onReorder);
   onReorderRef.current = onReorder;
 
-  const measure = () => {
-    containerRef.current?.measureInWindow((_x, y) => {
-      containerTop.current = y;
-    });
+  const onStart = (index: number) => {
+    dragIndexRef.current = index;
+    hoverRef.current = index;
+    dragY.setValue(0);
+    setDragIndex(index);
+    setHoverIndex(index);
+  };
+  const onMove = (dy: number) => {
+    dragY.setValue(dy);
+    const len = itemsRef.current.length;
+    const from = dragIndexRef.current ?? 0;
+    const hover = clamp(Math.round((from * slot + dy) / slot), 0, len - 1);
+    if (hover !== hoverRef.current) {
+      hoverRef.current = hover;
+      setHoverIndex(hover);
+    }
+  };
+  const onEnd = () => {
+    const from = dragIndexRef.current;
+    const to = hoverRef.current;
+    dragIndexRef.current = null;
+    hoverRef.current = null;
+    dragY.setValue(0);
+    setDragIndex(null);
+    setHoverIndex(null);
+    if (from != null && to != null && from !== to) {
+      onReorderRef.current(move(itemsRef.current, from, to));
+    }
+  };
+
+  return (
+    <View style={{ height: items.length * slot - gap }}>
+      {items.map((item, index) => (
+        <DragRow
+          key={keyOf(item)}
+          index={index}
+          slot={slot}
+          rowHeight={rowHeight}
+          dragIndex={dragIndex}
+          hoverIndex={hoverIndex}
+          dragY={dragY}
+          rowStyle={rowStyle}
+          onStart={onStart}
+          onMove={onMove}
+          onEnd={onEnd}
+        >
+          {renderItem(item)}
+        </DragRow>
+      ))}
+    </View>
+  );
+}
+
+interface RowProps {
+  index: number;
+  slot: number;
+  rowHeight: number;
+  dragIndex: number | null;
+  hoverIndex: number | null;
+  dragY: Animated.Value;
+  rowStyle?: StyleProp<ViewStyle>;
+  onStart: (index: number) => void;
+  onMove: (dy: number) => void;
+  onEnd: () => void;
+  children: ReactNode;
+}
+
+function DragRow({
+  index,
+  slot,
+  rowHeight,
+  dragIndex,
+  hoverIndex,
+  dragY,
+  rowStyle,
+  onStart,
+  onMove,
+  onEnd,
+  children,
+}: RowProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  // Refs so the once-created PanResponder always sees the latest index and
+  // callbacks (they are recreated each render of the parent).
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const cbRef = useRef({ onStart, onMove, onEnd });
+  cbRef.current = { onStart, onMove, onEnd };
+  // Hold-to-drag: the drag only arms after HOLD_MS on the grip.
+  const activeRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [holding, setHolding] = useState(false);
+
+  const clearHold = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  const finish = () => {
+    clearHold();
+    setHolding(false);
+    if (activeRef.current) {
+      activeRef.current = false;
+      cbRef.current.onEnd();
+    }
   };
 
   const pan = useRef(
     PanResponder.create({
-      // The handlers are only spread onto each row's grip, so claiming on
-      // start means grabbing the grip owns the gesture (page won't scroll).
       onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => {
-        const len = itemsRef.current.length;
-        const i = clamp(Math.floor((e.nativeEvent.pageY - containerTop.current) / slot), 0, len - 1);
-        startIndex.current = i;
-        hoverRef.current = i;
-        dragY.setValue(0);
-        setDragKey(keyOf(itemsRef.current[i]!));
-        setHoverIndex(i);
+      // Before the hold completes, let a real drag fall through to the page
+      // scroll; once armed, refuse to hand the gesture back so the row drags.
+      onPanResponderTerminationRequest: () => !activeRef.current,
+      onShouldBlockNativeResponder: () => activeRef.current,
+      onPanResponderGrant: () => {
+        setHolding(true);
+        clearHold();
+        timerRef.current = setTimeout(() => {
+          activeRef.current = true;
+          cbRef.current.onStart(indexRef.current);
+        }, HOLD_MS);
       },
       onPanResponderMove: (_e, g) => {
-        dragY.setValue(g.dy);
-        const len = itemsRef.current.length;
-        const hover = clamp(Math.round((startIndex.current * slot + g.dy) / slot), 0, len - 1);
-        if (hover !== hoverRef.current) {
-          hoverRef.current = hover;
-          setHoverIndex(hover);
-        }
+        if (activeRef.current) cbRef.current.onMove(g.dy);
       },
-      onPanResponderRelease: () => {
-        const from = startIndex.current;
-        const to = hoverRef.current ?? from;
-        setDragKey(null);
-        setHoverIndex(null);
-        dragY.setValue(0);
-        if (from !== to) onReorderRef.current(move(itemsRef.current, from, to));
-      },
-      onPanResponderTerminate: () => {
-        setDragKey(null);
-        setHoverIndex(null);
-        dragY.setValue(0);
-      },
+      onPanResponderRelease: finish,
+      onPanResponderTerminate: finish,
     }),
   ).current;
 
+  const dragging = dragIndex === index;
+  // Where this row rests while another row is dragged: rows between the
+  // picked-up slot and the hover slot shift by one to open the gap.
+  let base = index * slot;
+  if (dragIndex != null && hoverIndex != null && !dragging) {
+    if (dragIndex < hoverIndex && index > dragIndex && index <= hoverIndex) base -= slot;
+    else if (dragIndex > hoverIndex && index >= hoverIndex && index < dragIndex) base += slot;
+  }
+  const pos = dragging
+    ? { top: dragIndex * slot, transform: [{ translateY: dragY }], zIndex: 20, elevation: 6 }
+    : { top: base, zIndex: 1 };
+
   return (
-    <View
-      ref={containerRef}
-      onLayout={measure}
-      style={{ height: items.length * slot - gap }}
+    <Animated.View
+      style={[styles.row, { height: rowHeight }, rowStyle, dragging && styles.rowDragging, pos]}
     >
-      {items.map((item, index) => {
-        const key = keyOf(item);
-        const dragging = key === dragKey;
-        // Where this row sits while another row is being dragged: rows between
-        // the picked-up slot and the hover slot shift by one to open the gap.
-        let base = index * slot;
-        if (dragKey && hoverIndex != null && !dragging) {
-          const from = startIndex.current;
-          const to = hoverIndex;
-          if (from < to && index > from && index <= to) base -= slot;
-          else if (from > to && index >= to && index < from) base += slot;
-        }
-        const posStyle = dragging
-          ? {
-              top: startIndex.current * slot,
-              transform: [{ translateY: dragY }],
-              zIndex: 20,
-              elevation: 6,
-            }
-          : { top: base, zIndex: 1 };
-        return (
-          <Animated.View
-            key={key}
-            style={[styles.row, { height: rowHeight }, rowStyle, dragging && styles.rowDragging, posStyle]}
-          >
-            <View style={styles.body}>{renderItem(item)}</View>
-            <View
-              style={styles.handle}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              {...pan.panHandlers}
-            >
-              <Feather name="menu" size={18} color={colors.textMuted} />
-            </View>
-          </Animated.View>
-        );
-      })}
-    </View>
+      <View style={styles.body}>{children}</View>
+      <View
+        style={styles.handle}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        {...pan.panHandlers}
+      >
+        <Feather name="menu" size={18} color={holding || dragging ? colors.accent : colors.textMuted} />
+      </View>
+    </Animated.View>
   );
 }
 

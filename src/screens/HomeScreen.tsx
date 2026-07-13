@@ -111,6 +111,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const [quickStartOpen, setQuickStartOpen] = useState(false);
   const [fineTuneOpen, setFineTuneOpen] = useState(true);
   const [savedSpotsOpen, setSavedSpotsOpen] = useState(false);
+  // Two-step delete: first tap arms this id, a second tap on the confirm
+  // control removes it — so a stray tap never deletes a spot or preset.
+  const [confirmDeleteFav, setConfirmDeleteFav] = useState<string | null>(null);
+  const [confirmDeletePreset, setConfirmDeletePreset] = useState<string | null>(null);
   // The "Tides & Bite" hourly graph modal (saltwater spots only).
   const [tideGraphOpen, setTideGraphOpen] = useState(false);
   // The angler's own saved condition configurations.
@@ -597,7 +601,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
         <Text style={styles.orLabel}>or drop a pin on the map</Text>
         {/* collapsable=false so the wrapper stays measurable on Android. */}
-        <View ref={mapWrapRef} collapsable={false}>
+        <View ref={mapWrapRef} collapsable={false} style={styles.mapWrap}>
           <MapPicker
             center={coordinates}
             onPick={onPickOnMap}
@@ -685,9 +689,26 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                         {fav.label}
                       </Text>
                     </Pressable>
-                    <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
-                      <Feather name="x" size={16} color={colors.textMuted} />
-                    </Pressable>
+                    {confirmDeleteFav === fav.id ? (
+                      <View style={styles.confirmDeleteRow}>
+                        <Pressable
+                          onPress={() => {
+                            void onDeleteFavorite(fav.id);
+                            setConfirmDeleteFav(null);
+                          }}
+                          hitSlop={8}
+                        >
+                          <Text style={styles.confirmDeleteText}>Delete</Text>
+                        </Pressable>
+                        <Pressable onPress={() => setConfirmDeleteFav(null)} hitSlop={8}>
+                          <Text style={styles.confirmCancelText}>Cancel</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable onPress={() => setConfirmDeleteFav(fav.id)} hitSlop={8}>
+                        <Feather name="trash-2" size={15} color={colors.textMuted} />
+                      </Pressable>
+                    )}
                   </>
                 )}
               />
@@ -749,9 +770,26 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                         {p.label}
                       </Text>
                     </Pressable>
-                    <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
-                      <Feather name="x" size={14} color={colors.textMuted} />
-                    </Pressable>
+                    {confirmDeletePreset === p.id ? (
+                      <View style={styles.confirmDeleteRow}>
+                        <Pressable
+                          onPress={() => {
+                            void onDeletePreset(p.id);
+                            setConfirmDeletePreset(null);
+                          }}
+                          hitSlop={8}
+                        >
+                          <Text style={styles.confirmDeleteText}>Delete</Text>
+                        </Pressable>
+                        <Pressable onPress={() => setConfirmDeletePreset(null)} hitSlop={8}>
+                          <Text style={styles.confirmCancelText}>Cancel</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Pressable onPress={() => setConfirmDeletePreset(p.id)} hitSlop={8}>
+                        <Feather name="trash-2" size={14} color={colors.textMuted} />
+                      </Pressable>
+                    )}
                   </>
                 )}
               />
@@ -1279,6 +1317,27 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     color: colors.text,
     fontSize: 14,
     fontWeight: '700',
+  },
+  // Two-step delete confirm shown in place of the trash icon.
+  confirmDeleteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  confirmDeleteText: {
+    color: colors.errorText,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  confirmCancelText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // The map breaks out of the card padding so the preview spans the full
+  // card width — a wider look than the default inset.
+  mapWrap: {
+    marginHorizontal: -spacing.lg,
   },
   // Card look for a reorderable saved-spot row (positioned by ReorderableList,
   // so no margin — the grip sits inside the card on the right).

@@ -38,10 +38,11 @@ export function MapPicker({
   const [inlineRadar, setInlineRadar] = useState<RadarTimelineState | null>(null);
   const [fullRadar, setFullRadar] = useState<RadarTimelineState | null>(null);
 
-  // Inline map's depth state, so a newly-opened full screen inherits it
-  // instead of resetting depth off. A ref: it only needs reading at open time,
-  // and mustn't rebuild the inline document.
+  // Inline map's depth + radar state, so a newly-opened full screen inherits
+  // them instead of resetting. Refs: only read at open time, and they mustn't
+  // rebuild the inline document.
   const depthOnRef = useRef(false);
+  const radarOnRef = useRef(false);
 
   // The full-screen iframe unmounts with the overlay; drop its timeline too.
   useEffect(() => {
@@ -64,8 +65,10 @@ export function MapPicker({
           return;
         }
         if (data?.type === 'radar' || data?.type === 'radarFrame') {
-          const set =
-            event.source === fullRef.current?.contentWindow ? setFullRadar : setInlineRadar;
+          const fromFull = event.source === fullRef.current?.contentWindow;
+          const set = fromFull ? setFullRadar : setInlineRadar;
+          // Track the inline map's radar on/off to seed a new full screen.
+          if (data.type === 'radar' && !fromFull) radarOnRef.current = !!data.on;
           if (data.type === 'radar') {
             set(
               data.on
@@ -151,6 +154,7 @@ export function MapPicker({
         windRef.current.mph,
         windRef.current.dir,
         depthOnRef.current,
+        radarOnRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [expanded],

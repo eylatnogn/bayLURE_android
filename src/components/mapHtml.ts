@@ -66,6 +66,9 @@ export function buildMapHtml(
   /** Start with the depth overlay on — so opening full screen keeps the
    * depth layer the angler already had enabled on the inline map. */
   initialDepth = false,
+  /** Start with the radar loop on — so full screen keeps the radar the
+   * angler already had running on the inline map. */
+  initialRadar = false,
 ): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = center ? 12 : 4;
@@ -79,10 +82,12 @@ export function buildMapHtml(
   <link rel="stylesheet" href="https://unpkg.com/leaflet-velocity@2.1.4/dist/leaflet-velocity.css" />
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
-    /* Deep-water blue behind the tiles: USGS coverage is US-only and skips
-       some open-ocean tiles, which otherwise show as stark white boxes while
-       zooming out. Missing areas now read as ocean instead. */
-    #map { background: #0b2e40; }
+    /* Behind the tiles: USGS coverage is US-only and skips some open-ocean
+       tiles, which otherwise show as stark white boxes while zooming out.
+       This is toned to the imagery's ocean (setMapBg keeps it matched to the
+       active base layer) so uncovered areas blend in instead of standing out.
+       Default matches the satellite base (the startup layer). */
+    #map { background: #34576e; }
     /* Stop iOS from flashing a tap highlight / selecting text on every tap,
        which otherwise makes the map feel stuck. The pin still drops normally. */
     * { -webkit-tap-highlight-color: transparent; }
@@ -166,7 +171,7 @@ export function buildMapHtml(
     <button class="maptoggle" id="windtoggle">Wind: on</button>
     <button class="maptoggle${initialDepth ? '' : ' off'}" id="depthtoggle">Depth: ${initialDepth ? 'on' : 'off'}</button>
     <button class="maptoggle" id="sattoggle">Sat: on</button>
-    <button class="maptoggle off" id="radartoggle">Radar: off</button>
+    <button class="maptoggle${initialRadar ? '' : ' off'}" id="radartoggle">Radar: ${initialRadar ? 'on' : 'off'}</button>
   </div>
   <!-- Starts minimized — the expanded key crowds the map (esp. with Depth on). -->
   <div class="legendbox min" id="legendbox">
@@ -472,7 +477,7 @@ export function buildMapHtml(
 
     // Layers menu: the top-right button shows/hides the overlay toggles, so
     // the corner holds one clean control instead of a stack of four chips.
-    var SVG_LAYERS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
+    var SVG_LAYERS = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
     var layersBtn = document.getElementById('layersbtn');
     var layersPanel = document.getElementById('layerspanel');
     if (layersBtn) {
@@ -489,6 +494,15 @@ export function buildMapHtml(
       L.DomEvent.disableClickPropagation(layersPanel);
       L.DomEvent.disableScrollPropagation(layersPanel);
     }
+
+    // Keep the behind-the-tiles fill matched to the active base layer, so a
+    // gap in coverage reads as more ocean rather than an out-of-place block:
+    // a slate blue under the satellite imagery, a pale blue under the topo map.
+    function setMapBg() {
+      var el = document.getElementById('map');
+      if (el) { el.style.background = satEnabled ? '#34576e' : '#c7dae2'; }
+    }
+    setMapBg();
 
     // Satellite/topo base-layer toggle, same chip pattern as Wind/Depth.
     var satBtn = document.getElementById('sattoggle');
@@ -510,6 +524,7 @@ export function buildMapHtml(
           map.removeLayer(satLayer);
           topoLayer.addTo(map);
         }
+        setMapBg();
       });
     }
 
@@ -521,7 +536,8 @@ export function buildMapHtml(
     // AND where it's headed both read at a glance.
     var RADAR_STEPS = ['-m50m','-m45m','-m40m','-m35m','-m30m','-m25m','-m20m','-m15m','-m10m','-m05m',''];
     var HRRR_WMS = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/hrrr/refd.cgi';
-    var radarEnabled = false;
+    // Baked in by the host so full screen inherits the inline map's radar loop.
+    var radarEnabled = ${initialRadar ? 'true' : 'false'};
     var radarPaused = false; // true while the host's timeline is scrubbing
     var radarFrames = []; // { label, layer, opacity } — past frames then forecast
     var radarIdx = 0;
@@ -676,6 +692,10 @@ export function buildMapHtml(
         }
       });
     }
+    // Apply the baked-in initial state (full screen opened with radar already
+    // on): kick off the loop now that its functions are defined. This also
+    // posts to the host, so the full-screen timeline appears.
+    if (radarEnabled) { setLegend('radarlegend', true); startRadar(); }
 
     // ---- Depth: NOAA charts + GEBCO shading + tap-to-read ----
     // Baked in by the host so full screen inherits the inline map's depth
