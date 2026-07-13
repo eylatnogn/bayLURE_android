@@ -111,9 +111,12 @@ interface Props {
   snapshot?: CatchConditions | null;
   /** Latest 7-day forecast from the planner, for upcoming-day matching. */
   forecast?: Conditions[] | null;
+  /** True while the Log tab is the visible one. Both screens stay mounted, so
+   * this is our cue to re-read saved spots that changed on the Plan tab. */
+  active?: boolean;
 }
 
-export function CatchLogScreen({ snapshot, forecast }: Props) {
+export function CatchLogScreen({ snapshot, forecast, active }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { isPro, limitsActive, showPaywall } = usePro();
@@ -170,6 +173,13 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       }),
     [],
   );
+
+  // Both screens are always mounted, so a spot saved on the Plan tab isn't in
+  // this screen's state yet. Re-read saved spots each time the Log tab opens,
+  // so a catch on a saved spot resolves to that spot's name.
+  useEffect(() => {
+    if (active) void loadFavorites().then(setFavorites);
+  }, [active]);
 
   const resetForm = useCallback(() => {
     setSpecies(null);
@@ -445,13 +455,17 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setWeightLb(wt != null ? numLabel(wt) : '');
     setNotes(c.notes ?? '');
     setPhotoUri(c.photoUri ?? null);
-    setPlaceLabel(c.conditions?.place ?? '');
+    setPlaceLabel(
+      favoriteNameFor(favorites, c.conditions?.latitude, c.conditions?.longitude) ??
+        c.conditions?.place ??
+        '',
+    );
     setPhotoMetaNote(null);
     photoMetaRef.current = null;
     setEditingId(c.id);
     setFormOpen(true);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
+  }, [favorites]);
 
   return (
     <ScrollView

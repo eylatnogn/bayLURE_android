@@ -89,7 +89,7 @@ function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
               <HomeScreen onSnapshot={setSnapshot} onForecast={setForecast} />
             </View>
             <View style={[styles.screen, tab !== 'log' && styles.hidden]}>
-              <CatchLogScreen snapshot={snapshot} forecast={forecast} />
+              <CatchLogScreen snapshot={snapshot} forecast={forecast} active={tab === 'log'} />
             </View>
             <View style={[styles.screen, tab !== 'guide' && styles.hidden]}>
               <HelpScreen />
