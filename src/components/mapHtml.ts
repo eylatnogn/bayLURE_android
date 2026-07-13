@@ -209,7 +209,7 @@ export function buildMapHtml(
         <div class="legend-when">Depth (ft)</div>
         <div class="legend-bar depthgrad"></div>
         <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
-        <div class="legend-scale"><span>lines = contours, labeled in ft</span></div>
+        <div class="legend-scale"><span>lines = contours (ft) · GEBCO</span></div>
       </div>
       <div class="legendsec" id="radarlegend">
         <div class="legend-when">Radar (rain)</div>
