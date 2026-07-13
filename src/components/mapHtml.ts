@@ -215,7 +215,7 @@ export function buildMapHtml(
       </div>
       <div class="legendsec" id="contourlegend">
         <div class="legend-when">Contours</div>
-        <div class="legend-scale"><span>lines labeled in ft · GEBCO</span></div>
+        <div class="legend-scale"><span>lines labeled in ft · NOAA DEM</span></div>
       </div>
       <div class="legendsec" id="radarlegend">
         <div class="legend-when">Radar (rain)</div>
@@ -758,12 +758,10 @@ export function buildMapHtml(
       return stops[Math.floor(t * stops.length)];
     }
 
-    // Coarse GEBCO depth shading over the view (cells below sea level only).
-    // The GEBCO point API sends no CORS header, so an in-WebView fetch is
-    // blocked on device — the shading silently never drew. Instead we hand the
-    // sample grid to the host (React Native / parent window), which reads it
-    // with native networking (no CORS) and injects the elevations back via
-    // window.__depthCells. depthReqSeq lets us drop stale replies after a pan.
+    // Depth shading + contour grid over the view. We hand the sample grid to
+    // the host (React Native / parent window), which reads it from NOAA's NCEI
+    // coastal DEM and injects the elevations back via window.__depthCells.
+    // depthReqSeq lets us drop stale replies after a pan.
     var depthReqSeq = 0;
     function refreshDepthShading() {
       if (!depthEnabled && !contourEnabled) { return; }
@@ -773,21 +771,20 @@ export function buildMapHtml(
         var west = b.getWest(), east = b.getEast();
         if (east - west > 30) { var mx = (east + west) / 2; west = mx - 15; east = mx + 15; }
         if (north - south > 30) { var my = (north + south) / 2; south = my - 15; north = my + 15; }
-        // 14x14 = 196 samples: dense enough for contour lines; the host splits
-        // it into <=100-location calls (opentopodata's per-request cap).
-        var n = 14;
+        // 20x20 = 400 samples: the host reads them in one call from NOAA's
+        // coastal DEM (~3 m near US coasts), fine enough for real contour lines.
+        var n = 20;
         var dLat = (north - south) / (n - 1), dLon = (east - west) / (n - 1);
-        var locs = [], cells = [];
+        var cells = [];
         for (var r = 0; r < n; r++) {
           var lat = north - r * dLat;
           for (var c = 0; c < n; c++) {
             var lon = west + c * dLon;
-            locs.push(lat.toFixed(4) + ',' + lon.toFixed(4));
             cells.push([lat, lon]);
           }
         }
         depthReqSeq++;
-        postHost({ type: 'depthReq', id: depthReqSeq, locs: locs.join('|'),
+        postHost({ type: 'depthReq', id: depthReqSeq,
           cells: cells, dLat: dLat, dLon: dLon });
       } catch (e) { /* optional */ }
     }

@@ -2,6 +2,7 @@ import { createElement, useEffect, useMemo, useRef, useState, type MutableRefObj
 import { createPortal } from 'react-dom';
 import { StyleSheet, View } from 'react-native';
 import { makeStyles, radius, useTheme } from '@/theme';
+import { fetchDemMeters } from '@/api/depth';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 import {
   RadarTimeline,
@@ -44,8 +45,6 @@ export function MapPicker({
   const depthOnRef = useRef(false);
   const radarOnRef = useRef(false);
   const contourOnRef = useRef(false);
-  // Newest depth-grid request; older in-flight batched fetches abandon.
-  const latestDepthReq = useRef(0);
 
   // The full-screen iframe unmounts with the overlay; drop its timeline too.
   useEffect(() => {
@@ -74,33 +73,13 @@ export function MapPicker({
           return;
         }
         if (data?.type === 'depthReq') {
-          // opentopodata sends no CORS header, so this browser fetch is usually
-          // blocked on web too — but attempt it and reply to the asking iframe,
-          // so web works automatically if the source ever allows CORS.
+          // NCEI's DEM sends CORS headers, so this browser fetch works and the
+          // web build now draws depth/contours too (the old GEBCO source was
+          // CORS-blocked). Stale replies are dropped by the asking map by id.
           const src = event.source as Window | null;
-          latestDepthReq.current = data.id;
           void (async () => {
             try {
-              // The contour grid is ~200 points but opentopodata caps a request
-              // at 100 locations (free tier 1 call/sec): fetch in spaced
-              // batches, bailing out when a newer view has been requested.
-              const locs = String(data.locs).split('|');
-              const results: (number | null)[] = [];
-              for (let i = 0; i < locs.length; i += 100) {
-                if (latestDepthReq.current !== data.id) return;
-                if (i > 0) await new Promise((r) => setTimeout(r, 1100));
-                if (latestDepthReq.current !== data.id) return;
-                const res = await fetch(
-                  `https://api.opentopodata.org/v1/gebco2020?locations=${encodeURIComponent(
-                    locs.slice(i, i + 100).join('|'),
-                  )}`,
-                );
-                const j = await res.json();
-                for (const r of (j.results ?? []) as ({ elevation: number | null } | null)[]) {
-                  results.push(r ? r.elevation : null);
-                }
-              }
-              if (latestDepthReq.current !== data.id) return;
+              const results = await fetchDemMeters(data.cells as [number, number][]);
               src?.postMessage(
                 {
                   type: 'balure:depthCells',
@@ -118,14 +97,10 @@ export function MapPicker({
           const src = event.source as Window | null;
           void (async () => {
             try {
-              const res = await fetch(
-                `https://api.opentopodata.org/v1/gebco2020?locations=${data.lat},${data.lng}`,
-              );
-              const j = await res.json();
-              const el: number | null = j.results?.[0] ? j.results[0].elevation : null;
+              const [m] = await fetchDemMeters([[data.lat, data.lng]]);
               const text =
-                el != null && el < 0
-                  ? `≈${Math.round(-el * 3.28084)} ft deep (GEBCO)`
+                m != null && m < 0
+                  ? `≈${Math.round(-m * 3.28084)} ft deep (NOAA DEM)`
                   : 'Bottom depth not charted here';
               src?.postMessage(
                 { type: 'balure:pinDepth', payload: { text, autoOpen: !!data.autoOpen } },

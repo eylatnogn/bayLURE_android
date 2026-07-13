@@ -3,6 +3,7 @@ import { Modal, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { makeStyles, radius, spacing } from '@/theme';
+import { fetchDemMeters } from '@/api/depth';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
 import {
   RadarTimeline,
@@ -113,41 +114,20 @@ function MapCanvas({
     );
   }, [windTargetLabel, windMph, windDirDeg]);
 
-  // GEBCO depth reads for the WebView. opentopodata sends no CORS header, so an
-  // in-WebView fetch is blocked — we do it here with native networking (no CORS)
-  // and inject the result back. The map computes the sample grid / point and
-  // asks via {type:'depthReq'} / {type:'pinDepthReq'}; we echo its geometry so
-  // it can draw without keeping pending state.
-  const latestDepthReq = useRef(0);
+  // Depth reads for the WebView, from NOAA's NCEI coastal DEM (~3 m near US
+  // coasts, GEBCO-class offshore). We fetch here and inject the result back —
+  // the map computes the sample grid / point and asks via {type:'depthReq'} /
+  // {type:'pinDepthReq'}; we echo its geometry so it can draw without keeping
+  // pending state. Stale replies after a fast pan are dropped by the map itself
+  // (it keeps only the newest request id).
   const handleDepthReq = async (req: {
     id: number;
-    locs: string;
     cells: [number, number][];
     dLat: number;
     dLon: number;
   }) => {
-    latestDepthReq.current = req.id;
     try {
-      // The contour grid is ~200 points but opentopodata caps a request at 100
-      // locations (and free tier at 1 call/sec), so fetch in spaced batches —
-      // bailing out if the map has already asked for a newer view.
-      const locs = req.locs.split('|');
-      const results: (number | null)[] = [];
-      for (let i = 0; i < locs.length; i += 100) {
-        if (latestDepthReq.current !== req.id) return;
-        if (i > 0) await new Promise((r) => setTimeout(r, 1100));
-        if (latestDepthReq.current !== req.id) return;
-        const res = await fetch(
-          `https://api.opentopodata.org/v1/gebco2020?locations=${encodeURIComponent(
-            locs.slice(i, i + 100).join('|'),
-          )}`,
-        );
-        const j = await res.json();
-        for (const r of (j.results ?? []) as ({ elevation: number | null } | null)[]) {
-          results.push(r ? r.elevation : null);
-        }
-      }
-      if (latestDepthReq.current !== req.id) return;
+      const results = await fetchDemMeters(req.cells);
       const payload = { id: req.id, cells: req.cells, dLat: req.dLat, dLon: req.dLon, results };
       webRef.current?.injectJavaScript(
         `window.__depthCells && window.__depthCells(${JSON.stringify(payload)}); true;`,
@@ -158,14 +138,10 @@ function MapCanvas({
   };
   const handlePinDepthReq = async (req: { lat: number; lng: number; autoOpen?: boolean }) => {
     try {
-      const res = await fetch(
-        `https://api.opentopodata.org/v1/gebco2020?locations=${req.lat},${req.lng}`,
-      );
-      const j = await res.json();
-      const el: number | null = j.results?.[0] ? j.results[0].elevation : null;
+      const [m] = await fetchDemMeters([[req.lat, req.lng]]);
       const text =
-        el != null && el < 0
-          ? `≈${Math.round(-el * 3.28084)} ft deep (GEBCO)`
+        m != null && m < 0
+          ? `≈${Math.round(-m * 3.28084)} ft deep (NOAA DEM)`
           : 'Bottom depth not charted here';
       const payload = { text, autoOpen: !!req.autoOpen };
       webRef.current?.injectJavaScript(
