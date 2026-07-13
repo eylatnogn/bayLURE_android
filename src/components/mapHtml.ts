@@ -899,8 +899,15 @@ export function buildMapHtml(
       for (var li = 0; li < levels.length; li++) {
         var segs = contourSegs(vals, cells, n, levels[li]);
         if (!segs.length) { continue; }
+        // Cased lines (dark underlay + bright core) so contours stay distinct
+        // over the near-white shallow end of the depth shading AND the dark
+        // deep end — same trick topo maps use.
         contourLines.addLayer(L.polyline(segs, {
-          color: '#eaf7ff', weight: 1, opacity: 0.8,
+          color: '#0b2334', weight: 2.8, opacity: 0.75,
+          interactive: false, pane: 'depthshade'
+        }));
+        contourLines.addLayer(L.polyline(segs, {
+          color: '#f4fcff', weight: 1.1, opacity: 0.95,
           interactive: false, pane: 'depthshade'
         }));
         var mid = segs[Math.floor(segs.length / 2)];
