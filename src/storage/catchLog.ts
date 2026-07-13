@@ -80,6 +80,8 @@ export async function importCatches(entries: unknown[]): Promise<number> {
       bait: typeof e.bait === 'string' ? e.bait : undefined,
       gearOther: typeof e.gearOther === 'string' ? e.gearOther : undefined,
       waterType: e.waterType === 'saltwater' || e.waterType === 'freshwater' ? e.waterType : undefined,
+      lengthIn: typeof e.lengthIn === 'number' && e.lengthIn > 0 ? e.lengthIn : undefined,
+      weightLb: typeof e.weightLb === 'number' && e.weightLb > 0 ? e.weightLb : undefined,
       size: typeof e.size === 'string' ? e.size : undefined,
       notes: typeof e.notes === 'string' ? e.notes : undefined,
       // Only data-URL photos survive a device move; file URIs point into the

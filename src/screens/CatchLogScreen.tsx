@@ -13,10 +13,11 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import type { CatchConditions, CatchRecord, Conditions } from '@/types';
+import type { CatchConditions, CatchRecord, Conditions, FavoriteLocation } from '@/types';
 import { SPECIES } from '@/engine/species';
 import { LURES } from '@/engine/lureDatabase';
 import { addCatch, deleteCatch, loadCatches, updateCatch } from '@/storage/catchLog';
+import { loadFavorites } from '@/storage/favorites';
 import { reverseGeocode } from '@/api/location';
 import { onBackupImported } from '@/utils/backup';
 import { base64ToBytes, metaFromJpegBytes, metaFromPickerExif, type PhotoMeta } from '@/utils/exif';
@@ -52,6 +53,59 @@ const GEAR_OPTIONS = LURES.map((l) => ({
   tag: l.category.toUpperCase(),
 }));
 
+/** Parse a positive number from a text field, or undefined when blank/invalid. */
+function parseNum(s: string): number | undefined {
+  const t = s.trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** Trim a stored measurement to a tidy label ("18", "3.5"). */
+function numLabel(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
+}
+
+/** Best-effort split of a legacy free-text size ("18 in", "3.5 lb") into the
+ * new length/weight fields, so editing an old catch migrates it cleanly. */
+function parseLegacySize(s?: string): { lengthIn?: number; weightLb?: number } {
+  if (!s) return {};
+  const out: { lengthIn?: number; weightLb?: number } = {};
+  const len = /(\d+(?:\.\d+)?)\s*(?:in\b|inch|inches|")/i.exec(s);
+  if (len) out.lengthIn = Number(len[1]);
+  const wt = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?|#)/i.exec(s);
+  if (wt) out.weightLb = Number(wt[1]);
+  return out;
+}
+
+/** The catch's measurements as a label ("18 in · 3.5 lb"), falling back to any
+ * legacy free-text size for older entries. */
+function formatCatchSize(c: CatchRecord): string {
+  const parts: string[] = [];
+  if (c.lengthIn != null) parts.push(`${numLabel(c.lengthIn)} in`);
+  if (c.weightLb != null) parts.push(`${numLabel(c.weightLb)} lb`);
+  if (parts.length) return parts.join(' · ');
+  return c.size ?? '';
+}
+
+/** ~120 m — close enough to be the same saved spot, not a neighbouring one. */
+const FAV_MATCH_DEG = 0.0011;
+
+/** If a catch's coordinates land on a saved spot, that spot's name; else null. */
+function favoriteNameFor(
+  favs: FavoriteLocation[],
+  lat?: number,
+  lng?: number,
+): string | null {
+  if (lat == null || lng == null) return null;
+  const match = favs.find(
+    (f) =>
+      Math.abs(f.latitude - lat) < FAV_MATCH_DEG &&
+      Math.abs(f.longitude - lng) < FAV_MATCH_DEG,
+  );
+  return match ? match.label : null;
+}
+
 interface Props {
   /** Latest analyzed conditions from the planner, offered for attaching. */
   snapshot?: CatchConditions | null;
@@ -64,6 +118,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
   const styles = useStyles();
   const { isPro, limitsActive, showPaywall } = usePro();
   const [catches, setCatches] = useState<CatchRecord[]>([]);
+  // Saved spots — so a catch on a saved location shows that spot's name.
+  const [favorites, setFavorites] = useState<FavoriteLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   // Set while editing an existing catch (vs. logging a new one).
@@ -76,7 +132,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
   const [rig, setRig] = useState<string | null>(null);
   const [bait, setBait] = useState<string | null>(null);
   const [gearOther, setGearOther] = useState<string | null>(null);
-  const [size, setSize] = useState('');
+  const [lengthIn, setLengthIn] = useState('');
+  const [weightLb, setWeightLb] = useState('');
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [attachConditions, setAttachConditions] = useState(true);
@@ -100,14 +157,16 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       setCatches(list);
       setLoading(false);
     });
+    void loadFavorites().then(setFavorites);
   }, []);
 
-  // A backup import (Guide tab) can add catches while this screen stays
-  // mounted — reload the list when that happens.
+  // A backup import (Guide tab) can add catches or saved spots while this
+  // screen stays mounted — reload both when that happens.
   useEffect(
     () =>
       onBackupImported(() => {
         void loadCatches().then(setCatches);
+        void loadFavorites().then(setFavorites);
       }),
     [],
   );
@@ -118,7 +177,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setRig(null);
     setBait(null);
     setGearOther(null);
-    setSize('');
+    setLengthIn('');
+    setWeightLb('');
     setNotes('');
     setPhotoUri(null);
     setEditingId(null);
@@ -295,7 +355,10 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       const place = placeLabel.trim();
       conditions = { ...conditions, place: place || undefined };
     } else if (!editingId && conditions && when) {
-      const place = placeLabel.trim() || conditions.place;
+      // Blank label → the saved-spot name when this catch sits on one, else
+      // whatever the snapshot already called the place.
+      const favName = favoriteNameFor(favorites, conditions.latitude, conditions.longitude);
+      const place = placeLabel.trim() || favName || conditions.place;
       const pad = (n: number) => String(n).padStart(2, '0');
       // The photo's exact moment beats the backdate default of local noon —
       // but only while the entered date still matches the photo's day (a
@@ -316,13 +379,19 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
         conditions = { ...conditions, latitude: meta.latitude, longitude: meta.longitude };
       }
     }
+    const lengthNum = parseNum(lengthIn);
+    const weightNum = parseNum(weightLb);
     const record = {
       species: resolvedSpecies,
       lure: lure ?? undefined,
       rig: rig ?? undefined,
       bait: bait ?? undefined,
       gearOther: gearOther ?? undefined,
-      size: size.trim() || undefined,
+      lengthIn: lengthNum,
+      weightLb: weightNum,
+      // Drop any legacy free-text size once real measurements are entered;
+      // otherwise keep the original so an old, unparseable size isn't lost.
+      size: lengthNum == null && weightNum == null ? original?.size : undefined,
       notes: notes.trim() || undefined,
       photoUri: photoUri ?? undefined,
       dateISO,
@@ -353,7 +422,7 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [resolvedSpecies, hasGear, lure, rig, bait, gearOther, size, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm, isPro, limitsActive, showPaywall, catchDate, placeLabel]);
+  }, [resolvedSpecies, hasGear, lure, rig, bait, gearOther, lengthIn, weightLb, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm, isPro, limitsActive, showPaywall, catchDate, placeLabel, favorites]);
 
   const onDelete = useCallback(async (id: string) => {
     const next = await deleteCatch(id);
@@ -368,7 +437,12 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setRig(c.rig ?? null);
     setBait(c.bait ?? null);
     setGearOther(c.gearOther ?? null);
-    setSize(c.size ?? '');
+    // Prefer the structured fields; fall back to migrating a legacy size string.
+    const legacy = parseLegacySize(c.size);
+    const len = c.lengthIn ?? legacy.lengthIn;
+    const wt = c.weightLb ?? legacy.weightLb;
+    setLengthIn(len != null ? numLabel(len) : '');
+    setWeightLb(wt != null ? numLabel(wt) : '');
     setNotes(c.notes ?? '');
     setPhotoUri(c.photoUri ?? null);
     setPlaceLabel(c.conditions?.place ?? '');
@@ -402,7 +476,11 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
             setNotice(null);
             setEditingId(null);
             setCatchDate(todayInput());
-            setPlaceLabel(snapshot?.place ?? '');
+            setPlaceLabel(
+              favoriteNameFor(favorites, snapshot?.latitude, snapshot?.longitude) ??
+                snapshot?.place ??
+                '',
+            );
             setPhotoMetaNote(null);
             photoMetaRef.current = null;
             setFormOpen(true);
@@ -460,14 +538,32 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
             onPick={onPickGear}
           />
 
-          <Text style={styles.fieldLabel}>Size (optional)</Text>
-          <TextInput
-            value={size}
-            onChangeText={setSize}
-            placeholder='e.g. 18 in or 3.5 lb'
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-          />
+          <View style={styles.measureRow}>
+            <View style={styles.measureField}>
+              <Text style={styles.fieldLabel}>Length (in)</Text>
+              <TextInput
+                value={lengthIn}
+                onChangeText={setLengthIn}
+                placeholder="e.g. 18"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                style={styles.input}
+              />
+            </View>
+            <View style={styles.measureField}>
+              <Text style={styles.fieldLabel}>Weight (lb)</Text>
+              <TextInput
+                value={weightLb}
+                onChangeText={setWeightLb}
+                placeholder="e.g. 3.5"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                style={styles.input}
+              />
+            </View>
+          </View>
 
           <Text style={styles.fieldLabel}>Notes (optional)</Text>
           <TextInput
@@ -553,7 +649,12 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
                 <View style={styles.attachText}>
                   <Text style={styles.attachLabel}>Attach current conditions</Text>
                   <Text style={styles.attachPreview}>
-                    {snapshot.place ? `${snapshot.place} · ` : ''}
+                    {(() => {
+                      const place =
+                        favoriteNameFor(favorites, snapshot.latitude, snapshot.longitude) ??
+                        snapshot.place;
+                      return place ? `${place} · ` : '';
+                    })()}
                     {summarizeCatchConditions(snapshot)}
                   </Text>
                 </View>
@@ -679,12 +780,21 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
                 ))}
               <Text style={styles.cardMeta}>
                 {formatDate(c.dateISO)}
-                {c.size ? `  ·  ${c.size}` : ''}
+                {formatCatchSize(c) ? `  ·  ${formatCatchSize(c)}` : ''}
               </Text>
               {c.notes ? <Text style={styles.cardNotes}>{c.notes}</Text> : null}
               {c.conditions ? (
                 <Text style={styles.cardConditions}>
-                  {c.conditions.place ? `${c.conditions.place} · ` : ''}
+                  {(() => {
+                    // A saved spot's name wins over the raw/reverse-geocoded place.
+                    const place =
+                      favoriteNameFor(
+                        favorites,
+                        c.conditions.latitude,
+                        c.conditions.longitude,
+                      ) ?? c.conditions.place;
+                    return place ? `${place} · ` : '';
+                  })()}
                   {summarizeCatchConditions(c.conditions)}
                 </Text>
               ) : null}
@@ -833,6 +943,9 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 15,
   },
   inputMultiline: { minHeight: 64, textAlignVertical: 'top' },
+  // Length + weight sit on one row, each taking half the width.
+  measureRow: { flexDirection: 'row', gap: spacing.md },
+  measureField: { flex: 1 },
   photoBtn: {
     backgroundColor: colors.accentDim,
     borderColor: colors.accent,

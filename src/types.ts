@@ -290,7 +290,12 @@ export interface CatchRecord {
   /** Free-typed gear that isn't in the built-in lists (optional). */
   gearOther?: string;
   waterType?: WaterType;
-  /** Free text, e.g. "18 in" or "3.5 lb". */
+  /** Fish length in inches (optional). */
+  lengthIn?: number;
+  /** Fish weight in pounds (optional). */
+  weightLb?: number;
+  /** Legacy free-text size, e.g. "18 in / 3.5 lb". Superseded by lengthIn /
+   * weightLb for new catches; kept so older entries and imports still show. */
   size?: string;
   notes?: string;
   /** File URI (native) or data URL (web) for the catch photo. */
