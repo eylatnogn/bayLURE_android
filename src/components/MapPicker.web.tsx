@@ -43,6 +43,7 @@ export function MapPicker({
   // rebuild the inline document.
   const depthOnRef = useRef(false);
   const radarOnRef = useRef(false);
+  const contourOnRef = useRef(false);
   // Newest depth-grid request; older in-flight batched fetches abandon.
   const latestDepthReq = useRef(0);
 
@@ -63,6 +64,12 @@ export function MapPicker({
           // Seed full screen from the INLINE map's depth state.
           if (event.source === inlineRef.current?.contentWindow) {
             depthOnRef.current = !!data.on;
+          }
+          return;
+        }
+        if (data?.type === 'contour') {
+          if (event.source === inlineRef.current?.contentWindow) {
+            contourOnRef.current = !!data.on;
           }
           return;
         }
@@ -221,6 +228,7 @@ export function MapPicker({
         windRef.current.dir,
         depthOnRef.current,
         radarOnRef.current,
+        contourOnRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [expanded],

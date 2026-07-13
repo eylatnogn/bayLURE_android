@@ -69,6 +69,8 @@ export function buildMapHtml(
   /** Start with the radar loop on — so full screen keeps the radar the
    * angler already had running on the inline map. */
   initialRadar = false,
+  /** Start with the contour-lines overlay on (same full-screen inheritance). */
+  initialContour = false,
 ): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = center ? 12 : 4;
@@ -190,6 +192,7 @@ export function buildMapHtml(
   <div id="layerspanel">
     <button class="maptoggle" id="windtoggle">Wind: on</button>
     <button class="maptoggle${initialDepth ? '' : ' off'}" id="depthtoggle">Depth: ${initialDepth ? 'on' : 'off'}</button>
+    <button class="maptoggle${initialContour ? '' : ' off'}" id="contourtoggle">Contour: ${initialContour ? 'on' : 'off'}</button>
     <button class="maptoggle" id="sattoggle">Sat: on</button>
     <button class="maptoggle${initialRadar ? '' : ' off'}" id="radartoggle">Radar: ${initialRadar ? 'on' : 'off'}</button>
   </div>
@@ -209,7 +212,10 @@ export function buildMapHtml(
         <div class="legend-when">Depth (ft)</div>
         <div class="legend-bar depthgrad"></div>
         <div class="legend-scale"><span>0</span><span>60</span><span>200+</span></div>
-        <div class="legend-scale"><span>lines = contours (ft) · GEBCO</span></div>
+      </div>
+      <div class="legendsec" id="contourlegend">
+        <div class="legend-when">Contours</div>
+        <div class="legend-scale"><span>lines labeled in ft · GEBCO</span></div>
       </div>
       <div class="legendsec" id="radarlegend">
         <div class="legend-when">Radar (rain)</div>
@@ -307,9 +313,10 @@ export function buildMapHtml(
       if (!box) { return; }
       var w = document.getElementById('windlegend');
       var d = document.getElementById('depthlegend');
+      var ct = document.getElementById('contourlegend');
       var r = document.getElementById('radarlegend');
       var any = (w && w.style.display === 'block') || (d && d.style.display === 'block') ||
-        (r && r.style.display === 'block');
+        (ct && ct.style.display === 'block') || (r && r.style.display === 'block');
       box.style.display = any ? 'block' : 'none';
     }
 
@@ -736,8 +743,12 @@ export function buildMapHtml(
     // Baked in by the host so full screen inherits the inline map's depth
     // state instead of resetting to off.
     var depthEnabled = ${initialDepth ? 'true' : 'false'};
+    var contourEnabled = ${initialContour ? 'true' : 'false'};
     var noaaLayer = null;
     var depthShade = L.layerGroup();
+    // Contour lines live in their own group so the Contour toggle can add and
+    // remove them independently of the Depth shading.
+    var contourLines = L.layerGroup();
     var depthTimer = null;
 
     // Stepped shallow→deep blue scale (0–200 ft+), matching the depth legend.
@@ -755,7 +766,7 @@ export function buildMapHtml(
     // window.__depthCells. depthReqSeq lets us drop stale replies after a pan.
     var depthReqSeq = 0;
     function refreshDepthShading() {
-      if (!depthEnabled) { return; }
+      if (!depthEnabled && !contourEnabled) { return; }
       try {
         var b = map.getBounds();
         var north = b.getNorth(), south = b.getSouth();
@@ -786,7 +797,7 @@ export function buildMapHtml(
     // has no below-surface reading to shade).
     function showDepthNotice(on) {
       var el = document.getElementById('depthnotice');
-      if (el) { el.style.display = (on && depthEnabled) ? 'block' : 'none'; }
+      if (el) { el.style.display = (on && (depthEnabled || contourEnabled)) ? 'block' : 'none'; }
     }
 
     // Marching squares over the sampled grid: line segments where the water
@@ -851,16 +862,17 @@ export function buildMapHtml(
     }
 
     // Host reply for a depthReq: elevations in metres (negative = below sea
-    // level) in the same order as the grid cells we sent. Draw the stepped
-    // shading plus labeled contour lines, and surface the notice when nothing
-    // in view is below the surface.
+    // level) in the same order as the grid cells we sent. One fetch feeds both
+    // overlays: the stepped shading (Depth toggle) and the labeled contour
+    // lines (Contour toggle) — each drawn only while its toggle is on.
     function drawDepthCells(payload) {
-      if (!depthEnabled || !payload || payload.id !== depthReqSeq) { return; }
+      if ((!depthEnabled && !contourEnabled) || !payload || payload.id !== depthReqSeq) { return; }
       depthShade.clearLayers();
+      contourLines.clearLayers();
       var results = payload.results || [];
       var cells = payload.cells || [];
       var dLat = payload.dLat, dLon = payload.dLon;
-      var drawn = 0;
+      var wet = 0;
       var vals = [];
       var minFt = Infinity, maxFt = -Infinity;
       for (var i = 0; i < results.length; i++) {
@@ -868,18 +880,20 @@ export function buildMapHtml(
         var cl = cells[i];
         // Depth in ft (negative on land) for the contour grid; NaN = no data.
         vals.push(el == null ? NaN : -el * 3.28084);
-        if (el == null || el >= 0 || !cl) { continue; } // at/above sea level: no shading
+        if (el == null || el >= 0 || !cl) { continue; } // at/above sea level: land
         var ft = -el * 3.28084;
         if (ft < minFt) { minFt = ft; }
         if (ft > maxFt) { maxFt = ft; }
-        depthShade.addLayer(L.rectangle(
-          [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
-          { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
-        ));
-        drawn++;
+        wet++;
+        if (depthEnabled) {
+          depthShade.addLayer(L.rectangle(
+            [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
+            { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
+          ));
+        }
       }
-      showDepthNotice(drawn === 0);
-      if (drawn === 0) { return; }
+      showDepthNotice(wet === 0);
+      if (wet === 0 || !contourEnabled) { return; }
 
       // Contour lines with a depth label on each level.
       var n = Math.round(Math.sqrt(cells.length));
@@ -888,12 +902,12 @@ export function buildMapHtml(
       for (var li = 0; li < levels.length; li++) {
         var segs = contourSegs(vals, cells, n, levels[li]);
         if (!segs.length) { continue; }
-        depthShade.addLayer(L.polyline(segs, {
+        contourLines.addLayer(L.polyline(segs, {
           color: '#eaf7ff', weight: 1, opacity: 0.8,
           interactive: false, pane: 'depthshade'
         }));
         var mid = segs[Math.floor(segs.length / 2)];
-        depthShade.addLayer(L.marker(
+        contourLines.addLayer(L.marker(
           [(mid[0][0] + mid[1][0]) / 2, (mid[0][1] + mid[1][1]) / 2],
           {
             interactive: false,
@@ -909,7 +923,7 @@ export function buildMapHtml(
     window.__depthCells = drawDepthCells;
 
     function scheduleDepth() {
-      if (!depthEnabled) { return; }
+      if (!depthEnabled && !contourEnabled) { return; }
       if (depthTimer) { clearTimeout(depthTimer); }
       depthTimer = setTimeout(refreshDepthShading, 700);
     }
@@ -957,14 +971,42 @@ export function buildMapHtml(
         if (noaaLayer) { map.removeLayer(noaaLayer); }
         map.removeLayer(depthShade);
         setLegend('depthlegend', false);
-        showDepthNotice(false);
+        if (!contourEnabled) { showDepthNotice(false); }
       }
       postHost({ type: 'depth', on: on });
     }
     depthBtn.addEventListener('click', function () { setDepth(!depthEnabled); });
-    // Apply the baked-in initial state (full screen opened with depth already
-    // on): mount the layers now that everything it needs is defined.
+
+    // Contour lines get their own toggle — same grid fetch as Depth, but the
+    // two overlays draw and clear independently.
+    var contourBtn = document.getElementById('contourtoggle');
+    if (L.DomEvent) {
+      L.DomEvent.disableClickPropagation(contourBtn);
+      L.DomEvent.disableScrollPropagation(contourBtn);
+    }
+    function setContour(on) {
+      contourEnabled = on;
+      if (on) {
+        contourBtn.textContent = 'Contour: on';
+        contourBtn.classList.remove('off');
+        contourLines.addTo(map);
+        setLegend('contourlegend', true);
+        refreshDepthShading();
+      } else {
+        contourBtn.textContent = 'Contour: off';
+        contourBtn.classList.add('off');
+        map.removeLayer(contourLines);
+        setLegend('contourlegend', false);
+        if (!depthEnabled) { showDepthNotice(false); }
+      }
+      postHost({ type: 'contour', on: on });
+    }
+    contourBtn.addEventListener('click', function () { setContour(!contourEnabled); });
+
+    // Apply the baked-in initial state (full screen opened with overlays
+    // already on): mount the layers now that everything they need is defined.
     if (depthEnabled) { depthEnabled = false; setDepth(true); }
+    if (contourEnabled) { contourEnabled = false; setContour(true); }
 
     // Host hook: move the pin from outside (saved spot, geolocation, search)
     // and land at the same close-up the recenter button uses, so picking a

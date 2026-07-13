@@ -23,6 +23,10 @@ interface CanvasProps extends MapPickerProps {
   onDepth?: (on: boolean) => void;
   /** Bake the radar loop on at mount (full screen inherits inline's state). */
   initialRadar?: boolean;
+  /** Bake the contour-lines overlay on at mount (same inheritance). */
+  initialContour?: boolean;
+  /** Reports contour on/off so the host can seed the other map instance. */
+  onContour?: (on: boolean) => void;
 }
 
 // The Leaflet WebView. The expand/collapse control lives *inside* the map HTML
@@ -43,6 +47,8 @@ function MapCanvas({
   initialDepth = false,
   onDepth,
   initialRadar = false,
+  initialContour = false,
+  onContour,
 }: CanvasProps) {
   const styles = useStyles();
   const webRef = useRef<WebView>(null);
@@ -61,6 +67,7 @@ function MapCanvas({
   const initialWind = useRef({ label: windTargetLabel, mph: windMph, dir: windDirDeg });
   const initialDepthRef = useRef(initialDepth);
   const initialRadarRef = useRef(initialRadar);
+  const initialContourRef = useRef(initialContour);
   const html = useMemo(
     () =>
       buildMapHtml(
@@ -71,6 +78,7 @@ function MapCanvas({
         initialWind.current.dir,
         initialDepthRef.current,
         initialRadarRef.current,
+        initialContourRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fullscreen],
@@ -207,6 +215,10 @@ function MapCanvas({
             onDepth?.(!!data.on);
             return;
           }
+          if (data?.type === 'contour') {
+            onContour?.(!!data.on);
+            return;
+          }
           if (data?.type === 'depthReq') {
             void handleDepthReq(data);
             return;
@@ -290,9 +302,11 @@ export function MapPicker(props: MapPickerProps) {
   const [fullRadar, setFullRadar] = useState<RadarTimelineState | null>(null);
   const inlineCtl = useRef<RadarControl | null>(null);
   const fullCtl = useRef<RadarControl | null>(null);
-  // Depth overlay state, shared so full screen opens with what the inline map
-  // had on (each map is its own instance and doesn't otherwise sync toggles).
+  // Depth/contour overlay state, shared so full screen opens with what the
+  // inline map had on (each map is its own instance and doesn't otherwise
+  // sync toggles).
   const [depthOn, setDepthOn] = useState(false);
+  const [contourOn, setContourOn] = useState(false);
 
   // The full-screen map unmounts with the modal; drop its timeline with it.
   useEffect(() => {
@@ -309,6 +323,7 @@ export function MapPicker(props: MapPickerProps) {
           onRadar={(d) => radarReducer(d, setInlineRadar)}
           controlRef={inlineCtl}
           onDepth={setDepthOn}
+          onContour={setContourOn}
         />
       </View>
       {timelineFor(inlineRadar, inlineCtl, setInlineRadar)}
@@ -331,6 +346,8 @@ export function MapPicker(props: MapPickerProps) {
                   initialDepth={depthOn}
                   onDepth={setDepthOn}
                   initialRadar={inlineRadar != null}
+                  initialContour={contourOn}
+                  onContour={setContourOn}
                 />
               </View>
               {fullRadar ? (
