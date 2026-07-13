@@ -63,6 +63,9 @@ export function buildMapHtml(
   fullscreen = false,
   windMph: number | null = null,
   windDirDeg: number | null = null,
+  /** Start with the depth overlay on — so opening full screen keeps the
+   * depth layer the angler already had enabled on the inline map. */
+  initialDepth = false,
 ): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = center ? 12 : 4;
@@ -161,7 +164,7 @@ export function buildMapHtml(
   <button class="maptoggle mapicon" id="layersbtn" aria-label="Map layers"></button>
   <div id="layerspanel">
     <button class="maptoggle" id="windtoggle">Wind: on</button>
-    <button class="maptoggle off" id="depthtoggle">Depth: off</button>
+    <button class="maptoggle${initialDepth ? '' : ' off'}" id="depthtoggle">Depth: ${initialDepth ? 'on' : 'off'}</button>
     <button class="maptoggle" id="sattoggle">Sat: on</button>
     <button class="maptoggle off" id="radartoggle">Radar: off</button>
   </div>
@@ -675,7 +678,9 @@ export function buildMapHtml(
     }
 
     // ---- Depth: NOAA charts + GEBCO shading + tap-to-read ----
-    var depthEnabled = false; // off by default
+    // Baked in by the host so full screen inherits the inline map's depth
+    // state instead of resetting to off.
+    var depthEnabled = ${initialDepth ? 'true' : 'false'};
     var noaaLayer = null;
     var depthShade = L.layerGroup();
     var depthTimer = null;
@@ -754,9 +759,12 @@ export function buildMapHtml(
       L.DomEvent.disableClickPropagation(depthBtn);
       L.DomEvent.disableScrollPropagation(depthBtn);
     }
-    depthBtn.addEventListener('click', function () {
-      depthEnabled = !depthEnabled;
-      if (depthEnabled) {
+    // setDepth drives the layer, legend and button from one place so the click
+    // handler AND the baked-in initial state (full screen) share it, and the
+    // host is told the state so a newly-opened full screen can inherit it.
+    function setDepth(on) {
+      depthEnabled = on;
+      if (on) {
         depthBtn.textContent = 'Depth: on';
         depthBtn.classList.remove('off');
         if (!noaaLayer) {
@@ -778,15 +786,22 @@ export function buildMapHtml(
         map.removeLayer(depthShade);
         setLegend('depthlegend', false);
       }
-    });
+      postHost({ type: 'depth', on: on });
+    }
+    depthBtn.addEventListener('click', function () { setDepth(!depthEnabled); });
+    // Apply the baked-in initial state (full screen opened with depth already
+    // on): mount the layers now that everything it needs is defined.
+    if (depthEnabled) { depthEnabled = false; setDepth(true); }
 
     // Host hook: move the pin from outside (saved spot, geolocation, search)
-    // WITHOUT snapping the zoom. Only zooms in from the wide default view the
-    // first time a real location arrives; after that it keeps the angler's zoom.
+    // and land at the same close-up the recenter button uses, so picking a
+    // spot always frames the water right around it. (The host skips the
+    // redundant first call for the center already baked into this document,
+    // so simply opening the app doesn't yank the zoom.)
     window.__moveSpot = function (lat, lng) {
       var ll = L.latLng(lat, lng);
       marker.setLatLng(ll);
-      if (map.getZoom() < 10) { map.setView(ll, 12); } else { map.panTo(ll); }
+      map.setView(ll, 17);
       updatePinDepth(ll, false);
     };
     // Host hook: re-time the wind overlay (new day/hour or fresh analysis)

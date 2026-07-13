@@ -42,6 +42,12 @@ export async function deletePreset(id: string): Promise<ConditionPreset[]> {
   return next;
 }
 
+/** Persist a hand-reordered preset list (stored order is the shown order). */
+export async function reorderPresets(list: ConditionPreset[]): Promise<ConditionPreset[]> {
+  await persist(list);
+  return list;
+}
+
 /** The same named setup counts as a duplicate (label + all settings). */
 function presetKey(p: ConditionPreset): string {
   return [

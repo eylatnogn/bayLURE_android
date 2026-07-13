@@ -29,6 +29,7 @@ import {
   loadFavorites,
   addFavorite,
   deleteFavorite,
+  reorderFavorites,
 } from '@/storage/favorites';
 import { loadLastSpot, saveLastSpot } from '@/storage/lastSpot';
 import { loadSettings, saveSettings } from '@/storage/settings';
@@ -36,6 +37,7 @@ import {
   loadPresets,
   addPreset,
   deletePreset,
+  reorderPresets,
   type ConditionPreset,
 } from '@/storage/presets';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
@@ -61,6 +63,7 @@ import {
 } from '@/components/StructurePicker';
 import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
+import { ReorderableList } from '@/components/ReorderableList';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
 import { Button } from '@/components/Button';
@@ -228,6 +231,16 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   const onDeletePreset = useCallback(async (id: string) => {
     setCustomPresets(await deletePreset(id));
+  }, []);
+
+  // Drag reorder: update the list immediately, persist the new order after.
+  const onReorderPresets = useCallback((list: ConditionPreset[]) => {
+    setCustomPresets(list);
+    void reorderPresets(list);
+  }, []);
+  const onReorderFavorites = useCallback((list: FavoriteLocation[]) => {
+    setFavorites(list);
+    void reorderFavorites(list);
   }, []);
 
   const toggleSpecies = useCallback((sp: Species) => {
@@ -649,9 +662,15 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                 color={colors.textMuted}
               />
             </Pressable>
-            {savedSpotsOpen
-              ? favorites.map((fav) => (
-                  <View key={fav.id} style={styles.favRow}>
+            {savedSpotsOpen ? (
+              <ReorderableList
+                items={favorites}
+                keyOf={(f) => f.id}
+                rowHeight={44}
+                onReorder={onReorderFavorites}
+                rowStyle={styles.favRowCard}
+                renderItem={(fav) => (
+                  <>
                     <Pressable
                       style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
                       onPress={() => onLoadFavorite(fav)}
@@ -662,14 +681,17 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                         color={colors.warn}
                         style={styles.favStar}
                       />
-                      <Text style={styles.favName}>{fav.label}</Text>
+                      <Text style={styles.favName} numberOfLines={1}>
+                        {fav.label}
+                      </Text>
                     </Pressable>
                     <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
                       <Feather name="x" size={16} color={colors.textMuted} />
                     </Pressable>
-                  </View>
-                ))
-              : null}
+                  </>
+                )}
+              />
+            ) : null}
           </View>
         ) : null}
       </Section>
@@ -704,21 +726,37 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                 <Text style={styles.presetText}>{p.label}</Text>
               </Pressable>
             ))}
-            {customPresets.map((p) => (
-              <View key={p.id} style={styles.presetCustom}>
-                <Pressable
-                  style={({ pressed }) => [styles.presetCustomTap, pressed && pressedStyle]}
-                  onPress={() => applyCustomPreset(p)}
-                >
-                  <Feather name="bookmark" size={13} color={colors.accent} />
-                  <Text style={styles.presetText}>{p.label}</Text>
-                </Pressable>
-                <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
-                  <Feather name="x" size={14} color={colors.textMuted} />
-                </Pressable>
-              </View>
-            ))}
           </View>
+
+          {/* The angler's own presets — a drag-to-reorder list (grip on the
+              right) so the order they see is the order they set. */}
+          {customPresets.length > 0 ? (
+            <View style={styles.presetList}>
+              <ReorderableList
+                items={customPresets}
+                keyOf={(p) => p.id}
+                rowHeight={42}
+                onReorder={onReorderPresets}
+                rowStyle={styles.presetRowCard}
+                renderItem={(p) => (
+                  <>
+                    <Pressable
+                      style={({ pressed }) => [styles.presetRowTap, pressed && pressedStyle]}
+                      onPress={() => applyCustomPreset(p)}
+                    >
+                      <Feather name="bookmark" size={13} color={colors.accent} />
+                      <Text style={styles.presetText} numberOfLines={1}>
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
+                      <Feather name="x" size={14} color={colors.textMuted} />
+                    </Pressable>
+                  </>
+                )}
+              />
+            </View>
+          ) : null}
 
           {!savingPreset ? (
             <Pressable
@@ -1242,17 +1280,14 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 14,
     fontWeight: '700',
   },
-  favRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  // Card look for a reorderable saved-spot row (positioned by ReorderableList,
+  // so no margin — the grip sits inside the card on the right).
+  favRowCard: {
     backgroundColor: colors.bgElevated,
     borderColor: colors.cardBorder,
     borderWidth: 1,
     borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
+    paddingLeft: spacing.md,
   },
   favTap: {
     flexDirection: 'row',
@@ -1283,21 +1318,20 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     borderWidth: 1,
     borderColor: colors.accent,
   },
-  presetCustom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
+  presetList: { marginTop: spacing.sm },
+  // Card look for a reorderable custom-preset row (grip inside, on the right).
+  presetRowCard: {
     backgroundColor: colors.accentDim,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.accent,
+    paddingLeft: spacing.md,
   },
-  presetCustomTap: {
+  presetRowTap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flex: 1,
   },
   presetText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   collapse: {

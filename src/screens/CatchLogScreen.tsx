@@ -17,7 +17,9 @@ import type { CatchConditions, CatchRecord, Conditions } from '@/types';
 import { SPECIES } from '@/engine/species';
 import { LURES } from '@/engine/lureDatabase';
 import { addCatch, deleteCatch, loadCatches, updateCatch } from '@/storage/catchLog';
+import { reverseGeocode } from '@/api/location';
 import { onBackupImported } from '@/utils/backup';
+import { base64ToBytes, metaFromJpegBytes, metaFromPickerExif, type PhotoMeta } from '@/utils/exif';
 import { summarizeCatchConditions } from '@/utils/snapshot';
 import { CatchReportCard } from '@/components/CatchReportCard';
 import { SearchPick } from '@/components/SearchPick';
@@ -82,6 +84,11 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
   // backdated and labeled, instead of logging as "today at the analyzed spot".
   const [catchDate, setCatchDate] = useState(todayInput());
   const [placeLabel, setPlaceLabel] = useState('');
+  // What the photo's EXIF filled in (shown as a hint; everything editable).
+  const [photoMetaNote, setPhotoMetaNote] = useState<string | null>(null);
+  // Exact moment + position from the photo, used at save time for the
+  // conditions timestamp/coordinates unless the angler overrides the date.
+  const photoMetaRef = useRef<PhotoMeta | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -118,6 +125,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setError(null);
     setCatchDate(todayInput());
     setPlaceLabel('');
+    setPhotoMetaNote(null);
+    photoMetaRef.current = null;
   }, []);
 
   const resolvedSpecies = species ?? '';
@@ -136,6 +145,43 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     else setBait(name);
   }, []);
 
+  // Pre-fill the form from a photo's EXIF: the date it was taken and, when
+  // GPS is embedded, the place. Everything stays editable — the metadata is
+  // the starting point, the angler has the final word.
+  const applyPhotoMeta = useCallback(
+    async (meta: PhotoMeta) => {
+      if (editingId) return; // editing keeps its logged date/conditions
+      const bits: string[] = [];
+      if (meta.takenAt && meta.takenAt.getTime() <= Date.now()) {
+        setCatchDate(
+          `${meta.takenAt.getMonth() + 1}/${meta.takenAt.getDate()}/${meta.takenAt.getFullYear()}`,
+        );
+        bits.push(
+          meta.takenAt.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          }),
+        );
+      }
+      if (meta.latitude != null && meta.longitude != null) {
+        const label = await reverseGeocode({
+          latitude: meta.latitude,
+          longitude: meta.longitude,
+        });
+        const place = label || `${meta.latitude.toFixed(4)}, ${meta.longitude.toFixed(4)}`;
+        setPlaceLabel(place);
+        bits.push(place);
+      }
+      if (bits.length) {
+        photoMetaRef.current = meta;
+        setPhotoMetaNote(`From the photo: ${bits.join(' · ')} — edit below if that's off.`);
+      }
+    },
+    [editingId],
+  );
+
   const pickPhoto = useCallback(async () => {
     setError(null);
     try {
@@ -149,10 +195,22 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
         allowsEditing: true,
         quality: 0.4,
         base64: Platform.OS === 'web',
+        exif: true,
       });
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset) return;
+      // Photo metadata is a bonus — never let it block adding the photo.
+      try {
+        let meta = metaFromPickerExif(asset.exif as Record<string, unknown> | undefined);
+        if (!meta.takenAt && meta.latitude == null && asset.base64) {
+          // Web: the picker strips EXIF from its response, so read the bytes.
+          meta = metaFromJpegBytes(base64ToBytes(asset.base64));
+        }
+        await applyPhotoMeta(meta);
+      } catch {
+        /* ignore — the photo itself still attaches below */
+      }
       // Resize down before storing — full-res photos blow past on-device
       // storage limits (this caused the "quota exceeded" error on web).
       const wantsBase64 = Platform.OS === 'web';
@@ -186,7 +244,7 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open the photo library.');
     }
-  }, []);
+  }, [applyPhotoMeta]);
 
   const onSave = useCallback(async () => {
     // Free tier caps *new* catches; editing an existing one is always allowed.
@@ -238,10 +296,25 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       conditions = { ...conditions, place: place || undefined };
     } else if (!editingId && conditions && when) {
       const place = placeLabel.trim() || conditions.place;
-      const capturedAt = dateISO
-        ? `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}T12:00`
-        : conditions.capturedAt;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      // The photo's exact moment beats the backdate default of local noon —
+      // but only while the entered date still matches the photo's day (a
+      // hand-edited date means the angler overrode the photo).
+      const meta = photoMetaRef.current;
+      const photoDay =
+        meta?.takenAt && meta.takenAt.toDateString() === when.toDateString()
+          ? meta.takenAt
+          : null;
+      const capturedAt = photoDay
+        ? `${photoDay.getFullYear()}-${pad(photoDay.getMonth() + 1)}-${pad(photoDay.getDate())}T${pad(photoDay.getHours())}:${pad(photoDay.getMinutes())}`
+        : dateISO
+          ? `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T12:00`
+          : conditions.capturedAt;
       conditions = { ...conditions, place, capturedAt };
+      // The photo's GPS pins the catch precisely, wherever the label ends up.
+      if (meta && meta.latitude != null && meta.longitude != null) {
+        conditions = { ...conditions, latitude: meta.latitude, longitude: meta.longitude };
+      }
     }
     const record = {
       species: resolvedSpecies,
@@ -299,6 +372,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setNotes(c.notes ?? '');
     setPhotoUri(c.photoUri ?? null);
     setPlaceLabel(c.conditions?.place ?? '');
+    setPhotoMetaNote(null);
+    photoMetaRef.current = null;
     setEditingId(c.id);
     setFormOpen(true);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -328,6 +403,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
             setEditingId(null);
             setCatchDate(todayInput());
             setPlaceLabel(snapshot?.place ?? '');
+            setPhotoMetaNote(null);
+            photoMetaRef.current = null;
             setFormOpen(true);
           }}
         >
@@ -406,7 +483,14 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
           {photoUri ? (
             <View>
               <Image source={{ uri: photoUri }} style={styles.preview} />
-              <Pressable onPress={() => setPhotoUri(null)}>
+              {photoMetaNote ? <Text style={styles.photoMetaNote}>{photoMetaNote}</Text> : null}
+              <Pressable
+                onPress={() => {
+                  setPhotoUri(null);
+                  setPhotoMetaNote(null);
+                  photoMetaRef.current = null;
+                }}
+              >
                 <Text style={styles.removePhoto}>Remove photo</Text>
               </Pressable>
             </View>
@@ -777,6 +861,11 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 13,
     fontWeight: '700',
     marginTop: spacing.sm,
+  },
+  photoMetaNote: {
+    color: colors.accent,
+    fontSize: 12,
+    marginTop: spacing.xs,
   },
   attachRow: {
     flexDirection: 'row',

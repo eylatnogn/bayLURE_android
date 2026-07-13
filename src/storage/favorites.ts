@@ -9,7 +9,10 @@ export async function loadFavorites(): Promise<FavoriteLocation[]> {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as FavoriteLocation[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.sort((a, b) => a.label.localeCompare(b.label));
+    // Stored order is the shown order so the angler's manual reordering sticks
+    // (older builds alphabetized on read; the persisted array is insertion
+    // order, which becomes the starting point they can now drag to reorder).
+    return parsed;
   } catch {
     return [];
   }
@@ -29,7 +32,7 @@ export async function addFavorite(
   };
   const next = [...existing, entry];
   await persist(next);
-  return next.sort((a, b) => a.label.localeCompare(b.label));
+  return next;
 }
 
 export async function deleteFavorite(id: string): Promise<FavoriteLocation[]> {
@@ -37,6 +40,12 @@ export async function deleteFavorite(id: string): Promise<FavoriteLocation[]> {
   const next = existing.filter((f) => f.id !== id);
   await persist(next);
   return next;
+}
+
+/** Persist a hand-reordered spot list (stored order is the shown order). */
+export async function reorderFavorites(list: FavoriteLocation[]): Promise<FavoriteLocation[]> {
+  await persist(list);
+  return list;
 }
 
 /** Same spot saved twice (label + ~10m coordinates) counts as a duplicate. */

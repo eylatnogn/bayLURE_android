@@ -38,6 +38,11 @@ export function MapPicker({
   const [inlineRadar, setInlineRadar] = useState<RadarTimelineState | null>(null);
   const [fullRadar, setFullRadar] = useState<RadarTimelineState | null>(null);
 
+  // Inline map's depth state, so a newly-opened full screen inherits it
+  // instead of resetting depth off. A ref: it only needs reading at open time,
+  // and mustn't rebuild the inline document.
+  const depthOnRef = useRef(false);
+
   // The full-screen iframe unmounts with the overlay; drop its timeline too.
   useEffect(() => {
     if (!expanded) setFullRadar(null);
@@ -49,6 +54,13 @@ export function MapPicker({
         const data = JSON.parse(event.data);
         if (data?.type === 'fullscreen') {
           setExpanded((v) => !v);
+          return;
+        }
+        if (data?.type === 'depth') {
+          // Seed full screen from the INLINE map's depth state.
+          if (event.source === inlineRef.current?.contentWindow) {
+            depthOnRef.current = !!data.on;
+          }
           return;
         }
         if (data?.type === 'radar' || data?.type === 'radarFrame') {
@@ -87,13 +99,21 @@ export function MapPicker({
   }, [onPick]);
 
   // External center change (geolocation/search/saved spot): move both pins
-  // without reloading, so each map keeps its zoom.
+  // without reloading. __moveSpot lands at the recenter close-up, so skip the
+  // redundant first call for the center already baked into the documents —
+  // opening the app shouldn't yank the zoom to 17.
+  const bakedCenter = useRef(center);
   useEffect(() => {
     if (internalPick.current) {
       internalPick.current = false; // a map already placed this pin
       return;
     }
     if (!center) return;
+    const baked = bakedCenter.current;
+    bakedCenter.current = null; // only ever skip the first call
+    if (baked && baked.latitude === center.latitude && baked.longitude === center.longitude) {
+      return;
+    }
     const msg = { type: 'balure:moveSpot', lat: center.latitude, lng: center.longitude };
     inlineRef.current?.contentWindow?.postMessage(msg, '*');
     fullRef.current?.contentWindow?.postMessage(msg, '*');
@@ -121,9 +141,17 @@ export function MapPicker({
     [],
   );
   // Keyed on `expanded`, so each time it opens it bakes in the *current*
-  // location and wind; it stays stable while open (no reload).
+  // location, wind, and the inline map's depth state; stable while open.
   const srcDocFull = useMemo(
-    () => buildMapHtml(centerRef.current, windRef.current.label, true, windRef.current.mph, windRef.current.dir),
+    () =>
+      buildMapHtml(
+        centerRef.current,
+        windRef.current.label,
+        true,
+        windRef.current.mph,
+        windRef.current.dir,
+        depthOnRef.current,
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [expanded],
   );

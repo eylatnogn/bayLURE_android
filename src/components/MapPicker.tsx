@@ -17,6 +17,10 @@ interface CanvasProps extends MapPickerProps {
   onRadar: (data: { type: string; on?: boolean; frames?: string[]; idx?: number; nowIdx?: number }) => void;
   /** Receives scrub/play commands the host timeline can send into this map. */
   controlRef: MutableRefObject<RadarControl | null>;
+  /** Bake the depth overlay on at mount (full screen inherits inline's state). */
+  initialDepth?: boolean;
+  /** Reports depth on/off so the host can seed the other map instance. */
+  onDepth?: (on: boolean) => void;
 }
 
 // The Leaflet WebView. The expand/collapse control lives *inside* the map HTML
@@ -34,6 +38,8 @@ function MapCanvas({
   onToggleFullscreen,
   onRadar,
   controlRef,
+  initialDepth = false,
+  onDepth,
 }: CanvasProps) {
   const styles = useStyles();
   const webRef = useRef<WebView>(null);
@@ -50,6 +56,7 @@ function MapCanvas({
   // which read as the map "glitching out and zooming out" every time the
   // shared day/hour selection changed.
   const initialWind = useRef({ label: windTargetLabel, mph: windMph, dir: windDirDeg });
+  const initialDepthRef = useRef(initialDepth);
   const html = useMemo(
     () =>
       buildMapHtml(
@@ -58,17 +65,27 @@ function MapCanvas({
         fullscreen,
         initialWind.current.mph,
         initialWind.current.dir,
+        initialDepthRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fullscreen],
   );
 
+  // The mount-time center is already baked into the document, and __moveSpot
+  // now zooms to the spot close-up — skip that one redundant first call so
+  // simply opening the map doesn't yank the zoom to 17.
+  const bakedCenter = useRef(center);
   useEffect(() => {
     if (internalPick.current) {
       internalPick.current = false; // the map already placed this pin
       return;
     }
     if (!center) return;
+    const baked = bakedCenter.current;
+    bakedCenter.current = null; // only ever skip the first call
+    if (baked && baked.latitude === center.latitude && baked.longitude === center.longitude) {
+      return;
+    }
     webRef.current?.injectJavaScript(
       `window.__moveSpot && window.__moveSpot(${center.latitude}, ${center.longitude}); true;`,
     );
@@ -116,6 +133,10 @@ function MapCanvas({
           }
           if (data?.type === 'radar' || data?.type === 'radarFrame') {
             onRadar(data);
+            return;
+          }
+          if (data?.type === 'depth') {
+            onDepth?.(!!data.on);
             return;
           }
           if (typeof data.latitude === 'number') {
@@ -193,6 +214,9 @@ export function MapPicker(props: MapPickerProps) {
   const [fullRadar, setFullRadar] = useState<RadarTimelineState | null>(null);
   const inlineCtl = useRef<RadarControl | null>(null);
   const fullCtl = useRef<RadarControl | null>(null);
+  // Depth overlay state, shared so full screen opens with what the inline map
+  // had on (each map is its own instance and doesn't otherwise sync toggles).
+  const [depthOn, setDepthOn] = useState(false);
 
   // The full-screen map unmounts with the modal; drop its timeline with it.
   useEffect(() => {
@@ -208,6 +232,7 @@ export function MapPicker(props: MapPickerProps) {
           onToggleFullscreen={() => setExpanded(true)}
           onRadar={(d) => radarReducer(d, setInlineRadar)}
           controlRef={inlineCtl}
+          onDepth={setDepthOn}
         />
       </View>
       {timelineFor(inlineRadar, inlineCtl, setInlineRadar)}
@@ -227,6 +252,8 @@ export function MapPicker(props: MapPickerProps) {
                   onToggleFullscreen={() => setExpanded(false)}
                   onRadar={(d) => radarReducer(d, setFullRadar)}
                   controlRef={fullCtl}
+                  initialDepth={depthOn}
+                  onDepth={setDepthOn}
                 />
               </View>
               {fullRadar ? (
