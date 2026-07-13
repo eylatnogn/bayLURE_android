@@ -152,7 +152,7 @@ export function buildMapHtml(
     .windgrad { background: linear-gradient(to right,
       #5b8f8a, #3a7d52, #6f9e3f, #c0a233, #c08433, #b15240); }
     .depthgrad { background: linear-gradient(to right,
-      #96f3e0, #4adcc9, #2ab0c4, #2180a8, #1a5c8c, #103656); }
+      #cfe8f5, #7fc4e8, #3e8fc4, #2c6aa0, #1d4373, #0e2647); }
     .radargrad { background: linear-gradient(to right,
       #5ad2f0, #3ecc4a, #f5e63d, #f0a03c, #e03c32, #c130c9); }
     .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
@@ -268,11 +268,12 @@ export function buildMapHtml(
     // as siblings of mapPane they'd be painted over by the rotated tiles (the
     // "depth overlay disappeared" bug) and wouldn't turn with the map.
     var paneParent = map.getPane('rotatePane') || undefined;
-    // depthshade sits ABOVE the NOAA charts: the teal shading tints the chart
-    // (its soundings stay readable through the 0.5 fill) and the contour lines
-    // draw over the chart's hatching instead of being washed out under it.
-    map.createPane('charts', paneParent); map.getPane('charts').style.zIndex = 355;
-    map.createPane('depthshade', paneParent); map.getPane('depthshade').style.zIndex = 362;
+    // Depth shading sits under the NOAA charts (the subtle original look), but
+    // contour lines get their own pane ABOVE the charts so they aren't washed
+    // out under the chart's near-opaque fill and hatching.
+    map.createPane('depthshade', paneParent); map.getPane('depthshade').style.zIndex = 350;
+    map.createPane('charts', paneParent); map.getPane('charts').style.zIndex = 360;
+    map.createPane('contours', paneParent); map.getPane('contours').style.zIndex = 365;
     map.createPane('radar', paneParent); map.getPane('radar').style.zIndex = 370;
     // Forecast radar gets its own pane: HRRR's ~3 km cells need a stronger
     // blur than NEXRAD's ~1 km to look equally smooth.
@@ -754,10 +755,9 @@ export function buildMapHtml(
     var contourLines = L.layerGroup();
     var depthTimer = null;
 
-    // Stepped shallow→deep scale (0–200 ft+), matching the depth legend:
-    // mint flats → teal → deep ocean blue (the Navionics-style ramp).
+    // Stepped shallow→deep blue scale (0–200 ft+), matching the depth legend.
     function depthColorFt(ft) {
-      var stops = ['#96f3e0', '#4adcc9', '#2ab0c4', '#2180a8', '#1a5c8c', '#103656'];
+      var stops = ['#cfe8f5', '#7fc4e8', '#3e8fc4', '#2c6aa0', '#1d4373', '#0e2647'];
       var t = Math.max(0, Math.min(0.999, ft / 200));
       return stops[Math.floor(t * stops.length)];
     }
@@ -889,7 +889,7 @@ export function buildMapHtml(
         if (depthEnabled) {
           depthShade.addLayer(L.rectangle(
             [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
-            { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.5, pane: 'depthshade' }
+            { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
           ));
         }
       }
@@ -903,16 +903,16 @@ export function buildMapHtml(
       for (var li = 0; li < levels.length; li++) {
         var segs = contourSegs(vals, cells, n, levels[li]);
         if (!segs.length) { continue; }
-        // Cased lines (deep-teal underlay + white-cyan core) so contours stay
-        // distinct over both the mint shallows and the dark deep shading —
-        // the Navionics look: fine bright lines with a subtle dark edge.
+        // A soft dark band behind each line ("shading"), then the white line on
+        // top — keeps contours readable over the chart's pale fill without
+        // recoloring anything else.
         contourLines.addLayer(L.polyline(segs, {
-          color: '#06222e', weight: 2.6, opacity: 0.7,
-          interactive: false, pane: 'depthshade'
+          color: '#0b2334', weight: 4.5, opacity: 0.32,
+          interactive: false, pane: 'contours'
         }));
         contourLines.addLayer(L.polyline(segs, {
-          color: '#eefcff', weight: 1.2, opacity: 0.95,
-          interactive: false, pane: 'depthshade'
+          color: '#f4fcff', weight: 1.2, opacity: 0.95,
+          interactive: false, pane: 'contours'
         }));
         var mid = segs[Math.floor(segs.length / 2)];
         contourLines.addLayer(L.marker(
