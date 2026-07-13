@@ -320,16 +320,29 @@ export function TideGraphModal({
       })
       .filter((c): c is NonNullable<typeof c> => c !== null)
       .sort((a, b) => b.rank - a.rank);
-    for (const c of candidates) {
-      // Two labels clash only when they overlap horizontally AND sit on the same
-      // line — so a high and a low near the same time still both show, but a
-      // ripple crowding a neighbouring high on the same row is dropped.
-      const clashes = tideLabels.some(
+    // Every extreme keeps its label. A label that would overlap an already
+    // placed one (horizontally AND on the same line) tries other spots instead
+    // of being dropped: above its dot, below it, then stacked line by line.
+    const clashesAt = (cx: number, cy: number, halfW: number) =>
+      tideLabels.some(
         (p) =>
-          Math.abs(p.cx - c.cx) < p.halfW + c.halfW + LABEL_GAP &&
-          Math.abs(p.cy - c.cy) < LINE_H,
+          Math.abs(p.cx - cx) < p.halfW + halfW + LABEL_GAP &&
+          Math.abs(p.cy - cy) < LINE_H,
       );
-      if (!clashes) tideLabels.push(c);
+    for (const c of candidates) {
+      const above = c.cy; // default spot: just above the marker dot
+      const below = c.cy + 24; // just below the dot
+      let placedY: number | null = null;
+      for (let step = 0; step < 6 && placedY == null; step++) {
+        for (const raw of [above - step * (LINE_H + 1), below + step * (LINE_H + 1)]) {
+          const cy = Math.min(Math.max(raw, 12), M.top + IH - 4);
+          if (!clashesAt(c.cx, cy, c.halfW)) {
+            placedY = cy;
+            break;
+          }
+        }
+      }
+      tideLabels.push({ cx: c.cx, cy: placedY ?? c.cy, halfW: c.halfW, text: c.text });
     }
 
     chart = (

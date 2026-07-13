@@ -45,6 +45,8 @@ export function MapPicker({
   const depthOnRef = useRef(false);
   const radarOnRef = useRef(false);
   const contourOnRef = useRef(false);
+  // Inline map's current zoom, so full screen opens at the same framing.
+  const zoomRef = useRef<number | null>(null);
 
   // The full-screen iframe unmounts with the overlay; drop its timeline too.
   useEffect(() => {
@@ -69,6 +71,12 @@ export function MapPicker({
         if (data?.type === 'contour') {
           if (event.source === inlineRef.current?.contentWindow) {
             contourOnRef.current = !!data.on;
+          }
+          return;
+        }
+        if (data?.type === 'view') {
+          if (event.source === inlineRef.current?.contentWindow && typeof data.zoom === 'number') {
+            zoomRef.current = data.zoom;
           }
           return;
         }
@@ -204,6 +212,7 @@ export function MapPicker({
         depthOnRef.current,
         radarOnRef.current,
         contourOnRef.current,
+        zoomRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [expanded],

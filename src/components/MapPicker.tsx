@@ -28,6 +28,10 @@ interface CanvasProps extends MapPickerProps {
   initialContour?: boolean;
   /** Reports contour on/off so the host can seed the other map instance. */
   onContour?: (on: boolean) => void;
+  /** Open at this zoom (full screen inherits the inline map's zoom). */
+  initialZoom?: number | null;
+  /** Reports the map's zoom after every move, for the inheritance above. */
+  onView?: (zoom: number) => void;
 }
 
 // The Leaflet WebView. The expand/collapse control lives *inside* the map HTML
@@ -50,6 +54,8 @@ function MapCanvas({
   initialRadar = false,
   initialContour = false,
   onContour,
+  initialZoom = null,
+  onView,
 }: CanvasProps) {
   const styles = useStyles();
   const webRef = useRef<WebView>(null);
@@ -69,6 +75,7 @@ function MapCanvas({
   const initialDepthRef = useRef(initialDepth);
   const initialRadarRef = useRef(initialRadar);
   const initialContourRef = useRef(initialContour);
+  const initialZoomRef = useRef(initialZoom);
   const html = useMemo(
     () =>
       buildMapHtml(
@@ -80,6 +87,7 @@ function MapCanvas({
         initialDepthRef.current,
         initialRadarRef.current,
         initialContourRef.current,
+        initialZoomRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fullscreen],
@@ -195,6 +203,10 @@ function MapCanvas({
             onContour?.(!!data.on);
             return;
           }
+          if (data?.type === 'view') {
+            if (typeof data.zoom === 'number') onView?.(data.zoom);
+            return;
+          }
           if (data?.type === 'depthReq') {
             void handleDepthReq(data);
             return;
@@ -283,6 +295,8 @@ export function MapPicker(props: MapPickerProps) {
   // sync toggles).
   const [depthOn, setDepthOn] = useState(false);
   const [contourOn, setContourOn] = useState(false);
+  // Inline map's current zoom, so full screen opens at the same framing.
+  const inlineZoom = useRef<number | null>(null);
 
   // The full-screen map unmounts with the modal; drop its timeline with it.
   useEffect(() => {
@@ -300,6 +314,7 @@ export function MapPicker(props: MapPickerProps) {
           controlRef={inlineCtl}
           onDepth={setDepthOn}
           onContour={setContourOn}
+          onView={(z) => { inlineZoom.current = z; }}
         />
       </View>
       {timelineFor(inlineRadar, inlineCtl, setInlineRadar)}
@@ -324,6 +339,7 @@ export function MapPicker(props: MapPickerProps) {
                   initialRadar={inlineRadar != null}
                   initialContour={contourOn}
                   onContour={setContourOn}
+                  initialZoom={inlineZoom.current}
                 />
               </View>
               {fullRadar ? (

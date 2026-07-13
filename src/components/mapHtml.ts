@@ -71,9 +71,11 @@ export function buildMapHtml(
   initialRadar = false,
   /** Start with the contour-lines overlay on (same full-screen inheritance). */
   initialContour = false,
+  /** Open at this zoom — so full screen picks up where the inline map was. */
+  initialZoom: number | null = null,
 ): string {
   const c = center ?? DEFAULT_CENTER;
-  const zoom = center ? 12 : 4;
+  const zoom = initialZoom ?? (center ? 12 : 4);
   const whenText = esc(`Wind · ${windTargetLabel}`);
   return `<!DOCTYPE html>
 <html>
@@ -154,7 +156,7 @@ export function buildMapHtml(
     .depthgrad { background: linear-gradient(to right,
       #cfe8f5, #7fc4e8, #3e8fc4, #2c6aa0, #1d4373, #0e2647); }
     .contourgrad { background: linear-gradient(to right,
-      #96f3e0, #4adcc9, #2ab0c4, #2180a8, #1a5c8c, #103656); }
+      #9ff5e3, #4adcc9, #2ab0c4, #2c8fc4, #3a6fbe, #4956b3); }
     .radargrad { background: linear-gradient(to right,
       #5ad2f0, #3ecc4a, #f5e63d, #f0a03c, #e03c32, #c130c9); }
     .legend-scale { display: flex; justify-content: space-between; margin-top: 3px; }
@@ -766,10 +768,11 @@ export function buildMapHtml(
       return stops[Math.floor(t * stops.length)];
     }
 
-    // The contour overlay's own shading: light teal flats → dark deep water.
-    // Independent of the Depth overlay so contours visualize depth on their own.
+    // Contour LINE colour by its depth level: cyan shallows → darker blues
+    // deep (0–200 ft+). The deep end stays bright enough for a 1.6px line to
+    // read against dark satellite water; the shadow band does the rest.
     function contourColorFt(ft) {
-      var stops = ['#96f3e0', '#4adcc9', '#2ab0c4', '#2180a8', '#1a5c8c', '#103656'];
+      var stops = ['#9ff5e3', '#4adcc9', '#2ab0c4', '#2c8fc4', '#3a6fbe', '#4956b3'];
       var t = Math.max(0, Math.min(0.999, ft / 200));
       return stops[Math.floor(t * stops.length)];
     }
@@ -779,6 +782,11 @@ export function buildMapHtml(
     // coastal DEM and injects the elevations back via window.__depthCells.
     // depthReqSeq lets us drop stale replies after a pan.
     var depthReqSeq = 0;
+    // The padded area + zoom the last drawn grid covers: pans inside it (and
+    // any zoom-in) reuse the drawn layers instead of refetching, so moving
+    // around with Contour on doesn't stutter on a network call every pan.
+    var lastDepthFetch = null;
+    var pendingDepthArea = null;
     function refreshDepthShading() {
       if (!depthEnabled && !contourEnabled) { return; }
       try {
@@ -787,6 +795,19 @@ export function buildMapHtml(
         var west = b.getWest(), east = b.getEast();
         if (east - west > 30) { var mx = (east + west) / 2; west = mx - 15; east = mx + 15; }
         if (north - south > 30) { var my = (north + south) / 2; south = my - 15; north = my + 15; }
+        // Reuse the last fetch while the view stays inside its padded area and
+        // hasn't zoomed out — unless an overlay was just switched on and has
+        // nothing drawn yet.
+        var needDraw =
+          (depthEnabled && depthShade.getLayers().length === 0) ||
+          (contourEnabled && contourLines.getLayers().length === 0);
+        if (!needDraw && lastDepthFetch &&
+            map.getZoom() >= lastDepthFetch.z &&
+            north <= lastDepthFetch.n && south >= lastDepthFetch.s &&
+            west >= lastDepthFetch.w && east <= lastDepthFetch.e) { return; }
+        // Fetch 30% beyond each edge so nearby panning needs no new call.
+        var padLat = (north - south) * 0.3, padLon = (east - west) * 0.3;
+        north += padLat; south -= padLat; west -= padLon; east += padLon;
         // 20x20 = 400 samples: the host reads them in one call from NOAA's
         // coastal DEM (~3 m near US coasts), fine enough for real contour lines.
         var n = 20;
@@ -800,6 +821,7 @@ export function buildMapHtml(
           }
         }
         depthReqSeq++;
+        pendingDepthArea = { n: north, s: south, w: west, e: east, z: map.getZoom() };
         postHost({ type: 'depthReq', id: depthReqSeq,
           cells: cells, dLat: dLat, dLon: dLon });
       } catch (e) { /* optional */ }
@@ -880,6 +902,9 @@ export function buildMapHtml(
     // lines (Contour toggle) — each drawn only while its toggle is on.
     function drawDepthCells(payload) {
       if ((!depthEnabled && !contourEnabled) || !payload || payload.id !== depthReqSeq) { return; }
+      // This reply matches the newest request, so its padded area is now what
+      // the drawn layers cover — pans inside it skip refetching.
+      lastDepthFetch = pendingDepthArea;
       depthShade.clearLayers();
       contourLines.clearLayers();
       var results = payload.results || [];
@@ -904,14 +929,6 @@ export function buildMapHtml(
             { stroke: false, fill: true, fillColor: depthColorFt(ft), fillOpacity: 0.42, pane: 'depthshade' }
           ));
         }
-        // The contour overlay's own teal depth tint, drawn before the lines so
-        // the lines stay on top (insertion order = paint order within the pane).
-        if (contourEnabled) {
-          contourLines.addLayer(L.rectangle(
-            [[cl[0] - dLat / 2, cl[1] - dLon / 2], [cl[0] + dLat / 2, cl[1] + dLon / 2]],
-            { stroke: false, fill: true, fillColor: contourColorFt(ft), fillOpacity: 0.45, pane: 'contours' }
-          ));
-        }
       }
       showDepthNotice(wet === 0);
       if (wet === 0 || !contourEnabled) { return; }
@@ -923,15 +940,15 @@ export function buildMapHtml(
       for (var li = 0; li < levels.length; li++) {
         var segs = contourSegs(vals, cells, n, levels[li]);
         if (!segs.length) { continue; }
-        // A soft dark band behind each line ("shading"), then the white line on
-        // top — keeps contours readable over the chart's pale fill without
-        // recoloring anything else.
+        // Depth is encoded in the line itself: cyan for shallow levels through
+        // darker blues for deep ones, over a soft dark shadow band so every
+        // shade stays readable on both pale chart and dark satellite.
         contourLines.addLayer(L.polyline(segs, {
-          color: '#0b2334', weight: 4.5, opacity: 0.32,
+          color: '#06222e', weight: 4.5, opacity: 0.4,
           interactive: false, pane: 'contours'
         }));
         contourLines.addLayer(L.polyline(segs, {
-          color: '#f4fcff', weight: 1.2, opacity: 0.95,
+          color: contourColorFt(levels[li]), weight: 1.6, opacity: 0.95,
           interactive: false, pane: 'contours'
         }));
         var mid = segs[Math.floor(segs.length / 2)];
@@ -953,7 +970,9 @@ export function buildMapHtml(
     function scheduleDepth() {
       if (!depthEnabled && !contourEnabled) { return; }
       if (depthTimer) { clearTimeout(depthTimer); }
-      depthTimer = setTimeout(refreshDepthShading, 700);
+      // Short debounce: most pans skip the refetch entirely (padded-area reuse),
+      // so reacting quickly is cheap and the overlay feels immediate.
+      depthTimer = setTimeout(refreshDepthShading, 450);
     }
 
     // Charted depth at the pin (GEBCO single point), shown in the marker popup.
@@ -962,10 +981,26 @@ export function buildMapHtml(
     function updatePinDepth(ll, autoOpen) {
       postHost({ type: 'pinDepthReq', lat: ll.lat, lng: ll.lng, autoOpen: !!autoOpen });
     }
+    // Placing the pin flashes the depth readout for 1.25s; tapping the pin
+    // itself keeps the popup up until its close button is used.
+    var popupPinned = false;
+    var popupTimer = null;
+    marker.on('click', function () {
+      popupPinned = true;
+      // After Leaflet's own click-toggle runs, force the popup open.
+      setTimeout(function () { marker.openPopup(); }, 0);
+    });
     window.__pinDepth = function (payload) {
       if (!payload) { return; }
       marker.bindPopup(payload.text || '');
-      if (payload.autoOpen) { marker.openPopup(); }
+      if (payload.autoOpen) {
+        popupPinned = false;
+        marker.openPopup();
+        if (popupTimer) { clearTimeout(popupTimer); }
+        popupTimer = setTimeout(function () {
+          if (!popupPinned) { marker.closePopup(); }
+        }, 1250);
+      }
     };
 
     var depthBtn = document.getElementById('depthtoggle');
@@ -1090,7 +1125,11 @@ export function buildMapHtml(
       // never visible. invalidateSize settles it before the layer is added.
       setTimeout(function () { map.invalidateSize(); refreshWind(); }, 250);
     });
-    map.on('moveend', function () { scheduleWind(); scheduleDepth(); smoothRadar(); });
+    map.on('moveend', function () {
+      scheduleWind(); scheduleDepth(); smoothRadar();
+      // Keep the host current on the zoom so full screen opens at the same one.
+      postHost({ type: 'view', zoom: map.getZoom() });
+    });
     // Belt-and-suspenders: if the container resizes after load, redraw the wind.
     window.addEventListener('resize', function () { map.invalidateSize(); scheduleWind(); });
   </script>
