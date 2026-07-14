@@ -4,7 +4,7 @@
 // a Modal) so the map above it stays fully interactive; the host scrolls the
 // map into view when it opens. A grab handle above the title lets the angler
 // drag the sheet shorter/taller (it locks where they leave it).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
-import type { Conditions, Strategy } from '@/types';
+import type { Conditions, Strategy, WeatherConditions } from '@/types';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { hourOf, localDateStr } from '@/utils/dates';
 import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
@@ -105,14 +105,55 @@ const TIDE_SHORT: Record<string, string> = {
   unknown: '—',
 };
 
-function MiniStat({ label, value, hint, warn }: { label: string; value: string; hint?: string; warn?: boolean }) {
+// Forecast metrics the chart can plot instead of the tide curve — tap a stat
+// tile to switch, tap Tide (or the revert button) to come back.
+type MetricKey = 'air' | 'rain' | 'wind' | 'pressure' | 'sky';
+interface MetricCfg {
+  /** Legend/heading text, e.g. "Rain %". */
+  legend: string;
+  /** Unit suffix for the high/low callouts. */
+  unit: string;
+  /** Min y-axis padding when the day's values are nearly flat. */
+  pad: number;
+  /** Fixed axis range (percent metrics), instead of fitting the data. */
+  domain?: [number, number];
+  decimals?: number;
+  get: (w: WeatherConditions) => number;
+}
+const METRICS: Record<MetricKey, MetricCfg> = {
+  air: { legend: 'Air °F', unit: '°F', pad: 2, get: (w) => w.airTempF },
+  rain: { legend: 'Rain %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.precipChancePct },
+  wind: { legend: 'Wind mph', unit: ' mph', pad: 2, get: (w) => w.windMph },
+  pressure: { legend: 'Pressure inHg', unit: ' inHg', pad: 0.05, decimals: 2, get: (w) => w.pressureInHg },
+  sky: { legend: 'Cloud %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.cloudCoverPct },
+};
+
+function MiniStat({
+  label,
+  value,
+  hint,
+  warn,
+  active,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  warn?: boolean;
+  active?: boolean;
+  onPress?: () => void;
+}) {
   const styles = useStyles();
   return (
-    <View style={styles.mini}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [styles.mini, active && styles.miniActive, pressed && onPress ? pressedStyle : null]}
+    >
       <Text style={styles.miniValue}>{value}</Text>
       <Text style={styles.miniLabel}>{label}</Text>
       {hint ? <Text style={[styles.miniHint, warn && styles.miniHintWarn]}>{hint}</Text> : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -134,6 +175,8 @@ export function TideGraphModal({
   const selHour = selectedHour;
   const [heights, setHeights] = useState<TideHeightPoint[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // What the chart's curve shows: the tide, or a tapped forecast metric.
+  const [metric, setMetric] = useState<'tide' | MetricKey>('tide');
   // Dragged sheet height; null = fit the content. Locks where the drag ends
   // and survives close/reopen, so the angler sets it once.
   const [sheetH, setSheetH] = useState<number | null>(null);
@@ -211,6 +254,7 @@ export function TideGraphModal({
     if (visible) {
       sheetHRef.current = null;
       setSheetH(null);
+      setMetric('tide');
     }
   }, [visible]);
 
@@ -270,15 +314,90 @@ export function TideGraphModal({
   const isPeak = (s: number | null): s is number => s != null && s >= maxScore - 3 && s >= PRIME;
   const firstPeakHr = biteByHour.findIndex((s) => isPeak(s));
 
-  let chart = null;
-  if (heights && heights.length >= 2 && tide) {
+  // Chart geometry shared by every curve the chart can show.
+  const x = (hour: number) => M.left + (hour / 23) * IW;
+  const isToday = day.date === localDateStr(new Date());
+  const now = new Date();
+  const nowX = x(now.getHours() + now.getMinutes() / 60);
+  const CHAR_HALF = 2.9; // ~half a glyph's width in viewBox units at fontSize 11
+  const LABEL_GAP = 5; // min clear space between two labels
+  const LINE_H = 12; // labels only clash if within this vertical band (~one line)
+
+  // The curve layer: NOAA tide heights, or the tapped forecast metric.
+  let curveLayer: ReactNode = null;
+  let legendMain = { color: colors.water, label: 'Tide ft' };
+
+  if (metric !== 'tide') {
+    const cfg = METRICS[metric];
+    const series = (day.hourlyWeather ?? [])
+      .map((h) => ({ hr: hourOf(h.timeISO), v: cfg.get(h) }))
+      .filter((p) => !Number.isNaN(p.hr) && typeof p.v === 'number' && !Number.isNaN(p.v))
+      .sort((a, b) => a.hr - b.hr);
+    if (series.length >= 2) {
+      const vals = series.map((p) => p.v);
+      let min: number;
+      let max: number;
+      if (cfg.domain) {
+        [min, max] = cfg.domain;
+      } else {
+        const rawMin = Math.min(...vals);
+        const rawMax = Math.max(...vals);
+        const pad = Math.max(cfg.pad, (rawMax - rawMin) * 0.15);
+        min = rawMin - pad;
+        max = rawMax + pad;
+      }
+      const y = (v: number) => M.top + (1 - (v - min) / (max - min)) * IH;
+      const pts = series.map((p) => ({ x: x(p.hr), y: y(p.v) }));
+      const curve = smoothPath(pts);
+      const area = `${curve} L ${x(series[series.length - 1]!.hr)} ${M.top + IH} L ${x(series[0]!.hr)} ${M.top + IH} Z`;
+      // High/low callouts so the day's swing reads at a glance.
+      let hiIdx = 0;
+      let loIdx = 0;
+      series.forEach((p, i) => {
+        if (p.v > series[hiIdx]!.v) hiIdx = i;
+        if (p.v < series[loIdx]!.v) loIdx = i;
+      });
+      const fmtV = (v: number) =>
+        cfg.decimals != null ? v.toFixed(cfg.decimals) : String(Math.round(v));
+      const callouts = [hiIdx, ...(loIdx !== hiIdx ? [loIdx] : [])].map((idx, k) => {
+        const p = series[idx]!;
+        const text = `${k === 0 ? 'High' : 'Low'} ${fmtV(p.v)}${cfg.unit} · ${hr12(p.hr)}`;
+        const halfW = text.length * CHAR_HALF;
+        return {
+          text,
+          cx: Math.min(Math.max(x(p.hr), halfW + 2), W - halfW - 2),
+          cy: Math.min(Math.max(y(p.v) - 9, 12), M.top + IH - 6),
+          dotX: x(p.hr),
+          dotY: y(p.v),
+        };
+      });
+      const selPt = selHour != null ? series.find((p) => p.hr === selHour) : undefined;
+      legendMain = { color: colors.accent, label: cfg.legend };
+      curveLayer = (
+        <>
+          <Path d={area} fill={colors.accent} opacity={0.13} />
+          <Path d={curve} stroke={colors.accent} strokeWidth={2.5} fill="none" />
+          {callouts.map((co, i) => (
+            <SvgText key={`mc${i}`} x={co.cx} y={co.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
+              {co.text}
+            </SvgText>
+          ))}
+          {callouts.map((co, i) => (
+            <Circle key={`md${i}`} cx={co.dotX} cy={co.dotY} r={3.5} fill={colors.accent} stroke={colors.card} strokeWidth={1.5} />
+          ))}
+          {selPt ? (
+            <Circle cx={x(selPt.hr)} cy={y(selPt.v)} r={4.5} fill="none" stroke={colors.accent} strokeWidth={2} />
+          ) : null}
+        </>
+      );
+    }
+  } else if (heights && heights.length >= 2 && tide) {
     const values = heights.map((p) => p.heightFt);
     const rawMin = Math.min(...values);
     const rawMax = Math.max(...values);
     const pad = Math.max(0.3, (rawMax - rawMin) * 0.15);
     const min = rawMin - pad;
     const max = rawMax + pad;
-    const x = (hour: number) => M.left + (hour / 23) * IW;
     const y = (v: number) => M.top + (1 - (v - min) / (max - min)) * IH;
 
     const pts = heights
@@ -288,19 +407,12 @@ export function TideGraphModal({
     const curve = smoothPath(pts);
     const area = `${curve} L ${M.left + IW} ${M.top + IH} L ${M.left} ${M.top + IH} Z`;
 
-    const isToday = day.date === localDateStr(new Date());
-    const now = new Date();
-    const nowX = x(now.getHours() + now.getMinutes() / 60);
-
     // De-clutter the high/low labels. Each label is nearly half the chart wide,
     // so when extremes bunch up in time the labels overlap into an unreadable
     // smear. Place the most extreme events first (the true daily high & low read
     // first), then keep another label only if it clears the ones already placed;
     // the dropped events still keep their marker dot. Horizontal position is
     // clamped by the label's real width so the end labels aren't clipped.
-    const CHAR_HALF = 2.9; // ~half a glyph's width in viewBox units at fontSize 11
-    const LABEL_GAP = 5; // min clear space between two labels
-    const LINE_H = 12; // labels only clash if within this vertical band (~one line)
     const meanH = values.reduce((a, b) => a + b, 0) / values.length;
     const tideLabels: { cx: number; cy: number; halfW: number; text: string }[] = [];
     const candidates = tide.events
@@ -345,7 +457,31 @@ export function TideGraphModal({
       tideLabels.push({ cx: c.cx, cy: placedY ?? c.cy, halfW: c.halfW, text: c.text });
     }
 
-    chart = (
+    curveLayer = (
+      <>
+        {/* Tide curve + fill. */}
+        <Path d={area} fill={colors.water} opacity={0.16} />
+        <Path d={curve} stroke={colors.water} strokeWidth={2.5} fill="none" />
+
+        {/* High/low markers with time + height (stacked so clustered
+            extremes never overlap). */}
+        {tideLabels.map((l, i) => (
+          <SvgText key={`e${i}`} x={l.cx} y={l.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
+            {l.text}
+          </SvgText>
+        ))}
+        {tide.events.map((e, i) => {
+          const hr = hourOf(e.time.replace(' ', 'T'));
+          if (Number.isNaN(hr)) return null;
+          const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
+          return <Circle key={`c${i}`} cx={ex} cy={y(e.heightFt)} r={3.5} fill={colors.water} stroke={colors.card} strokeWidth={1.5} />;
+        })}
+      </>
+    );
+  }
+
+  const chart =
+    curveLayer == null ? null : (
       <View
         ref={chartRef}
         onLayout={() =>
@@ -449,23 +585,8 @@ export function TideGraphModal({
           </SvgText>
         ) : null}
 
-        {/* Tide curve + fill. */}
-        <Path d={area} fill={colors.water} opacity={0.16} />
-        <Path d={curve} stroke={colors.water} strokeWidth={2.5} fill="none" />
-
-        {/* High/low markers with time + height (de-cluttered so clustered
-            extremes don't overlap; dropped ones keep their dot below). */}
-        {tideLabels.map((l, i) => (
-          <SvgText key={`e${i}`} x={l.cx} y={l.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
-            {l.text}
-          </SvgText>
-        ))}
-        {tide.events.map((e, i) => {
-          const hr = hourOf(e.time.replace(' ', 'T'));
-          if (Number.isNaN(hr)) return null;
-          const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
-          return <Circle key={`c${i}`} cx={ex} cy={y(e.heightFt)} r={3.5} fill={colors.water} stroke={colors.card} strokeWidth={1.5} />;
-        })}
+        {/* The active curve: tide heights, or the tapped forecast metric. */}
+        {curveLayer}
 
         {/* Now cursor (today only). */}
         {isToday ? (
@@ -497,7 +618,6 @@ export function TideGraphModal({
       </Svg>
       </View>
     );
-  }
 
   if (!visible) return null;
 
@@ -571,25 +691,43 @@ export function TideGraphModal({
                 <Text style={styles.tapHint}>tap the chart for an hour</Text>
               )}
             </View>
+            {/* Tap a stat to plot that metric through the day; Tide reverts. */}
             <View style={styles.miniRow}>
-              <MiniStat label="Air" value={`${hourWeather.airTempF}°F`} />
+              <MiniStat
+                label="Air"
+                value={`${hourWeather.airTempF}°F`}
+                active={metric === 'air'}
+                onPress={() => setMetric('air')}
+              />
               <MiniStat
                 label="Rain"
                 value={`${hourWeather.precipChancePct}%`}
                 hint={hourWeather.thunder ? '⚡ storms' : undefined}
                 warn
+                active={metric === 'rain'}
+                onPress={() => setMetric('rain')}
               />
               <MiniStat
                 label="Wind"
                 value={`${hourWeather.windMph} mph`}
                 hint={hourWeather.windDirectionLabel}
+                active={metric === 'wind'}
+                onPress={() => setMetric('wind')}
               />
               <MiniStat
                 label="Pressure"
                 value={`${hourWeather.pressureInHg}`}
                 hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
+                active={metric === 'pressure'}
+                onPress={() => setMetric('pressure')}
               />
-              <MiniStat label="Sky" value={`${hourWeather.cloudCoverPct}%`} hint="cloud" />
+              <MiniStat
+                label="Sky"
+                value={`${hourWeather.cloudCoverPct}%`}
+                hint="cloud"
+                active={metric === 'sky'}
+                onPress={() => setMetric('sky')}
+              />
               {selTide ? (
                 <MiniStat
                   label="Tide"
@@ -599,11 +737,33 @@ export function TideGraphModal({
                       ? `${selTide.nextEvent.type} ${fmtEventTime(selTide.nextEvent.time)}`
                       : undefined
                   }
+                  active={metric === 'tide'}
+                  onPress={() => setMetric('tide')}
                 />
               ) : null}
             </View>
 
-            {!tide ? (
+            {metric !== 'tide' ? (
+              <View style={styles.metricBar}>
+                <Text style={styles.metricBarText}>
+                  {METRICS[metric].legend} through the day
+                </Text>
+                <Pressable
+                  onPress={() => setMetric('tide')}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.revertBtn, pressed && pressedStyle]}
+                >
+                  <Feather name="corner-up-left" size={13} color={colors.onAccent} />
+                  <Text style={styles.revertText}>Tide chart</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {metric !== 'tide' ? (
+              chart ?? (
+                <Text style={styles.error}>No hourly forecast data for this day.</Text>
+              )
+            ) : !tide ? (
               <Text style={styles.error}>No tide station in range for this day.</Text>
             ) : failed ? (
               <Text style={styles.error}>
@@ -619,8 +779,8 @@ export function TideGraphModal({
             )}
 
             <View style={styles.legend}>
-              <View style={[styles.swatch, { backgroundColor: colors.water }]} />
-              <Text style={styles.legendText}>Tide ft</Text>
+              <View style={[styles.swatch, { backgroundColor: legendMain.color }]} />
+              <Text style={styles.legendText}>{legendMain.label}</Text>
               <View style={[styles.swatch, { backgroundColor: colors.good, opacity: 0.6 }]} />
               <Text style={styles.legendText}>Bite</Text>
               <Text style={styles.legendText}>🐟 good</Text>
@@ -736,11 +896,40 @@ const useStyles = makeStyles((c, t) => ({
     flexWrap: 'wrap',
     marginBottom: 2,
   },
-  mini: { width: '16.6%', minWidth: 54, marginBottom: spacing.xs },
+  mini: {
+    width: '16.6%',
+    minWidth: 54,
+    marginBottom: spacing.xs,
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  miniActive: { backgroundColor: c.accentDim, borderColor: c.accent },
   miniValue: { color: c.text, fontSize: 14, fontWeight: '800' },
   miniLabel: { color: c.textMuted, fontSize: 11, marginTop: 1 },
   miniHint: { color: c.accent, fontSize: 10, marginTop: 1 },
   miniHintWarn: { color: c.warn },
+  // Heading + revert button shown while a forecast metric is plotted.
+  metricBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    marginBottom: spacing.xs,
+  },
+  metricBarText: { color: c.text, fontSize: 13, fontWeight: '700' },
+  revertBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: c.accent,
+    borderRadius: radius.pill,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.md,
+  },
+  revertText: { color: c.onAccent, fontSize: 12.5, fontWeight: '800' },
   error: {
     color: c.errorText,
     backgroundColor: c.errorBg,
