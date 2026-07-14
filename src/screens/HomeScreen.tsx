@@ -126,7 +126,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // control removes it — so a stray tap never deletes a spot or preset.
   const [confirmDeleteFav, setConfirmDeleteFav] = useState<string | null>(null);
   const [confirmDeletePreset, setConfirmDeletePreset] = useState<string | null>(null);
-  // The "Tides & Bite" hourly graph modal (saltwater spots only).
+  // The "Tides & Bite" hourly graph sheet (freshwater gets the same sheet as
+  // "Hourly & Bite" — metric charts only, no tide curve).
   const [tideGraphOpen, setTideGraphOpen] = useState(false);
   // The angler's own saved condition configurations.
   const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);

@@ -295,6 +295,10 @@ export function TideGraphModal({
   const day = forecast[selDay];
   const strategy = strategies[selDay];
   const tide = day?.tide ?? null;
+  // Freshwater spots have no tide station, but every other metric still
+  // graphs fine — so "tide" quietly becomes the air-temp chart there, and the
+  // sheet works the same minus tide-specific UI (revert button, Tide tile).
+  const activeMetric: 'tide' | MetricKey = metric === 'tide' && !tide ? 'air' : metric;
 
   useEffect(() => {
     if (!visible || !tide || !day) return;
@@ -351,8 +355,8 @@ export function TideGraphModal({
   let curveLayer: ReactNode = null;
   let legendMain = { color: colors.water, label: 'Tide ft' };
 
-  if (metric !== 'tide') {
-    const cfg = METRICS[metric];
+  if (activeMetric !== 'tide') {
+    const cfg = METRICS[activeMetric];
     const series = (day.hourlyWeather ?? [])
       .map((h) => ({ hr: hourOf(h.timeISO), v: cfg.get(h) }))
       .filter((p) => !Number.isNaN(p.hr) && typeof p.v === 'number' && !Number.isNaN(p.v))
@@ -710,7 +714,7 @@ export function TideGraphModal({
         <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
             <View style={styles.head}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Tides & Bite</Text>
+                <Text style={styles.title}>{tide ? 'Tides & Bite' : 'Hourly & Bite'}</Text>
                 {tide ? (
                   <Text style={styles.subtitle}>
                     {tide.stationName} ({tide.stationDistanceMi} mi)
@@ -775,7 +779,7 @@ export function TideGraphModal({
               <MiniStat
                 label="Air"
                 value={`${hourWeather.airTempF}°F`}
-                active={metric === 'air'}
+                active={activeMetric === 'air'}
                 onPress={() => setMetric('air')}
               />
               <MiniStat
@@ -783,28 +787,28 @@ export function TideGraphModal({
                 value={`${hourWeather.precipChancePct}%`}
                 hint={hourWeather.thunder ? '⚡ storms' : undefined}
                 warn
-                active={metric === 'rain'}
+                active={activeMetric === 'rain'}
                 onPress={() => setMetric('rain')}
               />
               <MiniStat
                 label="Wind"
                 value={`${hourWeather.windMph} mph`}
                 hint={hourWeather.windDirectionLabel}
-                active={metric === 'wind'}
+                active={activeMetric === 'wind'}
                 onPress={() => setMetric('wind')}
               />
               <MiniStat
                 label="Pressure"
                 value={`${hourWeather.pressureInHg}`}
                 hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
-                active={metric === 'pressure'}
+                active={activeMetric === 'pressure'}
                 onPress={() => setMetric('pressure')}
               />
               <MiniStat
                 label="Sky"
                 value={`${hourWeather.cloudCoverPct}%`}
                 hint="cloud"
-                active={metric === 'sky'}
+                active={activeMetric === 'sky'}
                 onPress={() => setMetric('sky')}
               />
               {selTide ? (
@@ -816,29 +820,31 @@ export function TideGraphModal({
                       ? `${selTide.nextEvent.type} ${fmtEventTime(selTide.nextEvent.time)}`
                       : undefined
                   }
-                  active={metric === 'tide'}
+                  active={activeMetric === 'tide'}
                   onPress={() => setMetric('tide')}
                 />
               ) : null}
             </View>
 
-            {metric !== 'tide' ? (
+            {activeMetric !== 'tide' ? (
               <View style={styles.metricBar}>
                 <Text style={styles.metricBarText}>
-                  {METRICS[metric].legend} through the day
+                  {METRICS[activeMetric].legend} through the day
                 </Text>
-                <Pressable
-                  onPress={() => setMetric('tide')}
-                  hitSlop={6}
-                  style={({ pressed }) => [styles.revertBtn, pressed && pressedStyle]}
-                >
-                  <Feather name="corner-up-left" size={13} color={colors.onAccent} />
-                  <Text style={styles.revertText}>Tide chart</Text>
-                </Pressable>
+                {tide ? (
+                  <Pressable
+                    onPress={() => setMetric('tide')}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.revertBtn, pressed && pressedStyle]}
+                  >
+                    <Feather name="corner-up-left" size={13} color={colors.onAccent} />
+                    <Text style={styles.revertText}>Tide chart</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
 
-            {metric !== 'tide' ? (
+            {activeMetric !== 'tide' ? (
               chart ?? (
                 <Text style={styles.error}>No hourly forecast data for this day.</Text>
               )

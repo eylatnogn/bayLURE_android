@@ -173,7 +173,7 @@ export function ForecastCard({
         })}
       </ScrollView>
 
-      {conditions.tide && onShowTideGraph ? (
+      {onShowTideGraph ? (
         <Pressable
           onPress={onShowTideGraph}
           style={({ pressed }) => [styles.tideBtn, pressed && pressedStyle]}
@@ -185,7 +185,11 @@ export function ForecastCard({
             style={styles.tideBtnFill}
           >
             <Feather name="bar-chart-2" size={17} color={colors.onAccent} />
-            <Text style={styles.tideBtnText}>Tides & Bite Graph</Text>
+            {/* Freshwater has no tide station, but the hourly weather/bite
+                graphs still work — the sheet opens on the air-temp chart. */}
+            <Text style={styles.tideBtnText}>
+              {conditions.tide ? 'Tides & Bite Graph' : 'Hourly & Bite Graph'}
+            </Text>
             <Feather name="chevron-right" size={17} color={colors.onAccent} />
           </LinearGradient>
         </Pressable>
