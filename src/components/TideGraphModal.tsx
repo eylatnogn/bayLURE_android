@@ -4,7 +4,7 @@
 // a Modal) so the map above it stays fully interactive; the host scrolls the
 // map into view when it opens. A grab handle above the title lets the angler
 // drag the sheet shorter/taller (it locks where they leave it).
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -128,6 +128,24 @@ const METRICS: Record<MetricKey, MetricCfg> = {
   sky: { legend: 'Cloud %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.cloudCoverPct },
 };
 
+/** SVG text with a soft outline behind it (dark in dark mode, light in light
+ * mode), so the white/gray chart labels stay legible where they cross the bite
+ * bars, the curve, and the peak bands. */
+function HaloText({
+  halo,
+  children,
+  ...props
+}: ComponentProps<typeof SvgText> & { halo: string }) {
+  return (
+    <>
+      <SvgText {...props} fill={halo} stroke={halo} strokeWidth={2.6} strokeLinejoin="round">
+        {children}
+      </SvgText>
+      <SvgText {...props}>{children}</SvgText>
+    </>
+  );
+}
+
 function MiniStat({
   label,
   value,
@@ -168,8 +186,10 @@ export function TideGraphModal({
   selectedHour,
   onSelectHour,
 }: Props) {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const styles = useStyles();
+  // Outline colour behind chart labels — contrasts with the label's own color.
+  const textHalo = mode === 'dark' ? 'rgba(5,15,10,0.9)' : 'rgba(245,249,240,0.92)';
   // Aliases so the rest of the body reads the same as before.
   const selDay = selectedDay;
   const selHour = selectedHour;
@@ -414,14 +434,14 @@ export function TideGraphModal({
           <Path d={area} fill={colors.accent} opacity={0.13} />
           <Path d={curve} stroke={colors.accent} strokeWidth={2.5} fill="none" />
           {callouts.map((co, i) => (
-            <SvgText key={`mc${i}`} x={co.cx} y={co.cy} fontSize={10} fontWeight="700" fill={colors.text} textAnchor="middle">
+            <HaloText key={`mc${i}`} halo={textHalo} x={co.cx} y={co.cy} fontSize={10} fontWeight="700" fill={colors.text} textAnchor="middle">
               {co.row1}
-            </SvgText>
+            </HaloText>
           ))}
           {callouts.map((co, i) => (
-            <SvgText key={`mt${i}`} x={co.cx} y={co.cy + 11} fontSize={10} fill={colors.textMuted} textAnchor="middle">
+            <HaloText key={`mt${i}`} halo={textHalo} x={co.cx} y={co.cy + 11} fontSize={10} fill={colors.textMuted} textAnchor="middle">
               {co.row2}
-            </SvgText>
+            </HaloText>
           ))}
           {callouts.map((co, i) => (
             <Circle key={`md${i}`} cx={co.dotX} cy={co.dotY} r={3.5} fill={colors.accent} stroke={colors.card} strokeWidth={1.5} />
@@ -507,9 +527,9 @@ export function TideGraphModal({
         {/* High/low markers with time + height (stacked so clustered
             extremes never overlap). */}
         {tideLabels.map((l, i) => (
-          <SvgText key={`e${i}`} x={l.cx} y={l.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
+          <HaloText key={`e${i}`} halo={textHalo} x={l.cx} y={l.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
             {l.text}
-          </SvgText>
+          </HaloText>
         ))}
         {tide.events.map((e, i) => {
           const hr = hourOf(e.time.replace(' ', 'T'));
@@ -598,8 +618,9 @@ export function TideGraphModal({
         })}
         {biteByHour.map((score, hr) =>
           isPeak(score) ? (
-            <SvgText
+            <HaloText
               key={`s${hr}`}
+              halo={textHalo}
               x={x(hr)}
               y={M.top + IH - BAR_MAX - 21}
               fontSize={11}
@@ -608,13 +629,14 @@ export function TideGraphModal({
               textAnchor="middle"
             >
               {score}
-            </SvgText>
+            </HaloText>
           ) : null,
         )}
 
         {/* Peak callout pill. */}
         {firstPeakHr >= 0 ? (
-          <SvgText
+          <HaloText
+            halo={textHalo}
             x={Math.min(Math.max(x(firstPeakHr), 58), W - 58)}
             y={13}
             fontSize={13}
@@ -623,7 +645,7 @@ export function TideGraphModal({
             textAnchor="middle"
           >
             {`★ Peak bite · ${hr12(firstPeakHr)}`}
-          </SvgText>
+          </HaloText>
         ) : null}
 
         {/* The active curve: tide heights, or the tapped forecast metric. */}
@@ -637,9 +659,9 @@ export function TideGraphModal({
         {/* Hour axis. */}
         <Line x1={M.left} y1={M.top + IH} x2={M.left + IW} y2={M.top + IH} stroke={colors.cardBorder} strokeWidth={1} />
         {[0, 4, 8, 12, 16, 20].map((hr) => (
-          <SvgText key={`h${hr}`} x={x(hr)} y={H - 12} fontSize={11} fill={colors.textMuted} textAnchor="middle">
+          <HaloText key={`h${hr}`} halo={textHalo} x={x(hr)} y={H - 12} fontSize={11} fill={colors.textMuted} textAnchor="middle">
             {hr === 0 ? '12a' : hr < 12 ? `${hr}a` : hr === 12 ? '12p' : `${hr - 12}p`}
-          </SvgText>
+          </HaloText>
         ))}
 
         {/* Tap targets — last, so they sit on top and catch the touches. */}
