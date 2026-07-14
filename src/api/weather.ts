@@ -164,6 +164,65 @@ function skyFromCloudCover(pct: number): SkyCondition {
   return 'overcast';
 }
 
+/**
+ * Latest real barometric reading (inHg) + ~3h change from the nearest NWS
+ * observation station. NWS *forecast* grids usually ship an empty pressure
+ * series (it isn't a standard forecast element), so without this the app
+ * would show the 29.92 standard-atmosphere placeholder forever. Tries the
+ * first few stations (some don't report pressure); null on any failure.
+ */
+async function fetchObservedPressure(
+  stationsUrl: string | undefined,
+): Promise<{ inHg: number; changeInHg: number } | null> {
+  if (!stationsUrl) return null;
+  try {
+    const sRes = await fetchNwsWithRetry(stationsUrl);
+    const sJson = (await sRes.json()) as { observationStations?: string[] };
+    const stations = (sJson.observationStations ?? []).slice(0, 3);
+    const nowMs = Date.now();
+    for (const stationUrl of stations) {
+      try {
+        const readAt = async (query: string): Promise<{ ms: number; inHg: number } | null> => {
+          const res = await fetchNwsWithRetry(`${stationUrl}/observations?${query}`);
+          const json = (await res.json()) as {
+            features?: Array<{
+              properties?: {
+                timestamp?: string;
+                barometricPressure?: { value: number | null };
+                seaLevelPressure?: { value: number | null };
+              };
+            }>;
+          };
+          for (const f of json.features ?? []) {
+            const pa =
+              f.properties?.seaLevelPressure?.value ??
+              f.properties?.barometricPressure?.value;
+            const ms = new Date(f.properties?.timestamp ?? '').getTime();
+            if (pa != null && !Number.isNaN(ms)) return { ms, inHg: toInHg(pa) };
+          }
+          return null;
+        };
+        const latest = await readAt('limit=4');
+        if (!latest) continue; // station without pressure — try the next one
+        // A reading ~3h before the latest, for the rising/falling trend.
+        const from = new Date(latest.ms - 4 * 3600000).toISOString();
+        const to = new Date(latest.ms - 2.5 * 3600000).toISOString();
+        const past = await readAt(
+          `start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}&limit=4`,
+        );
+        // Stale stations (no reading in the last 3h) shouldn't pass as "now".
+        if (nowMs - latest.ms > 3 * 3600000) continue;
+        return { inHg: latest.inHg, changeInHg: past ? latest.inHg - past.inHg : 0 };
+      } catch {
+        // Try the next station.
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export interface WeekWeather {
   /** One representative snapshot per day (index 0 = today). */
   days: WeatherConditions[];
@@ -190,7 +249,7 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   const lon = coords.longitude.toFixed(4);
   const pointsRes = await fetchNwsWithRetry(`${POINTS_URL}/${lat},${lon}`);
   const points = (await pointsRes.json()) as {
-    properties?: { forecastGridData?: string; timeZone?: string };
+    properties?: { forecastGridData?: string; timeZone?: string; observationStations?: string };
   };
   const gridUrl = points.properties?.forecastGridData;
   const spotTimeZone = points.properties?.timeZone;
@@ -198,7 +257,12 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
     throw new Error('This spot is outside NWS forecast coverage (US only).');
   }
 
-  const gridRes = await fetchNwsWithRetry(gridUrl);
+  // The observed pressure rides along in parallel: the forecast grid's own
+  // pressure series is usually empty, so a real station reading anchors it.
+  const [gridRes, obsPressure] = await Promise.all([
+    fetchNwsWithRetry(gridUrl),
+    fetchObservedPressure(points.properties?.observationStations),
+  ]);
   const grid = ((await gridRes.json()) as { properties?: GridProperties }).properties;
   if (!grid) throw new Error('Weather response was missing forecast data.');
 
@@ -224,8 +288,16 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   function snap(ms: number, date: Date, timeISO: string): WeatherConditions {
     const pressureNow = valueAt(pressure, ms);
     const pressurePast = valueAt(pressure, ms - 3 * 3600000);
-    const pInHg = pressureNow ?? 29.92;
-    const change = pressureNow != null && pressurePast != null ? pressureNow - pressurePast : 0;
+    // Grid forecast first; else the nearest station's real reading (its true
+    // ~3h trend applies to hours near now, and it carries forward as steady
+    // for future hours); the 29.92 standard atmosphere only as a last resort.
+    const pInHg = pressureNow ?? obsPressure?.inHg ?? 29.92;
+    const change =
+      pressureNow != null && pressurePast != null
+        ? pressureNow - pressurePast
+        : obsPressure && Math.abs(ms - nowMs) < 6 * 3600000
+          ? obsPressure.changeInHg
+          : 0;
 
     const cloud = valueAt(sky, ms) ?? 0;
     const dir = valueAt(windDir, ms) ?? 0;

@@ -18,8 +18,10 @@ state-regulations features anyway). Status as of July 2026.
 | FCC Area API | point → US state for the regulations card (`geocode.ts`) |
 
 Notes: NWS asks API users to identify themselves via User-Agent (set in
-`weather.ts` — keep the contact email current). Pressure forecasts only extend
-~3 days; further out the app carries the last value with a "steady" trend.
+`weather.ts` — keep the contact email current). NWS forecast grids usually
+ship an **empty pressure series**, so the app anchors pressure on the nearest
+NWS observation station's live reading (real ~3h trend near "now", carried
+forward as "steady" for future hours); 29.92 only if no station reports.
 
 ## Remaining community sources — fine at launch scale
 
