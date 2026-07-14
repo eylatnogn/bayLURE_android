@@ -27,6 +27,8 @@ export const FREE_LIMITS = {
   spots: 1,
   presets: 1,
   catches: 3,
+  /** Forecast days free users can open: today + tomorrow. Beyond needs Pro. */
+  forecastDays: 2,
 } as const;
 
 interface ProContextValue {

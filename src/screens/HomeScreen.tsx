@@ -105,6 +105,17 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const [selectedDay, setSelectedDay] = useState(0);
   // Index into the selected day's hourlyWeather, or null for the day overview.
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  // Free tier sees today + tomorrow; further days open the paywall. Follows
+  // the same fail-open rule as the save limits: dormant until billing exists.
+  const lockedFromDay = limitsActive && !isPro ? FREE_LIMITS.forecastDays : null;
+  const pickDay = (day: number) => {
+    if (lockedFromDay != null && day >= lockedFromDay) {
+      showPaywall();
+      return;
+    }
+    setSelectedDay(day);
+    setSelectedHour(null);
+  };
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
   // Presets are tucked away (collapsed); the refinements stay open by default.
@@ -948,10 +959,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               score: s.biteScore,
             }))}
             selectedDay={selectedDay}
-            onSelectDay={(day) => {
-              setSelectedDay(day);
-              setSelectedHour(null);
-            }}
+            onSelectDay={pickDay}
+            lockedFromDay={lockedFromDay}
             selectedHour={selectedHour}
             onSelectHour={setSelectedHour}
             pickDayRef={pickDayRef}
@@ -1041,10 +1050,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             score: s.biteScore,
           }))}
           selectedDay={selectedDay}
-          onSelectDay={(day) => {
-            setSelectedDay(day);
-            setSelectedHour(null);
-          }}
+          onSelectDay={pickDay}
+          lockedFromDay={lockedFromDay}
           selectedHour={selectedHour}
           onSelectHour={setSelectedHour}
         />

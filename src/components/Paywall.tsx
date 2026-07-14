@@ -10,6 +10,7 @@ import { FREE_LIMITS, usePro } from '@/purchases/pro';
 import { fonts, makeStyles, radius, spacing, useTheme } from '@/theme';
 
 const PERKS: Array<{ icon: keyof typeof Feather.glyphMap; text: string }> = [
+  { icon: 'calendar', text: 'Full 7-day forecast (free: today + tomorrow)' },
   { icon: 'map-pin', text: 'Unlimited saved spots' },
   { icon: 'sliders', text: 'Unlimited condition presets' },
   { icon: 'book-open', text: 'Unlimited catch log entries' },

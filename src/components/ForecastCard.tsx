@@ -29,6 +29,9 @@ interface Props {
   /** Anchor for the host's jump button: the "Pick a day" section, so a jump
    * lands on the day picker + conditions rather than the score header. */
   pickDayRef?: React.RefObject<View | null>;
+  /** First Pro-only day index (free tier: today + tomorrow), or null when the
+   * whole week is open. Locked chips show a lock; tapping opens the paywall. */
+  lockedFromDay?: number | null;
 }
 
 const trendArrow: Record<string, string> = {
@@ -65,6 +68,7 @@ export function ForecastCard({
   onSelectHour,
   onShowTideGraph,
   pickDayRef,
+  lockedFromDay = null,
 }: Props) {
   const { colors, gradients } = useTheme();
   const styles = useStyles();
@@ -142,6 +146,7 @@ export function ForecastCard({
       >
         {days.map((d, i) => {
           const active = i === selectedDay;
+          const locked = lockedFromDay != null && i >= lockedFromDay;
           return (
             <Pressable
               key={i}
@@ -149,9 +154,15 @@ export function ForecastCard({
               style={({ pressed }) => [
                 styles.day,
                 active && styles.dayActive,
+                locked && styles.dayLocked,
                 pressed && pressedStyle,
               ]}
             >
+              {locked ? (
+                <View style={styles.dayLock}>
+                  <Feather name="lock" size={10} color={colors.textMuted} />
+                </View>
+              ) : null}
               <Text style={[styles.dayLabel, active && styles.dayLabelActive]}>{d.label}</Text>
               <Text style={[styles.dayNum, active && styles.dayLabelActive]}>{d.num}</Text>
               <View style={[styles.dayPill, { backgroundColor: scoreColor(d.score) }]}>
@@ -392,6 +403,10 @@ const useStyles = makeStyles((colors) => ({
     gap: 4,
   },
   dayActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
+  // Pro-only days: dimmed with a small lock badge; the score pill stays
+  // visible as a teaser and a tap opens the paywall.
+  dayLocked: { opacity: 0.55 },
+  dayLock: { position: 'absolute', top: 3, right: 4 },
   dayLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
   dayLabelActive: { color: colors.text },
   dayNum: { color: colors.textMuted, fontSize: 11 },

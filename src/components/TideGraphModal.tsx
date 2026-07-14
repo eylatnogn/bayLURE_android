@@ -44,6 +44,9 @@ interface Props {
   /** Selected hour (null = whole-day). Shared so the map wind follows the hour. */
   selectedHour: number | null;
   onSelectHour: (hour: number | null) => void;
+  /** First Pro-only day index (free tier: today + tomorrow), or null when the
+   * whole week is open. Locked chips show a lock; the host opens the paywall. */
+  lockedFromDay?: number | null;
 }
 
 // Chart geometry (SVG viewBox units; rendered responsive via aspectRatio).
@@ -185,6 +188,7 @@ export function TideGraphModal({
   onSelectDay,
   selectedHour,
   onSelectHour,
+  lockedFromDay = null,
 }: Props) {
   const { colors, mode } = useTheme();
   const styles = useStyles();
@@ -722,15 +726,27 @@ export function TideGraphModal({
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
               {days.map((d, i) => {
                 const active = i === selDay;
+                const locked = lockedFromDay != null && i >= lockedFromDay;
                 return (
                   <Pressable
                     key={i}
                     onPress={() => {
+                      // The host's onSelectDay gates locked days (paywall).
                       onSelectDay(i);
-                      onSelectHour(null);
+                      if (!locked) onSelectHour(null);
                     }}
-                    style={({ pressed }) => [styles.day, active && styles.dayActive, pressed && pressedStyle]}
+                    style={({ pressed }) => [
+                      styles.day,
+                      active && styles.dayActive,
+                      locked && styles.dayLocked,
+                      pressed && pressedStyle,
+                    ]}
                   >
+                    {locked ? (
+                      <View style={styles.dayLock}>
+                        <Feather name="lock" size={10} color={colors.textMuted} />
+                      </View>
+                    ) : null}
                     <Text style={[styles.dayLabel, active && styles.dayLabelActive]}>{d.label}</Text>
                     <Text style={[styles.dayNum, active && styles.dayLabelActive]}>{d.num}</Text>
                     <View style={[styles.dayPill, { backgroundColor: scoreColor(d.score) }]}>
@@ -922,6 +938,9 @@ const useStyles = makeStyles((c, t) => ({
     gap: 3,
   },
   dayActive: { backgroundColor: c.accentDim, borderColor: c.accent },
+  // Pro-only days: dimmed with a lock badge; taps route to the paywall.
+  dayLocked: { opacity: 0.55 },
+  dayLock: { position: 'absolute', top: 3, right: 4 },
   dayLabel: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
   dayLabelActive: { color: c.text },
   dayNum: { color: c.textMuted, fontSize: 12 },

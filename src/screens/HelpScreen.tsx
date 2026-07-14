@@ -163,20 +163,23 @@ function ProSection() {
     <Section title="bayLURE Pro">
       {isPro ? (
         <Text style={styles.para}>
-          You're a Pro subscriber — unlimited saved spots, presets, and catches,
-          with no ads. Manage or cancel anytime in Google Play → Subscriptions.
+          You're a Pro subscriber — the full 7-day forecast, unlimited saved
+          spots, presets, and catches, with no ads. Manage or cancel anytime in
+          Google Play → Subscriptions.
         </Text>
       ) : (
         <>
           <Text style={styles.para}>
             {canSubscribe
-              ? 'Pro unlocks unlimited saved spots, presets, and catch log ' +
+              ? 'Pro unlocks the full 7-day forecast (free covers today and ' +
+                'tomorrow), unlimited saved spots, presets, and catch log ' +
                 'entries, and removes ads. Already subscribed on another ' +
                 'phone? Your subscription follows your Google account — ' +
                 'restore it below.'
-              : 'Pro removes ads and keeps every spot, preset, and catch ' +
-                'unlocked. Subscriptions are coming soon — have a redeem ' +
-                'code? Enter it from the Pro screen below.'}
+              : 'Pro removes ads, opens the full 7-day forecast, and keeps ' +
+                'every spot, preset, and catch unlocked. Subscriptions are ' +
+                'coming soon — have a redeem code? Enter it from the Pro ' +
+                'screen below.'}
           </Text>
           <Pressable
             style={({ pressed }) => [styles.linkBtn, pressed && pressedStyle]}
