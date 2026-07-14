@@ -165,6 +165,52 @@ function skyFromCloudCover(pct: number): SkyCondition {
 }
 
 /**
+ * Hourly sea-level pressure FORECAST (converted to inHg) from MET Norway's
+ * free Locationforecast API — keyless, global, CC-BY 4.0 (commercial use OK
+ * with attribution; credited in the Guide tab + API_LICENSING.md). NWS grids
+ * ship no pressure forecast at all, so this is what lets the pressure value
+ * and trend look ahead across the whole week instead of holding "steady".
+ * Hourly for ~2-3 days, then 6-hourly steps to ~9 days; each value carries to
+ * the next entry. Best-effort: an empty series on any failure.
+ */
+async function fetchMetNoPressure(coords: Coordinates): Promise<Series> {
+  try {
+    // met.no asks for max 4 decimals and an identifying User-Agent.
+    const lat = coords.latitude.toFixed(4);
+    const lon = coords.longitude.toFixed(4);
+    const res = await fetch(
+      `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`,
+      { headers: { 'User-Agent': NWS_HEADERS['User-Agent'] } },
+    );
+    if (!res.ok) return { points: [] };
+    const json = (await res.json()) as {
+      properties?: {
+        timeseries?: Array<{
+          time?: string;
+          data?: { instant?: { details?: { air_pressure_at_sea_level?: number | null } } };
+        }>;
+      };
+    };
+    const raw = (json.properties?.timeseries ?? [])
+      .map((t) => ({
+        ms: new Date(t.time ?? '').getTime(),
+        hPa: t.data?.instant?.details?.air_pressure_at_sea_level,
+      }))
+      .filter((p): p is { ms: number; hPa: number } => !Number.isNaN(p.ms) && p.hPa != null)
+      .sort((a, b) => a.ms - b.ms);
+    return {
+      points: raw.map((p, i) => ({
+        start: p.ms,
+        end: raw[i + 1]?.ms ?? p.ms + 6 * 3600000,
+        value: p.hPa * 0.02953,
+      })),
+    };
+  } catch {
+    return { points: [] };
+  }
+}
+
+/**
  * Latest real barometric reading (inHg) + ~3h change from the nearest NWS
  * observation station. NWS *forecast* grids usually ship an empty pressure
  * series (it isn't a standard forecast element), so without this the app
@@ -257,10 +303,12 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
     throw new Error('This spot is outside NWS forecast coverage (US only).');
   }
 
-  // The observed pressure rides along in parallel: the forecast grid's own
-  // pressure series is usually empty, so a real station reading anchors it.
-  const [gridRes, obsPressure] = await Promise.all([
+  // Pressure rides along in parallel: the NWS grid's own pressure series is
+  // usually empty, so met.no supplies the week's forecast curve and a real
+  // station reading anchors "now" if that fails too.
+  const [gridRes, metNoPressure, obsPressure] = await Promise.all([
     fetchNwsWithRetry(gridUrl),
+    fetchMetNoPressure(coords),
     fetchObservedPressure(points.properties?.observationStations),
   ]);
   const grid = ((await gridRes.json()) as { properties?: GridProperties }).properties;
@@ -286,18 +334,24 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   const nowMs = base.getTime();
 
   function snap(ms: number, date: Date, timeISO: string): WeatherConditions {
-    const pressureNow = valueAt(pressure, ms);
-    const pressurePast = valueAt(pressure, ms - 3 * 3600000);
-    // Grid forecast first; else the nearest station's real reading (its true
-    // ~3h trend applies to hours near now, and it carries forward as steady
-    // for future hours); the 29.92 standard atmosphere only as a last resort.
-    const pInHg = pressureNow ?? obsPressure?.inHg ?? 29.92;
+    // Pressure source order: NWS grid (usually empty) -> met.no's hourly
+    // forecast (whole week, real trend everywhere) -> the nearest station's
+    // live reading (true ~3h trend near now, steady further out) -> 29.92.
+    // The trend always pairs now/past from the SAME source, so a mixed read
+    // never fabricates a rise or fall.
+    const gridNow = valueAt(pressure, ms);
+    const gridPast = valueAt(pressure, ms - 3 * 3600000);
+    const metNow = valueAt(metNoPressure, ms);
+    const metPast = valueAt(metNoPressure, ms - 3 * 3600000);
+    const pInHg = gridNow ?? metNow ?? obsPressure?.inHg ?? 29.92;
     const change =
-      pressureNow != null && pressurePast != null
-        ? pressureNow - pressurePast
-        : obsPressure && Math.abs(ms - nowMs) < 6 * 3600000
-          ? obsPressure.changeInHg
-          : 0;
+      gridNow != null && gridPast != null
+        ? gridNow - gridPast
+        : metNow != null && metPast != null
+          ? metNow - metPast
+          : obsPressure && Math.abs(ms - nowMs) < 6 * 3600000
+            ? obsPressure.changeInHg
+            : 0;
 
     const cloud = valueAt(sky, ms) ?? 0;
     const dir = valueAt(windDir, ms) ?? 0;

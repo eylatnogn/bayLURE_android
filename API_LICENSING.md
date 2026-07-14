@@ -19,9 +19,16 @@ state-regulations features anyway). Status as of July 2026.
 
 Notes: NWS asks API users to identify themselves via User-Agent (set in
 `weather.ts` — keep the contact email current). NWS forecast grids usually
-ship an **empty pressure series**, so the app anchors pressure on the nearest
-NWS observation station's live reading (real ~3h trend near "now", carried
-forward as "steady" for future hours); 29.92 only if no station reports.
+ship an **empty pressure series** (pressure isn't a standard NDFD forecast
+element), so pressure comes from the chain below.
+
+## Pressure (special case)
+
+| Source | Role | Policy |
+|---|---|---|
+| MET Norway Locationforecast (api.met.no) | Hourly sea-level pressure **forecast**, whole week (hourly ~3 days, 6-hourly to ~9) | Free, keyless, **CC BY 4.0 — commercial OK with attribution** (credited in the Guide tab). Requirements honored: identifying User-Agent, ≤4-decimal coords, one call per analysis (verified Jul 2026) |
+| NWS observation stations | Live reading + real ~3h trend as fallback anchor | US gov, public domain |
+| 29.92 standard atmosphere | Last-resort placeholder only | — |
 
 ## Remaining community sources — fine at launch scale
 

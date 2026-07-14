@@ -276,6 +276,10 @@ export function HelpScreen() {
         Buy a license, learn your local size/bag limits, handle fish gently, and
         pack out your trash. Tight lines.
       </Text>
+      <Text style={styles.footer}>
+        Weather, tides & charts: NOAA / National Weather Service · Pressure
+        forecast: MET Norway (CC BY 4.0) · Depth: NOAA NCEI · Maps: USGS
+      </Text>
       </View>
     </ScrollView>
   );
