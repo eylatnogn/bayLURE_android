@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Coordinates, SkyCondition, WeatherConditions } from '@/types';
 import {
   degreesToCompass,
@@ -173,41 +174,82 @@ function skyFromCloudCover(pct: number): SkyCondition {
  * Hourly for ~2-3 days, then 6-hourly steps to ~9 days; each value carries to
  * the next entry. Best-effort: an empty series on any failure.
  */
-async function fetchMetNoPressure(coords: Coordinates): Promise<Series> {
-  try {
-    // met.no asks for max 4 decimals and an identifying User-Agent.
-    const lat = coords.latitude.toFixed(4);
-    const lon = coords.longitude.toFixed(4);
-    const res = await fetch(
-      `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`,
-      { headers: { 'User-Agent': NWS_HEADERS['User-Agent'] } },
-    );
-    if (!res.ok) return { points: [] };
-    const json = (await res.json()) as {
+const MET_NO_CACHE_PREFIX = 'balure.metno.v1.';
+const MET_NO_CACHE_TTL_MS = 6 * 3600000;
+
+function parseMetNoSeries(json: unknown): Series['points'] {
+  const ts =
+    (json as {
       properties?: {
         timeseries?: Array<{
           time?: string;
           data?: { instant?: { details?: { air_pressure_at_sea_level?: number | null } } };
         }>;
       };
-    };
-    const raw = (json.properties?.timeseries ?? [])
-      .map((t) => ({
-        ms: new Date(t.time ?? '').getTime(),
-        hPa: t.data?.instant?.details?.air_pressure_at_sea_level,
-      }))
-      .filter((p): p is { ms: number; hPa: number } => !Number.isNaN(p.ms) && p.hPa != null)
-      .sort((a, b) => a.ms - b.ms);
-    return {
-      points: raw.map((p, i) => ({
-        start: p.ms,
-        end: raw[i + 1]?.ms ?? p.ms + 6 * 3600000,
-        value: p.hPa * 0.02953,
-      })),
-    };
-  } catch {
-    return { points: [] };
+    }).properties?.timeseries ?? [];
+  const raw = ts
+    .map((t) => ({
+      ms: new Date(t.time ?? '').getTime(),
+      hPa: t.data?.instant?.details?.air_pressure_at_sea_level,
+    }))
+    .filter((p): p is { ms: number; hPa: number } => !Number.isNaN(p.ms) && p.hPa != null)
+    .sort((a, b) => a.ms - b.ms);
+  return raw.map((p, i) => ({
+    start: p.ms,
+    end: raw[i + 1]?.ms ?? p.ms + 6 * 3600000,
+    value: p.hPa * 0.02953,
+  }));
+}
+
+async function fetchMetNoPressure(coords: Coordinates): Promise<Series> {
+  // met.no asks for max 4 decimals and an identifying User-Agent.
+  const lat = coords.latitude.toFixed(4);
+  const lon = coords.longitude.toFixed(4);
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+  const cacheKey = `${MET_NO_CACHE_PREFIX}${lat},${lon}`;
+
+  // Two attempts. The second drops our custom headers entirely — some native
+  // HTTP stacks reject a fetch that sets User-Agent, and met.no answers 200
+  // without one, so this recovers the whole feature on those devices.
+  const headersFor = (attempt: number): Record<string, string> | undefined =>
+    attempt === 0 ? { 'User-Agent': NWS_HEADERS['User-Agent'], Accept: 'application/json' } : undefined;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch(url, { headers: headersFor(attempt), signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const points = parseMetNoSeries(await res.json());
+      if (points.length) {
+        // Persist the good forecast so a later fetch that fails (flaky network,
+        // transient block) reuses it instead of collapsing to one flat value.
+        void AsyncStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), points })).catch(() => {});
+        return { points };
+      }
+    } catch {
+      // Fall through to the next attempt / the cache.
+    }
   }
+
+  // Every fetch failed — reuse a recent cached forecast if we have one.
+  try {
+    const raw = await AsyncStorage.getItem(cacheKey);
+    if (raw) {
+      const cached = JSON.parse(raw) as { at?: number; points?: Series['points'] };
+      if (
+        cached?.points?.length &&
+        typeof cached.at === 'number' &&
+        Date.now() - cached.at < MET_NO_CACHE_TTL_MS
+      ) {
+        return { points: cached.points };
+      }
+    }
+  } catch {
+    // No usable cache.
+  }
+  return { points: [] };
 }
 
 /**
