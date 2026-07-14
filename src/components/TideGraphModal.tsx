@@ -359,17 +359,53 @@ export function TideGraphModal({
       });
       const fmtV = (v: number) =>
         cfg.decimals != null ? v.toFixed(cfg.decimals) : String(Math.round(v));
-      const callouts = [hiIdx, ...(loIdx !== hiIdx ? [loIdx] : [])].map((idx, k) => {
+      // Compact two-row callouts (value, then time) at a smaller size, placed
+      // to dodge the fish/score markers riding above the bite bars — a single
+      // long row at full size blended straight into them.
+      const ROW_H = 11;
+      const FISH_TOP = M.top + IH - BAR_MAX - 34; // score numbers' top edge
+      const FISH_BOT = M.top + IH - BAR_MAX; // down to the bars
+      const primeXs: number[] = [];
+      biteByHour.forEach((s, hr) => {
+        if (s != null && s >= PRIME) primeXs.push(x(hr));
+      });
+      const callouts: {
+        row1: string;
+        row2: string;
+        cx: number;
+        cy: number;
+        halfW: number;
+        dotX: number;
+        dotY: number;
+      }[] = [];
+      [hiIdx, ...(loIdx !== hiIdx ? [loIdx] : [])].forEach((idx, k) => {
         const p = series[idx]!;
-        const text = `${k === 0 ? 'High' : 'Low'} ${fmtV(p.v)}${cfg.unit} · ${hr12(p.hr)}`;
-        const halfW = text.length * CHAR_HALF;
-        return {
-          text,
-          cx: Math.min(Math.max(x(p.hr), halfW + 2), W - halfW - 2),
-          cy: Math.min(Math.max(y(p.v) - 9, 12), M.top + IH - 6),
-          dotX: x(p.hr),
-          dotY: y(p.v),
-        };
+        const row1 = `${k === 0 ? 'High' : 'Low'} ${fmtV(p.v)}${cfg.unit}`;
+        const row2 = hr12(p.hr);
+        const halfW = Math.max(row1.length, row2.length) * 2.7;
+        const cx = Math.min(Math.max(x(p.hr), halfW + 2), W - halfW - 2);
+        const py = y(p.v);
+        const hitsFish = (top: number, bot: number) =>
+          bot > FISH_TOP &&
+          top < FISH_BOT &&
+          primeXs.some((px) => Math.abs(px - cx) < halfW + 8);
+        const collides = (cy: number) =>
+          hitsFish(cy - 9, cy + ROW_H + 2) ||
+          callouts.some(
+            (o) =>
+              Math.abs(o.cx - cx) < o.halfW + halfW + 6 &&
+              Math.abs(o.cy - cy) < ROW_H * 2 + 4,
+          );
+        // Try above the dot, higher above, below it, then the top edge.
+        let cy = Math.min(Math.max(py - 21, 12), M.top + IH - ROW_H - 6);
+        for (const cand of [py - 21, py - 44, py + 14, 22]) {
+          const cl = Math.min(Math.max(cand, 12), M.top + IH - ROW_H - 6);
+          if (!collides(cl)) {
+            cy = cl;
+            break;
+          }
+        }
+        callouts.push({ row1, row2, cx, cy, halfW, dotX: x(p.hr), dotY: py });
       });
       const selPt = selHour != null ? series.find((p) => p.hr === selHour) : undefined;
       legendMain = { color: colors.accent, label: cfg.legend };
@@ -378,8 +414,13 @@ export function TideGraphModal({
           <Path d={area} fill={colors.accent} opacity={0.13} />
           <Path d={curve} stroke={colors.accent} strokeWidth={2.5} fill="none" />
           {callouts.map((co, i) => (
-            <SvgText key={`mc${i}`} x={co.cx} y={co.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
-              {co.text}
+            <SvgText key={`mc${i}`} x={co.cx} y={co.cy} fontSize={10} fontWeight="700" fill={colors.text} textAnchor="middle">
+              {co.row1}
+            </SvgText>
+          ))}
+          {callouts.map((co, i) => (
+            <SvgText key={`mt${i}`} x={co.cx} y={co.cy + 11} fontSize={10} fill={colors.textMuted} textAnchor="middle">
+              {co.row2}
             </SvgText>
           ))}
           {callouts.map((co, i) => (
