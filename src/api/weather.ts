@@ -339,10 +339,15 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
     // live reading (true ~3h trend near now, steady further out) -> 29.92.
     // The trend always pairs now/past from the SAME source, so a mixed read
     // never fabricates a rise or fall.
+    // 6h tendency window: forecast pressure curves are smoother than live
+    // barograph traces, so a 3h delta on a calm week rounds to "steady" every
+    // day. Six hours (a standard barometric-tendency period) surfaces the real
+    // slope without inventing movement.
+    const TREND_MS = 6 * 3600000;
     const gridNow = valueAt(pressure, ms);
-    const gridPast = valueAt(pressure, ms - 3 * 3600000);
+    const gridPast = valueAt(pressure, ms - TREND_MS);
     const metNow = valueAt(metNoPressure, ms);
-    const metPast = valueAt(metNoPressure, ms - 3 * 3600000);
+    const metPast = valueAt(metNoPressure, ms - TREND_MS);
     const pInHg = gridNow ?? metNow ?? obsPressure?.inHg ?? 29.92;
     const change =
       gridNow != null && gridPast != null
