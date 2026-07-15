@@ -863,6 +863,23 @@ export function TideGraphModal({
               chart
             )}
 
+            {/* Best bite windows for the day (moved here from the Plan card, so
+                the "when to go" summary sits with the hourly chart). */}
+            {strategy.bestWindows.length > 0 ? (
+              <View style={styles.windows}>
+                <Text style={styles.windowsHead}>Best bite times</Text>
+                {strategy.bestWindows.map((win, i) => (
+                  <View key={i} style={styles.window}>
+                    <Feather name="crosshair" size={14} color={colors.accent} style={styles.windowIcon} />
+                    <Text style={styles.windowRange}>{win.range}</Text>
+                    <View style={[styles.windowPill, { backgroundColor: scoreColor(win.score) }]}>
+                      <Text style={styles.windowPillText}>{win.biteLabel}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
             <View style={styles.legend}>
               <View style={[styles.swatch, { backgroundColor: legendMain.color }]} />
               <Text style={styles.legendText}>{legendMain.label}</Text>
@@ -1028,6 +1045,14 @@ const useStyles = makeStyles((c, t) => ({
     fontSize: 13,
     marginVertical: spacing.md,
   },
+  // Best bite windows (relocated from the Plan card).
+  windows: { gap: spacing.sm, marginTop: spacing.md },
+  windowsHead: { color: c.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 2 },
+  window: { flexDirection: 'row', alignItems: 'center' },
+  windowIcon: { marginRight: spacing.sm },
+  windowRange: { color: c.text, fontSize: 15, fontWeight: '800', flex: 1 },
+  windowPill: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 10 },
+  windowPillText: { color: '#0e1f12', fontSize: 12, fontWeight: '900' },
   legend: {
     flexDirection: 'row',
     alignItems: 'center',

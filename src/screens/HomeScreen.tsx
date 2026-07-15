@@ -52,6 +52,7 @@ import { buildCatchConditions } from '@/utils/snapshot';
 import { addDays, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
 import { ForecastCard } from '@/components/ForecastCard';
 import { TideGraphModal } from '@/components/TideGraphModal';
+import { DetailSheet } from '@/components/DetailSheet';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
 import { PicksCard } from '@/components/PicksCard';
@@ -129,6 +130,11 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // The "Tides & Bite" hourly graph sheet (freshwater gets the same sheet as
   // "Hourly & Bite" — metric charts only, no tide curve).
   const [tideGraphOpen, setTideGraphOpen] = useState(false);
+  // Which detail card is open in a bottom sheet (tap a dashboard tile). The
+  // cards themselves are unchanged — they just render in the sheet now.
+  const [detailSheet, setDetailSheet] = useState<
+    'picks' | 'insights' | 'playbooks' | 'regs' | 'fish' | null
+  >(null);
   // The angler's own saved condition configurations.
   const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);
   const [savingPreset, setSavingPreset] = useState(false);
@@ -960,11 +966,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               score: s.biteScore,
             }))}
             selectedDay={selectedDay}
-            onSelectDay={pickDay}
-            lockedFromDay={lockedFromDay}
             selectedHour={selectedHour}
-            onSelectHour={setSelectedHour}
             pickDayRef={pickDayRef}
+            onShowWhy={() => setDetailSheet('insights')}
             onShowTideGraph={() => {
               // Scroll the MAP (not the page top) into the strip above the
               // sheet, so the spot and the graph are visible together.
@@ -992,17 +996,44 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           />
         ) : null}
       </View>
-      {strategy ? <PicksCard strategy={strategy} /> : null}
-      {strategy ? <InsightsCard strategy={strategy} /> : null}
+      {/* The deep-detail cards are one tap away now: a tile grid instead of a
+          long stack. Tapping a tile opens the same card, unchanged, in a
+          bottom sheet. */}
       {strategy ? (
-        <RegulationsCard region={region} />
-      ) : null}
-      {areaFish.length > 0 ? (
-        <AreaFishCard
-          fish={areaFish}
-          onPickTarget={onPickTarget}
-          regsUrl={regsUrl}
-        />
+        <View style={styles.detailTiles}>
+          <DetailTile
+            icon="target"
+            title="Throw this"
+            subtitle="Lures, rigs & bait for now"
+            onPress={() => setDetailSheet('picks')}
+          />
+          <DetailTile
+            icon="help-circle"
+            title="Why they're biting"
+            subtitle="What the fish are doing & why"
+            onPress={() => setDetailSheet('insights')}
+          />
+          <DetailTile
+            icon="book-open"
+            title="Playbooks"
+            subtitle="Water clarity & pressure tactics"
+            onPress={() => setDetailSheet('playbooks')}
+          />
+          <DetailTile
+            icon="file-text"
+            title="Regulations"
+            subtitle="Local size & bag limits"
+            onPress={() => setDetailSheet('regs')}
+          />
+          {areaFish.length > 0 ? (
+            <DetailTile
+              icon="anchor"
+              title="Nearby fish"
+              subtitle="Species reported here"
+              onPress={() => setDetailSheet('fish')}
+            />
+          ) : null}
+        </View>
       ) : null}
 
       {!conditions && !analyzing && !error ? (
@@ -1057,7 +1088,53 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           onSelectHour={setSelectedHour}
         />
       ) : null}
+
+      {/* Deep-detail cards, one tap away — same content, now in a sheet. */}
+      <DetailSheet visible={detailSheet !== null} onClose={() => setDetailSheet(null)}>
+        {detailSheet === 'picks' && strategy ? <PicksCard strategy={strategy} /> : null}
+        {detailSheet === 'insights' && strategy ? (
+          <InsightsCard strategy={strategy} part="behavior" />
+        ) : null}
+        {detailSheet === 'playbooks' && strategy ? (
+          <InsightsCard strategy={strategy} part="playbooks" />
+        ) : null}
+        {detailSheet === 'regs' ? <RegulationsCard region={region} /> : null}
+        {detailSheet === 'fish' ? (
+          <AreaFishCard fish={areaFish} onPickTarget={onPickTarget} regsUrl={regsUrl} />
+        ) : null}
+      </DetailSheet>
     </View>
+  );
+}
+
+/** One dashboard tile: icon, title, one-line teaser — opens a detail sheet. */
+function DetailTile({
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.detailTile, pressed && pressedStyle]}
+    >
+      <View style={styles.detailTileHead}>
+        <View style={styles.detailTileIcon}>
+          <Feather name={icon} size={16} color={colors.accent} />
+        </View>
+        <Feather name="chevron-right" size={16} color={colors.textMuted} />
+      </View>
+      <Text style={styles.detailTileTitle}>{title}</Text>
+      <Text style={styles.detailTileSub}>{subtitle}</Text>
+    </Pressable>
   );
 }
 
@@ -1167,6 +1244,48 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   },
   content: {
     paddingBottom: spacing.xl * 2,
+  },
+  // Two-column tiles for the deep-detail cards (Throw this, Why, Regs, Fish).
+  detailTiles: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  detailTile: {
+    width: '48.5%',
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadow.card,
+  },
+  detailTileHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  detailTileIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: colors.accentDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailTileTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  detailTileSub: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
   },
   jumpBtn: {
     position: 'absolute',

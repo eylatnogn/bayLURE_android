@@ -56,11 +56,23 @@ function Playbook({
   );
 }
 
-export function InsightsCard({ strategy }: { strategy: Strategy }) {
+/** Which slice of the insights to render. Split so the Plan tab can show the
+ * behavior/why in one detail tile and the playbooks in their own tile. */
+type InsightsPart = 'behavior' | 'playbooks' | 'all';
+
+export function InsightsCard({
+  strategy,
+  part = 'all',
+}: {
+  strategy: Strategy;
+  part?: InsightsPart;
+}) {
   const styles = useStyles();
+  const showBehavior = part === 'behavior' || part === 'all';
+  const showPlaybooks = part === 'playbooks' || part === 'all';
   return (
     <>
-      {strategy.behavior.length > 0 ? (
+      {showBehavior && strategy.behavior.length > 0 ? (
         <Section title="What the Fish Are Doing">
           {strategy.behavior.map((b, i) => (
             <View key={i} style={styles.row}>
@@ -71,26 +83,32 @@ export function InsightsCard({ strategy }: { strategy: Strategy }) {
         </Section>
       ) : null}
 
-      <Section title="Why">
-        {strategy.factors.map((f, i) => (
-          <View key={i} style={styles.row}>
-            <Text style={styles.bullet}>•</Text>
-            <Text style={styles.text}>{f}</Text>
-          </View>
-        ))}
-      </Section>
+      {showBehavior ? (
+        <Section title="Why">
+          {strategy.factors.map((f, i) => (
+            <View key={i} style={styles.row}>
+              <Text style={styles.bullet}>•</Text>
+              <Text style={styles.text}>{f}</Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
 
-      <Playbook
-        title="Water Clarity Playbook"
-        intro="Tuned to the water clarity you reported."
-        sections={strategy.clarityPlaybook}
-      />
+      {showPlaybooks ? (
+        <Playbook
+          title="Water Clarity Playbook"
+          intro="Tuned to the water clarity you reported."
+          sections={strategy.clarityPlaybook}
+          defaultOpen={part === 'playbooks'}
+        />
+      ) : null}
 
-      {strategy.pressurePlaybook ? (
+      {showPlaybooks && strategy.pressurePlaybook ? (
         <Playbook
           title="Pressured-Water Playbook"
           intro="This water is heavily fished — outfinesse the crowd."
           sections={strategy.pressurePlaybook}
+          defaultOpen={part === 'playbooks'}
         />
       ) : null}
     </>
