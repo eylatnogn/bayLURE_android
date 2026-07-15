@@ -157,6 +157,9 @@ function MiniStat({
   warn,
   active,
   onPress,
+  /** Compass bearing (deg, 0 = up/N) to point a small arrow — used by the
+   * Wind box to show which way the wind is blowing, right next to its label. */
+  arrowDeg,
 }: {
   label: string;
   value: string;
@@ -164,7 +167,9 @@ function MiniStat({
   warn?: boolean;
   active?: boolean;
   onPress?: () => void;
+  arrowDeg?: number | null;
 }) {
+  const { colors } = useTheme();
   const styles = useStyles();
   return (
     <Pressable
@@ -174,7 +179,23 @@ function MiniStat({
     >
       <Text style={styles.miniValue}>{value}</Text>
       <Text style={styles.miniLabel}>{label}</Text>
-      {hint ? <Text style={[styles.miniHint, warn && styles.miniHintWarn]}>{hint}</Text> : null}
+      {hint ? (
+        arrowDeg != null ? (
+          <View style={styles.miniHintRow}>
+            <Feather
+              name="arrow-up"
+              size={11}
+              color={warn ? colors.warn : colors.accent}
+              style={{ transform: [{ rotate: `${arrowDeg}deg` }] }}
+            />
+            <Text style={[styles.miniHint, warn && styles.miniHintWarn, styles.miniHintInline]}>
+              {hint}
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.miniHint, warn && styles.miniHintWarn]}>{hint}</Text>
+        )
+      ) : null}
     </Pressable>
   );
 }
@@ -673,19 +694,6 @@ export function TideGraphModal({
           </HaloText>
         ))}
 
-        {/* Wind arrow — points the way the wind is actually blowing (TO), for
-            the selected hour (or the day). windDirectionDeg is where it comes
-            FROM, so add 180. Parked in the bottom-right below the axis, clear
-            of the peak-bite callout and the hour labels. */}
-        <SvgText x={W - M.right - 10} y={H - 22} fontSize={8} fontWeight="700" fill={colors.textMuted} textAnchor="middle">
-          {`${hourWeather.windMph}`}
-        </SvgText>
-        <Circle cx={W - M.right - 10} cy={H - 11} r={8} fill={colors.card} opacity={0.9} stroke={colors.cardBorder} strokeWidth={0.75} />
-        <G originX={W - M.right - 10} originY={H - 11} rotation={(hourWeather.windDirectionDeg + 180) % 360}>
-          <Line x1={W - M.right - 10} y1={H - 6.5} x2={W - M.right - 10} y2={H - 15} stroke={colors.accent} strokeWidth={2} strokeLinecap="round" />
-          <Path d={`M ${W - M.right - 10} ${H - 17.5} L ${W - M.right - 13} ${H - 13.5} L ${W - M.right - 7} ${H - 13.5} Z`} fill={colors.accent} />
-        </G>
-
         {/* Tap targets — last, so they sit on top and catch the touches. */}
         {biteByHour.map((score, hr) =>
           score == null ? null : (
@@ -822,6 +830,9 @@ export function TideGraphModal({
                 label="Wind"
                 value={`${hourWeather.windMph} mph`}
                 hint={hourWeather.windDirectionLabel}
+                // windDirectionDeg is where it comes FROM; +180 points the
+                // arrow the way the wind is actually blowing TO.
+                arrowDeg={(hourWeather.windDirectionDeg + 180) % 360}
                 active={activeMetric === 'wind'}
                 onPress={() => setMetric('wind')}
               />
@@ -1057,6 +1068,9 @@ const useStyles = makeStyles((c, t) => ({
   miniLabel: { color: c.textMuted, fontSize: 11, marginTop: 1 },
   miniHint: { color: c.accent, fontSize: 10, marginTop: 1 },
   miniHintWarn: { color: c.warn },
+  // Wind box: the blowing-to arrow sits inline with the direction label.
+  miniHintRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 },
+  miniHintInline: { marginTop: 0 },
   // Heading + revert button shown while a forecast metric is plotted.
   metricBar: {
     flexDirection: 'row',

@@ -164,6 +164,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // Collapse "Fine-tune your read" once, when the first results land.
   const hadResults = useRef(false);
   const forecastRelY = useRef(0); // forecast card offset within the body
+  const mapRelY = useRef(0); // map wrapper offset within the body
   const [nearForecast, setNearForecast] = useState(false);
 
   // Auto-analyze plumbing: the signature of the last setup we analyzed, and a
@@ -506,69 +507,31 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setNearForecast((prev) => (prev === near ? prev : near));
   }, []);
 
-  // Fresh y-offset of a wrapper inside the scroll content. Collapsing sections
-  // shifts everything, so stored offsets go stale — measure at press time.
-  const measureInScroll = useCallback((ref: React.RefObject<View | null>) => {
-    return new Promise<number | null>((resolve) => {
-      const scroller = scrollRef.current;
-      const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
-        ?.getInnerViewNode?.();
-      const node = ref.current as unknown as {
-        measureLayout?: (n: unknown, ok: (x: number, y: number) => void, fail: () => void) => void;
-      } | null;
-      if (!inner || !node?.measureLayout) {
-        resolve(null);
-        return;
-      }
-      node.measureLayout(inner, (_x, y) => resolve(y), () => resolve(null));
-    });
-  }, []);
-
-  const jumpToForecast = useCallback(async () => {
+  // Scroll targets from onLayout offsets only — no measureLayout /
+  // getInnerViewNode. Those relied on the ScrollView's inner-view node and
+  // its callback firing, which in a release .aab can silently never fire
+  // (Android view-flattening), leaving the jump button dead. bodyY (body vs
+  // content) and mapRelY / forecastRelY (section vs body) come straight from
+  // onLayout, which re-fires on every collapse/expand, so they stay fresh and
+  // work identically in dev and release.
+  const jumpToForecast = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const [mapY, forecastY, pickDayY] = await Promise.all([
-      measureInScroll(mapWrapRef),
-      measureInScroll(forecastWrapRef),
-      measureInScroll(pickDayRef),
-    ]);
-    // Land on "Pick a day" (day picker + conditions), not the score header.
-    const targetY = pickDayY ?? forecastY;
-    if (mapY == null || targetY == null) {
-      // Fallback to the stored offsets if measuring isn't available.
-      scroller.scrollTo({
-        y: nearForecast ? 0 : Math.max(0, bodyY.current + forecastRelY.current - 8),
-        animated: true,
-      });
-      return;
-    }
-    // At (or past) the target → hop up to the map; otherwise → down to it.
-    const atForecast = scrollYRef.current >= targetY - 160;
-    scroller.scrollTo({
-      y: Math.max(0, (atForecast ? mapY : targetY) - 8),
-      animated: true,
-    });
-  }, [nearForecast, measureInScroll]);
+    const forecastTop = Math.max(0, bodyY.current + forecastRelY.current - 8);
+    const mapTop = Math.max(0, bodyY.current + mapRelY.current - 6);
+    // At (or near) the forecast → hop up to the map; otherwise → down to it.
+    const atForecast = scrollYRef.current >= forecastTop - 160;
+    scroller.scrollTo({ y: atForecast ? mapTop : forecastTop, animated: true });
+  }, []);
 
   // Bring the map to the top of the viewport so a bottom sheet opens "locked
   // up to the map" — the same feel as the Tides & Bite sheet — instead of
   // floating over whatever happened to be scrolled into view.
   const scrollMapIntoView = useCallback(() => {
-    const scroller = scrollRef.current;
-    const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
-      ?.getInnerViewNode?.();
-    const mapNode = mapWrapRef.current as unknown as {
-      measureLayout?: (node: unknown, ok: (x: number, y: number) => void, fail: () => void) => void;
-    } | null;
-    if (scroller && inner && mapNode?.measureLayout) {
-      mapNode.measureLayout(
-        inner,
-        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 6), animated: true }),
-        () => scroller.scrollTo({ y: 0, animated: true }),
-      );
-    } else {
-      scroller?.scrollTo({ y: 0, animated: true });
-    }
+    scrollRef.current?.scrollTo({
+      y: Math.max(0, bodyY.current + mapRelY.current - 6),
+      animated: true,
+    });
   }, []);
 
   const openDetail = useCallback(
@@ -749,9 +712,17 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         </View>
       ) : null}
 
-      {/* The map always stays visible. collapsable=false keeps the wrapper
-          measurable on Android for the jump button. */}
-      <View ref={mapWrapRef} collapsable={false} style={styles.mapWrap}>
+      {/* The map always stays visible. collapsable=false keeps the wrapper a
+          real view; onLayout records its offset within the body for the jump
+          button and the "lock map to top" scroll (re-fires on relayout). */}
+      <View
+        ref={mapWrapRef}
+        collapsable={false}
+        style={styles.mapWrap}
+        onLayout={(e) => {
+          mapRelY.current = e.nativeEvent.layout.y;
+        }}
+      >
         <MapPicker
           center={coordinates}
           onPick={onPickOnMap}
