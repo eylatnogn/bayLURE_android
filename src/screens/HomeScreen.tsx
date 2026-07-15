@@ -120,8 +120,11 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
   // Presets are tucked away (collapsed); the refinements stay open by default.
-  const [quickStartOpen, setQuickStartOpen] = useState(false);
-  const [fineTuneOpen, setFineTuneOpen] = useState(true);
+  // The input area collapses into two summary bars: Location (the map stays
+  // visible; search / GPS / save / saved-spots tuck behind it) and Adjust
+  // conditions (presets + fine-tune). Both open until the first analysis.
+  const [locationOpen, setLocationOpen] = useState(true);
+  const [adjustOpen, setAdjustOpen] = useState(true);
   const [savedSpotsOpen, setSavedSpotsOpen] = useState(false);
   // Two-step delete: first tap arms this id, a second tap on the confirm
   // control removes it — so a stray tap never deletes a spot or preset.
@@ -456,7 +459,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       // star. Only once — re-runs while the angler tweaks it shouldn't fight.
       if (!hadResults.current) {
         hadResults.current = true;
-        setFineTuneOpen(false);
+        setLocationOpen(false);
+        setAdjustOpen(false);
       }
       // Catch log always attaches *today's* conditions, not a future forecast.
       if (week[0] && strats[0]) {
@@ -571,68 +575,97 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           bodyY.current = e.nativeEvent.layout.y;
         }}
       >
-      {/* Step 1 — Location */}
-      <Section title="Location" icon="map-pin">
-        <Pressable
-          onPress={useMyLocation}
-          disabled={locating}
-          style={({ pressed }) => [
-            styles.secondaryBtn,
-            locating && styles.btnDisabled,
-            pressed && pressedStyle,
-          ]}
-        >
-          {locating ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <View style={styles.btnRow}>
-              <Feather name="map-pin" size={16} color={colors.text} />
-              <Text style={styles.secondaryBtnText}>Use my location</Text>
-            </View>
-          )}
-        </Pressable>
+      {/* Step 1 — Location: a summary bar; the map stays visible while the
+          search / GPS / save / saved-spots controls tuck behind its chevron. */}
+      <Pressable
+        onPress={() => setLocationOpen((v) => !v)}
+        style={({ pressed }) => [styles.summaryBar, pressed && pressedStyle]}
+      >
+        <View style={styles.summaryBarLeft}>
+          <Feather name="map-pin" size={16} color={colors.accent} />
+          <Text style={styles.summaryBarTitle} numberOfLines={1}>
+            {coordinates ? place : 'Set a location'}
+          </Text>
+          <View style={styles.waterPill}>
+            <Text style={styles.waterPillText}>
+              {waterType === 'saltwater' ? 'Saltwater' : 'Freshwater'}
+            </Text>
+          </View>
+        </View>
+        <Feather
+          name={locationOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.textMuted}
+        />
+      </Pressable>
 
-        <Text style={styles.orLabel}>or enter an address or ZIP code</Text>
-        <View style={styles.searchRow}>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            onSubmitEditing={onFindAddress}
-            placeholder="e.g. 30301 or Lake Lanier, GA"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="words"
-            returnKeyType="search"
-            style={styles.input}
-          />
+      {locationOpen ? (
+        <View style={styles.inputBlock}>
           <Pressable
-            onPress={onFindAddress}
-            disabled={geocoding || !query.trim()}
+            onPress={useMyLocation}
+            disabled={locating}
             style={({ pressed }) => [
-              styles.findBtn,
-              (geocoding || !query.trim()) && styles.btnDisabled,
+              styles.secondaryBtn,
+              locating && styles.btnDisabled,
               pressed && pressedStyle,
             ]}
           >
-            {geocoding ? (
-              <ActivityIndicator color={colors.card} />
+            {locating ? (
+              <ActivityIndicator color={colors.accent} />
             ) : (
-              <Text style={styles.findBtnText}>Find</Text>
+              <View style={styles.btnRow}>
+                <Feather name="map-pin" size={16} color={colors.text} />
+                <Text style={styles.secondaryBtnText}>Use my location</Text>
+              </View>
             )}
           </Pressable>
-        </View>
 
-        <Text style={styles.orLabel}>or drop a pin on the map</Text>
-        {/* collapsable=false so the wrapper stays measurable on Android. */}
-        <View ref={mapWrapRef} collapsable={false} style={styles.mapWrap}>
-          <MapPicker
-            center={coordinates}
-            onPick={onPickOnMap}
-            windTargetLabel={windTargetLabel}
-            windMph={windWx?.windMph ?? null}
-            windDirDeg={windWx?.windDirectionDeg ?? null}
-          />
+          <Text style={styles.orLabel}>or enter an address or ZIP code</Text>
+          <View style={styles.searchRow}>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={onFindAddress}
+              placeholder="e.g. 30301 or Lake Lanier, GA"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="words"
+              returnKeyType="search"
+              style={styles.input}
+            />
+            <Pressable
+              onPress={onFindAddress}
+              disabled={geocoding || !query.trim()}
+              style={({ pressed }) => [
+                styles.findBtn,
+                (geocoding || !query.trim()) && styles.btnDisabled,
+                pressed && pressedStyle,
+              ]}
+            >
+              {geocoding ? (
+                <ActivityIndicator color={colors.card} />
+              ) : (
+                <Text style={styles.findBtnText}>Find</Text>
+              )}
+            </Pressable>
+          </View>
+          <Text style={styles.orLabel}>or drop a pin on the map</Text>
         </View>
+      ) : null}
 
+      {/* The map always stays visible. collapsable=false keeps the wrapper
+          measurable on Android for the jump button. */}
+      <View ref={mapWrapRef} collapsable={false} style={styles.mapWrap}>
+        <MapPicker
+          center={coordinates}
+          onPick={onPickOnMap}
+          windTargetLabel={windTargetLabel}
+          windMph={windWx?.windMph ?? null}
+          windDirDeg={windWx?.windDirectionDeg ?? null}
+        />
+      </View>
+
+      {locationOpen ? (
+        <View style={styles.inputBlock}>
         <Text style={styles.selected}>
           {coordinates
             ? `Spot set — ${place}`
@@ -736,22 +769,31 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             ) : null}
           </View>
         ) : null}
-      </Section>
+        </View>
+      ) : null}
 
-      {/* Presets — collapsed by default, optional */}
+      {/* Step 2 — Adjust conditions: presets + fine-tune behind one bar. */}
       <Pressable
-        onPress={() => setQuickStartOpen((v) => !v)}
-        style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
+        onPress={() => setAdjustOpen((v) => !v)}
+        style={({ pressed }) => [styles.summaryBar, pressed && pressedStyle]}
       >
-        <Text style={styles.collapseTitle}>Presets</Text>
+        <View style={styles.summaryBarLeft}>
+          <Feather name="sliders" size={16} color={colors.accent} />
+          <Text style={styles.summaryBarTitle}>Adjust conditions</Text>
+          <Text style={styles.summaryBarSub} numberOfLines={1}>
+            {' · '}
+            {configSummary}
+          </Text>
+        </View>
         <Feather
-          name={quickStartOpen ? 'chevron-up' : 'chevron-down'}
+          name={adjustOpen ? 'chevron-up' : 'chevron-down'}
           size={18}
           color={colors.textMuted}
         />
       </Pressable>
 
-      {quickStartOpen ? (
+      {adjustOpen ? (
+        <View>
         <Section title="Quick Start" icon="zap">
           <Text style={styles.helper}>
             Tap a starter profile, or save your own setup below to reuse it.
@@ -846,23 +888,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             </View>
           )}
         </Section>
-      ) : null}
 
-      {/* Refinements, collapsed by default so the fast path stays short */}
-      <Pressable
-        onPress={() => setFineTuneOpen((v) => !v)}
-        style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
-      >
-        <Text style={styles.collapseTitle}>Fine-tune your read</Text>
-        <Feather
-          name={fineTuneOpen ? 'chevron-up' : 'chevron-down'}
-          size={18}
-          color={colors.textMuted}
-        />
-      </Pressable>
-
-      {fineTuneOpen ? (
-        <View>
           <Section title="Water Type" icon="droplet">
             <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
             <Text style={[styles.helper, styles.helperGap]}>
@@ -932,8 +958,6 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           </Section>
         </View>
       ) : null}
-
-      <Text style={styles.summaryLine}>{configSummary}</Text>
 
       <Button
         title={coordinates ? 'Analyze my spot' : 'Set a location first'}
@@ -1533,12 +1557,38 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     ...shadow.card,
   },
   collapseTitle: { color: colors.text, fontSize: 14, fontWeight: '700', letterSpacing: 0.3 },
-  summaryLine: {
-    color: colors.textMuted,
-    fontSize: 12,
-    textAlign: 'center',
+  // Collapsed input summary bars (Location, Adjust conditions).
+  summaryBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     marginBottom: spacing.md,
+    ...shadow.card,
   },
+  summaryBarLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  summaryBarTitle: { color: colors.text, fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  summaryBarSub: { color: colors.textMuted, fontSize: 12, flexShrink: 1 },
+  waterPill: {
+    backgroundColor: colors.accentDim,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  waterPillText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
+  // Wrapper for the location controls revealed above/below the map.
+  inputBlock: { marginBottom: spacing.md },
   cta: {
     backgroundColor: colors.accent,
     borderRadius: radius.lg,
