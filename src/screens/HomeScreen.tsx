@@ -677,6 +677,74 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               )}
             </Pressable>
           </View>
+
+          {/* Saved spots live HERE, with the other "pick a location" controls —
+              up top where they're seen the moment Location expands, not buried
+              under the map. */}
+          {favorites.length > 0 ? (
+            <View style={styles.favList}>
+              <Pressable
+                onPress={() => setSavedSpotsOpen((v) => !v)}
+                style={({ pressed }) => [styles.favDropdown, pressed && pressedStyle]}
+              >
+                <Text style={styles.favDropdownLabel}>
+                  Saved spots ({favorites.length})
+                </Text>
+                <Feather
+                  name={savedSpotsOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+              {savedSpotsOpen ? (
+                <>
+                  <Text style={styles.dragHint}>
+                    Tap to load · press and hold 1.5s to reorder
+                  </Text>
+                  <ReorderableList
+                    items={favorites}
+                    keyOf={(f) => f.id}
+                    rowHeight={44}
+                    onReorder={onReorderFavorites}
+                    onActiveChange={setReordering}
+                    rowStyle={styles.favRowCard}
+                    onItemPress={(fav) => onLoadFavorite(fav)}
+                    renderItem={(fav) => (
+                      <>
+                        <Feather name="star" size={14} color={colors.warn} />
+                        <Text style={styles.favName} numberOfLines={1}>
+                          {fav.label}
+                        </Text>
+                      </>
+                    )}
+                    renderTrailing={(fav) =>
+                      confirmDeleteFav === fav.id ? (
+                        <View style={styles.confirmDeleteRow}>
+                          <Pressable
+                            onPress={() => {
+                              void onDeleteFavorite(fav.id);
+                              setConfirmDeleteFav(null);
+                            }}
+                            hitSlop={8}
+                          >
+                            <Text style={styles.confirmDeleteText}>Delete</Text>
+                          </Pressable>
+                          <Pressable onPress={() => setConfirmDeleteFav(null)} hitSlop={8}>
+                            <Text style={styles.confirmCancelText}>Cancel</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <Pressable onPress={() => setConfirmDeleteFav(fav.id)} hitSlop={8}>
+                          <Feather name="trash-2" size={15} color={colors.textMuted} />
+                        </Pressable>
+                      )
+                    }
+                  />
+                </>
+              ) : null}
+            </View>
+          ) : null}
+
           <Text style={styles.orLabel}>or drop a pin on the map</Text>
         </View>
       ) : null}
@@ -735,69 +803,6 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           </View>
         ) : null}
 
-        {favorites.length > 0 ? (
-          <View style={styles.favList}>
-            <Pressable
-              onPress={() => setSavedSpotsOpen((v) => !v)}
-              style={({ pressed }) => [styles.favDropdown, pressed && pressedStyle]}
-            >
-              <Text style={styles.favDropdownLabel}>
-                Saved spots ({favorites.length})
-              </Text>
-              <Feather
-                name={savedSpotsOpen ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={colors.textMuted}
-              />
-            </Pressable>
-            {savedSpotsOpen ? (
-              <>
-                <Text style={styles.dragHint}>
-                  Tap to load · press and hold 1.5s to reorder
-                </Text>
-                <ReorderableList
-                  items={favorites}
-                  keyOf={(f) => f.id}
-                  rowHeight={44}
-                  onReorder={onReorderFavorites}
-                  onActiveChange={setReordering}
-                  rowStyle={styles.favRowCard}
-                  onItemPress={(fav) => onLoadFavorite(fav)}
-                  renderItem={(fav) => (
-                    <>
-                      <Feather name="star" size={14} color={colors.warn} />
-                      <Text style={styles.favName} numberOfLines={1}>
-                        {fav.label}
-                      </Text>
-                    </>
-                  )}
-                  renderTrailing={(fav) =>
-                    confirmDeleteFav === fav.id ? (
-                      <View style={styles.confirmDeleteRow}>
-                        <Pressable
-                          onPress={() => {
-                            void onDeleteFavorite(fav.id);
-                            setConfirmDeleteFav(null);
-                          }}
-                          hitSlop={8}
-                        >
-                          <Text style={styles.confirmDeleteText}>Delete</Text>
-                        </Pressable>
-                        <Pressable onPress={() => setConfirmDeleteFav(null)} hitSlop={8}>
-                          <Text style={styles.confirmCancelText}>Cancel</Text>
-                        </Pressable>
-                      </View>
-                    ) : (
-                      <Pressable onPress={() => setConfirmDeleteFav(fav.id)} hitSlop={8}>
-                        <Feather name="trash-2" size={15} color={colors.textMuted} />
-                      </Pressable>
-                    )
-                  }
-                />
-              </>
-            ) : null}
-          </View>
-        ) : null}
         </View>
       ) : null}
 
@@ -1566,6 +1571,9 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   // scrolling the page (the map itself captures vertical drags).
   mapWrap: {
     marginHorizontal: -spacing.sm,
+    // Breathing room below the map so the Adjust-conditions bar (or the
+    // spot-set text when Location is expanded) doesn't sit flush against it.
+    marginBottom: spacing.md,
   },
   // Card look for a reorderable saved-spot row (positioned by ReorderableList,
   // so no margin — the grip sits inside the card on the right).
