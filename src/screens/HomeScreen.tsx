@@ -1251,16 +1251,14 @@ interface Preset {
   structures: StructureType[];
 }
 
-/** One-tap profiles that set water type + likely species + typical cover. */
+/** One-tap profiles that set water type + likely species + typical cover.
+ * Kept to the top four (three freshwater staples + one saltwater) so Quick
+ * Start reads at a glance — anything more specific is a saved preset. */
 const PRESETS: Preset[] = [
   { label: 'Lake bass', waterType: 'freshwater', species: ['largemouth'], structures: ['vegetation', 'wood'] },
-  { label: 'River smallmouth', waterType: 'freshwater', species: ['smallmouth'], structures: ['rock', 'current'] },
-  { label: 'Trout stream', waterType: 'freshwater', species: ['trout'], structures: ['rock', 'current'] },
   { label: 'Panfish', waterType: 'freshwater', species: ['panfish'], structures: ['wood', 'vegetation'] },
   { label: 'Catfish', waterType: 'freshwater', species: ['catfish'], structures: ['current', 'dropoff'] },
   { label: 'Inshore slam', waterType: 'saltwater', species: ['redfish', 'seatrout'], structures: ['vegetation', 'oyster'] },
-  { label: 'Snook & docks', waterType: 'saltwater', species: ['snook'], structures: ['mangrove', 'wood'] },
-  { label: 'Surf / stripers', waterType: 'saltwater', species: ['striper'], structures: ['current', 'open'] },
 ];
 
 interface PillOption<T extends string> {
@@ -1570,7 +1568,9 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   // stops short of the card edge so a strip stays on each side to grab for
   // scrolling the page (the map itself captures vertical drags).
   mapWrap: {
-    marginHorizontal: -spacing.sm,
+    // Inset from the body padding so a comfortable strip stays on each side
+    // to grab for scrolling the page (the map itself captures vertical drags).
+    marginHorizontal: spacing.sm,
     // Breathing room below the map so the Adjust-conditions bar (or the
     // spot-set text when Location is expanded) doesn't sit flush against it.
     marginBottom: spacing.md,

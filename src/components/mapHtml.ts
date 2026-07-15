@@ -954,7 +954,9 @@ export function buildMapHtml(
           ));
         }
       }
-      setDepthNotice(wet === 0 ? 'No charted depth for this area' : '');
+      // Inland reservoirs/lakes read as land in NOAA's DEM (it has coastal
+      // bathymetry, not lake bottoms) — say so, instead of looking broken.
+      setDepthNotice(wet === 0 ? 'No depth survey here — NOAA charts coastal water, not most lakes' : '');
       if (wet === 0 || !contourEnabled) { return; }
 
       // Contour lines with a depth label on each level.
