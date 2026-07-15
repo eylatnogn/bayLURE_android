@@ -66,6 +66,8 @@ import {
 import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
 import { ReorderableList } from '@/components/ReorderableList';
+import { DEFAULT_METRIC_ORDER, METRICS, type MetricKey } from '@/config/metrics';
+import { loadMetricOrder, saveMetricOrder } from '@/storage/metricOrder';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
 import { APP_VERSION } from '@/version';
@@ -146,6 +148,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetLabel, setPresetLabel] = useState('');
+  // The angler's chosen order for the main-page conditions strip — different
+  // anglers read different metrics first (see config/metrics).
+  const [metricOrder, setMetricOrder] = useState<MetricKey[]>(DEFAULT_METRIC_ORDER);
   // True once the angler has chosen a water type by hand/preset — auto-detect
   // then leaves it alone.
   const userSetWaterType = useRef(false);
@@ -280,6 +285,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setFavorites(list);
     void reorderFavorites(list);
   }, []);
+  const onReorderMetrics = useCallback((list: MetricKey[]) => {
+    setMetricOrder(list);
+    void saveMetricOrder(list);
+  }, []);
 
   const toggleSpecies = useCallback((sp: Species) => {
     setSpecies((prev) =>
@@ -373,6 +382,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   useEffect(() => {
     void loadPresets().then(setCustomPresets);
+  }, []);
+
+  useEffect(() => {
+    void loadMetricOrder().then(setMetricOrder);
   }, []);
 
   // A backup import (Guide tab) can add spots/presets while this screen stays
@@ -932,6 +945,30 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           )}
         </Section>
 
+          <Section title="Conditions Strip" icon="thermometer">
+            <Text style={styles.helper}>
+              The quick conditions row on your results — drag to put the reads
+              you check first at the front.
+            </Text>
+            <Text style={styles.dragHint}>Press and hold 1.5s to reorder</Text>
+            <ReorderableList
+              items={metricOrder}
+              keyOf={(k) => k}
+              rowHeight={44}
+              onReorder={onReorderMetrics}
+              onActiveChange={setReordering}
+              rowStyle={styles.favRowCard}
+              renderItem={(k) => (
+                <>
+                  <Feather name={METRICS[k].icon} size={14} color={colors.accent} />
+                  <Text style={styles.favName} numberOfLines={1}>
+                    {METRICS[k].label}
+                  </Text>
+                </>
+              )}
+            />
+          </Section>
+
           <Section title="Water Type" icon="droplet">
             <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
             <Text style={[styles.helper, styles.helperGap]}>
@@ -1062,6 +1099,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             selectedDay={selectedDay}
             selectedHour={selectedHour}
             pickDayRef={pickDayRef}
+            metricOrder={metricOrder}
             onShowWhy={() => openDetail('insights')}
             onShowTideGraph={() => {
               // Scroll the MAP (not the page top) into the strip above the

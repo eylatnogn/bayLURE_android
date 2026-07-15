@@ -722,12 +722,23 @@ export function TideGraphModal({
     // A floating sheet, not a Modal: everything above it (the map!) stays live.
     <View style={styles.overlay} pointerEvents="box-none">
       <View
-        style={[styles.sheet, (sheetH ?? openHeight) != null && { height: sheetH ?? openHeight }]}
+        style={[
+          styles.sheet,
+          // A dragged height is fixed; otherwise openHeight is a MINIMUM (not a
+          // fixed height) so the sheet still butts up to the map but grows to
+          // fit taller content — a fixed height was hiding the peak times and
+          // the legend below the fold.
+          sheetH != null
+            ? { height: sheetH }
+            : openHeight != null
+              ? { minHeight: openHeight }
+              : null,
+        ]}
         onLayout={(e) => {
-          // Only record the laid-out height (the drag ceiling) while no custom
+          // Record the laid-out height as the drag ceiling while no custom
           // height is applied — otherwise the ceiling would shrink to wherever
-          // the sheet was last dragged. When openHeight is set the sheet lays
-          // out at exactly that, so the ceiling correctly becomes openHeight.
+          // the sheet was last dragged. With openHeight as a minimum this is the
+          // greater of openHeight and the content, which is exactly the ceiling.
           if (sheetHRef.current == null) {
             naturalH.current = e.nativeEvent.layout.height;
           }
@@ -981,13 +992,13 @@ const useStyles = makeStyles((c, t) => ({
     marginBottom: 2,
   },
   title: {
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: '800',
     color: c.text,
   },
   subtitle: {
     color: c.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 1,
   },
   close: {

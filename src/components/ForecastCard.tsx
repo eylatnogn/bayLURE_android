@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Svg, { Polyline, Rect as SvgRect } from 'react-native-svg';
 import type { Conditions, Strategy } from '@/types';
+import { DEFAULT_METRIC_ORDER, METRICS, type MetricKey } from '@/config/metrics';
 import { Section } from '@/components/Section';
 import { DetailSheet } from '@/components/DetailSheet';
 import { tideAt } from '@/api/tides';
@@ -30,6 +31,9 @@ interface Props {
   /** Anchor for the host's jump button: the bite hero, so a jump lands on the
    * score + conditions rather than the score header. */
   pickDayRef?: React.RefObject<View | null>;
+  /** The angler's chosen order for the conditions strip (see config/metrics).
+   * Defaults to the standard order when not set. */
+  metricOrder?: MetricKey[];
 }
 
 const trendArrow: Record<string, string> = {
@@ -66,6 +70,7 @@ export function ForecastCard({
   onShowTideGraph,
   onShowWhy,
   pickDayRef,
+  metricOrder = DEFAULT_METRIC_ORDER,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -101,16 +106,11 @@ export function ForecastCard({
   const barColor = scoreColor(strategy.biteScore);
   const trend = trendArrow[w.pressureTrend] ?? '';
 
-  // The five (plus rain) key conditions, scrollable across; the rest are in
-  // the "More" sheet. Icons echo the fuller grid.
-  const condChips: { icon: keyof typeof Feather.glyphMap; value: string; label: string }[] = [
-    { icon: 'thermometer', value: `${w.airTempF}°`, label: 'Air' },
-    { icon: 'wind', value: `${w.windMph} ${w.windDirectionLabel}`, label: 'Wind' },
-    { icon: 'activity', value: `${w.pressureInHg}${trend ? ` ${trend}` : ''}`, label: 'Press' },
-    { icon: 'cloud', value: `${w.cloudCoverPct}%`, label: 'Sky' },
-    { icon: 'droplet', value: `${water.waterTempF}°`, label: 'Water' },
-    { icon: 'umbrella', value: `${w.precipChancePct}%`, label: 'Rain' },
-  ];
+  // The key conditions, scrollable across; the rest are in the "More" sheet.
+  // Content and default order live in config/metrics; the angler's saved order
+  // (metricOrder) decides which they see first. Icons echo the fuller grid.
+  const metricCtx = { w, water, trend };
+  const condChips = metricOrder.map((k) => METRICS[k]);
 
   return (
     <>
@@ -162,8 +162,8 @@ export function ForecastCard({
         contentContainerStyle={styles.condStrip}
       >
         {condChips.map((chip) => (
-          <View key={chip.label} style={styles.condChip}>
-            <Text style={styles.condChipValue}>{chip.value}</Text>
+          <View key={chip.key} style={styles.condChip}>
+            <Text style={styles.condChipValue}>{chip.value(metricCtx)}</Text>
             <View style={styles.condChipLabelRow}>
               <Feather name={chip.icon} size={11} color={colors.textMuted} />
               <Text style={styles.condChipLabel}>{chip.label}</Text>
