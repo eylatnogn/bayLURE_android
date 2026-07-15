@@ -1514,7 +1514,9 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     color: colors.text,
-    fontSize: 15,
+    // 16px, not smaller: iOS Safari auto-zooms the page when a focused input's
+    // font is under 16px (location search, save-spot name, preset name).
+    fontSize: 16,
   },
   findBtn: {
     backgroundColor: colors.accent,
