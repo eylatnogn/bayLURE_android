@@ -284,6 +284,18 @@ export function buildMapHtml(
     // Forecast radar gets its own pane: HRRR's ~3 km cells need a stronger
     // blur than NEXRAD's ~1 km to look equally smooth.
     map.createPane('radarfcst', paneParent); map.getPane('radarfcst').style.zIndex = 371;
+    // The animated wind canvas is the one overlay that must NOT live in
+    // rotatePane. leaflet-velocity draws a single viewport-sized rectangle and
+    // orients each particle itself via the (rotation-aware) projection, so if
+    // that rectangle sat in the rotating pane it would spin with the map and its
+    // corners would swing off-screen — the "wind covers only half the map when
+    // rotated" bug. Parent it to norotatePane (which stays north-up) so the
+    // canvas always blankets the whole view; zIndex 550 keeps it above the
+    // rotated radar/charts but below the draggable spot marker (markerPane, 600).
+    var norotate = map.getPane('norotatePane') || undefined;
+    map.createPane('wind', norotate);
+    map.getPane('wind').style.zIndex = 550;
+    map.getPane('wind').style.pointerEvents = 'none';
 
     var marker = L.marker([${c.latitude}, ${c.longitude}], { draggable: true }).addTo(map);
     // Post any object back to the host (React Native or the parent window).
@@ -434,6 +446,11 @@ export function buildMapHtml(
         var b = map.getBounds();
         var north = b.getNorth(), south = b.getSouth();
         var west = b.getWest(), east = b.getEast();
+        // getBounds() already grows to enclose the rotated viewport's corners,
+        // but pad it another 30% so the uniform field still blankets the view
+        // mid-twist (before the debounced rebuild catches up to the new bearing).
+        var padLat = (north - south) * 0.3, padLng = (east - west) * 0.3;
+        north += padLat; south -= padLat; west -= padLng; east += padLng;
         var nx = GRID, ny = GRID;
         var ms = windMph * 0.44704; // mph -> m/s for the velocity field
         var samples = [];
@@ -456,6 +473,9 @@ export function buildMapHtml(
         // hover control, which shows "No wind data" until you hover and can't
         // work on touch at all. displayValues:false keeps that control off.
         windLayer = L.velocityLayer({
+          // Draw into the non-rotating 'wind' pane created above so the overlay
+          // stays glued to the whole view when the map is rotated.
+          paneName: 'wind',
           displayValues: false,
           data: data,
           // Color scale spans 0–30 mph (13.41 m/s); see the on-map legend.
@@ -464,7 +484,36 @@ export function buildMapHtml(
           colorScale: ['#5b8f8a', '#3a7d52', '#6f9e3f', '#c0a233', '#c08433', '#b15240']
         });
         windLayer.addTo(map);
+        bindWindReposition();
       } catch (e) { /* wind is optional */ }
+    }
+
+    // leaflet-velocity positions its animated canvas at
+    // containerPointToLayerPoint([0,0]) — a point in leaflet-rotate's *rotated*
+    // frame. Our canvas lives in the non-rotating 'wind' pane, so once the map is
+    // turned (or panned while turned) that point is wrong and the overlay slides
+    // off to cover only a strip of the view. The correct spot is the true screen
+    // origin, reached with the same rotated->mapPane conversion leaflet-rotate
+    // applies to markers; it's an identity when the map isn't rotated.
+    function placeWindCanvas() {
+      var cl = windLayer && windLayer._canvasLayer;
+      if (!cl || !cl._canvas) { return; }
+      var tl = map.containerPointToLayerPoint([0, 0]);
+      if (map.rotatedPointToMapPanePoint) { tl = map.rotatedPointToMapPanePoint(tl); }
+      L.DomUtil.setPosition(cl._canvas, tl);
+      cl.drawLayer();
+    }
+    // leaflet-velocity binds its own (wrong-for-us) moveend handler during
+    // addTo, and it captured that method by reference — swapping the method later
+    // wouldn't touch that binding. So register our own listener instead: because
+    // it's added after the plugin's, it runs last and gets the final say on
+    // position. 'rotate' fires continuously through a twist, keeping it glued.
+    var windRepositionBound = false;
+    function bindWindReposition() {
+      placeWindCanvas();
+      if (windRepositionBound) { return; }
+      windRepositionBound = true;
+      map.on('moveend zoomend rotate rotateend', placeWindCanvas);
     }
 
     function scheduleWind() {
@@ -1171,6 +1220,10 @@ export function buildMapHtml(
     });
     // Belt-and-suspenders: if the container resizes after load, redraw the wind.
     window.addEventListener('resize', function () { map.invalidateSize(); scheduleWind(); });
+    // The canvas itself is re-glued to the view by placeWindCanvas (bound in
+    // bindWindReposition). Here we just rebuild the field (debounced) once a
+    // twist settles, so the sampled bounds match the new bearing.
+    map.on('rotateend', function () { scheduleWind(); });
   </script>
 </body>
 </html>`;

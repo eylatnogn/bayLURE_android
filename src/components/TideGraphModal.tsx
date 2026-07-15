@@ -33,6 +33,9 @@ export interface TideGraphDay {
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** Height (px) to open at so the sheet's top butts against the map's bottom;
+   * null uses the content-fit height. Also becomes the drag ceiling. */
+  openHeight?: number | null;
   /** The full analyzed week (day 0 = today). */
   forecast: Conditions[];
   /** Strategies aligned with `forecast`. */
@@ -211,6 +214,7 @@ export function TideGraphModal({
   selectedHour,
   onSelectHour,
   lockedFromDay = null,
+  openHeight = null,
 }: Props) {
   const { colors, mode } = useTheme();
   const styles = useStyles();
@@ -718,11 +722,12 @@ export function TideGraphModal({
     // A floating sheet, not a Modal: everything above it (the map!) stays live.
     <View style={styles.overlay} pointerEvents="box-none">
       <View
-        style={[styles.sheet, sheetH != null && { height: sheetH }]}
+        style={[styles.sheet, (sheetH ?? openHeight) != null && { height: sheetH ?? openHeight }]}
         onLayout={(e) => {
-          // Only record the content-fit height while no custom height is
-          // applied — otherwise the drag ceiling would shrink to wherever
-          // the sheet was last dragged.
+          // Only record the laid-out height (the drag ceiling) while no custom
+          // height is applied — otherwise the ceiling would shrink to wherever
+          // the sheet was last dragged. When openHeight is set the sheet lays
+          // out at exactly that, so the ceiling correctly becomes openHeight.
           if (sheetHRef.current == null) {
             naturalH.current = e.nativeEvent.layout.height;
           }

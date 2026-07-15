@@ -133,6 +133,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // The "Tides & Bite" hourly graph sheet (freshwater gets the same sheet as
   // "Hourly & Bite" — metric charts only, no tide curve).
   const [tideGraphOpen, setTideGraphOpen] = useState(false);
+  // Height the tide sheet opens at so its top butts against the map's bottom
+  // ("locked up to the map"). Computed on open from the measured map + viewport;
+  // null falls back to the sheet's content-fit height.
+  const [tideSheetH, setTideSheetH] = useState<number | null>(null);
   // Which detail card is open in a bottom sheet (tap a dashboard tile). The
   // cards themselves are unchanged — they just render in the sheet now.
   const [detailSheet, setDetailSheet] = useState<
@@ -148,6 +152,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   // Scroll plumbing for the floating jump button (top <-> bite forecast).
   const scrollRef = useRef<ScrollView>(null);
+  // The screen root — a stable window anchor for measuring the map's live
+  // on-screen position (its top == the scroll viewport's top).
+  const rootRef = useRef<View>(null);
   // While a saved-spot/preset row is being dragged, freeze the page so the
   // reorder gesture can't scroll the screen out from under the finger.
   const [reordering, setReordering] = useState(false);
@@ -165,6 +172,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   const hadResults = useRef(false);
   const forecastRelY = useRef(0); // forecast card offset within the body
   const mapRelY = useRef(0); // map wrapper offset within the body
+  const mapH = useRef(0); // map wrapper height, for sizing the tide sheet
+  const viewportH = useRef(0); // scroll viewport height, for sizing the tide sheet
   const [nearForecast, setNearForecast] = useState(false);
 
   // Auto-analyze plumbing: the signature of the last setup we analyzed, and a
@@ -507,32 +516,57 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setNearForecast((prev) => (prev === near ? prev : near));
   }, []);
 
-  // Scroll targets from onLayout offsets only — no measureLayout /
-  // getInnerViewNode. Those relied on the ScrollView's inner-view node and
-  // its callback firing, which in a release .aab can silently never fire
-  // (Android view-flattening), leaving the jump button dead. bodyY (body vs
-  // content) and mapRelY / forecastRelY (section vs body) come straight from
-  // onLayout, which re-fires on every collapse/expand, so they stay fresh and
-  // work identically in dev and release.
+  // Where the map's top sits in the scroll content, MEASURED LIVE. The cached
+  // onLayout offset (bodyY + mapRelY) went stale: collapsing the Location bar
+  // shifts the map up without changing the map's own size, and onLayout doesn't
+  // re-fire for a position-only move — so the jump landed in the middle of the
+  // map, not its top. measureInWindow reads the real current position instead.
+  // Unlike measureLayout / getInnerViewNode (which lean on the ScrollView's
+  // inner-view node that release-build Android view-flattening can drop), it
+  // measures the map view directly — and the map wrapper is collapsable={false},
+  // so it always resolves. The onLayout offset stays as a fallback.
+  const measureMapTop = useCallback((done: (y: number) => void) => {
+    const map = mapWrapRef.current;
+    const root = rootRef.current;
+    const fallback = () => done(Math.max(0, bodyY.current + mapRelY.current - 6));
+    if (!map?.measureInWindow || !root?.measureInWindow) {
+      fallback();
+      return;
+    }
+    // root top == scroll viewport top; map top - viewport top + current scroll
+    // = the map's offset within the scroll content.
+    root.measureInWindow((_rx, rootY) => {
+      map.measureInWindow((_mx, mapY) => {
+        if (typeof rootY !== 'number' || typeof mapY !== 'number') {
+          fallback();
+          return;
+        }
+        done(Math.max(0, scrollYRef.current + (mapY - rootY) - 6));
+      });
+    });
+  }, []);
+
   const jumpToForecast = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
     const forecastTop = Math.max(0, bodyY.current + forecastRelY.current - 8);
-    const mapTop = Math.max(0, bodyY.current + mapRelY.current - 6);
     // At (or near) the forecast → hop up to the map; otherwise → down to it.
     const atForecast = scrollYRef.current >= forecastTop - 160;
-    scroller.scrollTo({ y: atForecast ? mapTop : forecastTop, animated: true });
-  }, []);
+    if (atForecast) {
+      measureMapTop((y) => scroller.scrollTo({ y, animated: true }));
+    } else {
+      scroller.scrollTo({ y: forecastTop, animated: true });
+    }
+  }, [measureMapTop]);
 
   // Bring the map to the top of the viewport so a bottom sheet opens "locked
   // up to the map" — the same feel as the Tides & Bite sheet — instead of
   // floating over whatever happened to be scrolled into view.
   const scrollMapIntoView = useCallback(() => {
-    scrollRef.current?.scrollTo({
-      y: Math.max(0, bodyY.current + mapRelY.current - 6),
-      animated: true,
-    });
-  }, []);
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    measureMapTop((y) => scroller.scrollTo({ y, animated: true }));
+  }, [measureMapTop]);
 
   const openDetail = useCallback(
     (kind: 'picks' | 'insights' | 'playbooks' | 'regs' | 'fish') => {
@@ -543,12 +577,15 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   );
 
   return (
-    <View style={styles.root}>
+    <View ref={rootRef} collapsable={false} style={styles.root}>
     <ScrollView
       ref={scrollRef}
       style={styles.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      onLayout={(e) => {
+        viewportH.current = e.nativeEvent.layout.height;
+      }}
       onScroll={onScroll}
       scrollEventThrottle={16}
       scrollEnabled={!reordering}
@@ -721,6 +758,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         style={styles.mapWrap}
         onLayout={(e) => {
           mapRelY.current = e.nativeEvent.layout.y;
+          mapH.current = e.nativeEvent.layout.height;
         }}
       >
         <MapPicker
@@ -1029,6 +1067,13 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               // Scroll the MAP (not the page top) into the strip above the
               // sheet, so the spot and the graph are visible together.
               scrollMapIntoView();
+              // Size the sheet to fill the gap between the map's bottom (which
+              // the scroll parks 6px below the viewport top) and the screen
+              // bottom, so it opens locked up to the map instead of floating in
+              // the middle and revealing the Adjust-conditions bar. Falls back
+              // to content-fit until both measurements are in.
+              const gap = viewportH.current - mapH.current - 6;
+              setTideSheetH(mapH.current > 0 && gap > 0 ? gap : null);
               setTideGraphOpen(true);
             }}
           />
@@ -1111,6 +1156,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       {strategies && forecast ? (
         <TideGraphModal
           visible={tideGraphOpen}
+          openHeight={tideSheetH}
           onClose={() => setTideGraphOpen(false)}
           forecast={forecast}
           strategies={strategies}
