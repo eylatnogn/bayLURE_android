@@ -433,7 +433,8 @@ function buildSummary(c: Conditions, score: number, mood: BiteMood): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function biteLabel(score: number): string {
+/** Word grade for a bite score — shared with the hourly sheet's header pill. */
+export function biteLabel(score: number): string {
   if (score >= 75) return 'Excellent';
   if (score >= 60) return 'Good';
   if (score >= 45) return 'Fair';

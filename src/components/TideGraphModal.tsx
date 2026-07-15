@@ -19,6 +19,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import type { Conditions, Strategy, WeatherConditions } from '@/types';
+import { biteLabel } from '@/engine/strategy';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { hourOf, localDateStr } from '@/utils/dates';
 import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
@@ -774,17 +775,31 @@ export function TideGraphModal({
               })}
             </ScrollView>
 
-            {/* Weather for the selected day/hour. */}
+            {/* Weather for the selected day/hour, with its bite grade. */}
             <View style={styles.condHead}>
-              <Text style={styles.condTitle}>
-                {days[selDay]?.label ?? ''} · {selHour != null ? hr12(selHour) : 'all day'}
-              </Text>
+              <View style={styles.condTitleRow}>
+                <Text style={styles.condTitle} numberOfLines={1}>
+                  {days[selDay]?.label ?? ''} · {selHour != null ? hr12(selHour) : 'all day'}
+                </Text>
+                {(() => {
+                  // The grade for what's selected: the tapped hour's bite
+                  // score, or the whole day's when no hour is picked.
+                  const selScore = selHour != null ? biteByHour[selHour] : strategy.biteScore;
+                  return selScore != null ? (
+                    <View style={[styles.gradePill, { backgroundColor: scoreColor(selScore) }]}>
+                      <Text style={styles.gradePillText}>
+                        {selScore} · {biteLabel(selScore)}
+                      </Text>
+                    </View>
+                  ) : null;
+                })()}
+              </View>
               {selHour != null ? (
                 <Pressable onPress={() => onSelectHour(null)} hitSlop={8}>
                   <Text style={styles.allday}>All day</Text>
                 </Pressable>
               ) : (
-                <Text style={styles.tapHint}>tap the chart for an hour</Text>
+                <Text style={styles.tapHint}>tap an hour</Text>
               )}
             </View>
             {/* Tap a stat to plot that metric through the day; Tide reverts. */}
@@ -990,16 +1005,29 @@ const useStyles = makeStyles((c, t) => ({
   dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
   condHead: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
+  },
+  condTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
   },
   condTitle: {
     color: c.text,
     fontSize: 15,
     fontWeight: '800',
   },
+  // Bite grade for the selected day/hour, colored like the day chips' pills.
+  gradePill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+    borderRadius: 10,
+  },
+  gradePillText: { color: '#0e1f12', fontSize: 12, fontWeight: '900' },
   allday: {
     color: c.accent,
     fontSize: 13,
