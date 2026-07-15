@@ -34,6 +34,8 @@ interface Props {
 /** Flick-to-dismiss: release faster than this (px/ms) AND travelled this far. */
 const DISMISS_VELOCITY = 0.85;
 const DISMISS_DISTANCE = 60;
+/** How short the sheet can be dragged (same feel as the Tides & Bite sheet). */
+const MIN_SHEET_H = 160;
 
 export function DetailSheet({ visible, onClose, children, floating = false }: Props) {
   const { colors } = useTheme();
@@ -44,10 +46,20 @@ export function DetailSheet({ visible, onClose, children, floating = false }: Pr
   const anim = useRef(new Animated.Value(0)).current; // 0 = hidden, 1 = shown
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Dragged sheet height; null = fit the content (up to maxHeight). Same
+  // mechanic as the Tides & Bite sheet: pull the grab handle down for a
+  // shorter sheet, back up to snap to content-fit.
+  const [sheetH, setSheetH] = useState<number | null>(null);
+  const sheetHRef = useRef<number | null>(null);
+  const naturalH = useRef(0); // last laid-out height, the drag ceiling
+  const dragBase = useRef(0);
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      // Every open starts at the default (content-fit) height.
+      sheetHRef.current = null;
+      setSheetH(null);
       Animated.timing(anim, { toValue: 1, duration: 240, useNativeDriver: true }).start();
     } else {
       Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(
@@ -68,13 +80,32 @@ export function DetailSheet({ visible, onClose, children, floating = false }: Pr
     return () => sub.remove();
   }, [mounted]);
 
-  // Grab-handle drag: a fast flick down dismisses the sheet.
+  // Grab-handle drag: pull down/up to resize the sheet live (shrink-only —
+  // the content-fit height is the ceiling). A fast flick down dismisses; a
+  // fast flick up snaps back to the default height.
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 3,
+      onPanResponderGrant: () => {
+        dragBase.current = sheetHRef.current ?? naturalH.current;
+      },
+      onPanResponderMove: (_e, g) => {
+        const maxH = naturalH.current || Dimensions.get('window').height * 0.82;
+        const h = Math.min(maxH, Math.max(MIN_SHEET_H, dragBase.current - g.dy));
+        const next = h >= maxH - 2 ? null : h;
+        sheetHRef.current = next;
+        setSheetH(next);
+      },
       onPanResponderRelease: (_e, g) => {
-        if (g.vy > DISMISS_VELOCITY && g.dy > DISMISS_DISTANCE) onCloseRef.current();
+        if (Math.abs(g.vy) > DISMISS_VELOCITY && Math.abs(g.dy) > DISMISS_DISTANCE) {
+          if (g.dy > 0) {
+            onCloseRef.current();
+          } else {
+            sheetHRef.current = null;
+            setSheetH(null);
+          }
+        }
       },
     }),
   ).current;
@@ -87,7 +118,17 @@ export function DetailSheet({ visible, onClose, children, floating = false }: Pr
   });
 
   const sheet = (
-    <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
+    <Animated.View
+      style={[styles.sheet, sheetH != null && { height: sheetH }, { transform: [{ translateY }] }]}
+      onLayout={(e) => {
+        // Only record the content-fit height while no custom height is
+        // applied — otherwise the drag ceiling would shrink to wherever the
+        // sheet was last dragged.
+        if (sheetHRef.current == null) {
+          naturalH.current = e.nativeEvent.layout.height;
+        }
+      }}
+    >
       <View style={styles.grabRow} {...pan.panHandlers}>
         <View style={styles.grab} />
       </View>
