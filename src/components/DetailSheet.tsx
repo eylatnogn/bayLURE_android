@@ -1,15 +1,19 @@
 // A reusable bottom sheet for the Plan tab's "tap a tile for detail" cards.
-// It's a plain slide-up sheet over a dark scrim — simpler than the Tides &
-// Bite sheet (which floats over a live map and can be drag-resized), because
-// detail content just needs to open, scroll, and close. The children render
-// exactly as they did inline, so moving a card in here changes nothing about
-// how it works.
+// Two modes:
+//  • floating (map-aware): FLOATS over the live screen — no grey scrim — so the
+//    map (which the host scrolls into view as it opens) stays visible and
+//    interactive above it, like the Tides & Bite sheet. Must be rendered at the
+//    screen root so its bottom-anchored overlay lines up with the viewport.
+//  • modal (default): a plain slide-up over a dark scrim, safe to render nested
+//    (e.g. the conditions grid inside a card) because a Modal portals to root.
+// Either way the children render exactly as they did inline.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Animated,
   BackHandler,
   Dimensions,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -22,9 +26,16 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   children: ReactNode;
+  /** Float over the live screen (map stays interactive) instead of a Modal
+   * scrim. Only use when rendered at the screen root. */
+  floating?: boolean;
 }
 
-export function DetailSheet({ visible, onClose, children }: Props) {
+/** Flick-to-dismiss: release faster than this (px/ms) AND travelled this far. */
+const DISMISS_VELOCITY = 0.85;
+const DISMISS_DISTANCE = 60;
+
+export function DetailSheet({ visible, onClose, children, floating = false }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
   // Stay mounted through the close animation so the sheet slides out instead
@@ -57,6 +68,17 @@ export function DetailSheet({ visible, onClose, children }: Props) {
     return () => sub.remove();
   }, [mounted]);
 
+  // Grab-handle drag: a fast flick down dismisses the sheet.
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 3,
+      onPanResponderRelease: (_e, g) => {
+        if (g.vy > DISMISS_VELOCITY && g.dy > DISMISS_DISTANCE) onCloseRef.current();
+      },
+    }),
+  ).current;
+
   if (!mounted) return null;
 
   const translateY = anim.interpolate({
@@ -64,29 +86,43 @@ export function DetailSheet({ visible, onClose, children }: Props) {
     outputRange: [Dimensions.get('window').height, 0],
   });
 
+  const sheet = (
+    <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
+      <View style={styles.grabRow} {...pan.panHandlers}>
+        <View style={styles.grab} />
+      </View>
+      <View style={styles.headRow}>
+        <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
+          <Feather name="x" size={20} color={colors.textMuted} />
+        </Pressable>
+      </View>
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        {children}
+      </ScrollView>
+    </Animated.View>
+  );
+
+  if (floating) {
+    // A floating overlay, NOT a Modal: box-none lets taps above the sheet reach
+    // the map/page so the screen behind stays live instead of greyed out.
+    return (
+      <View style={styles.floatOverlay} pointerEvents="box-none">
+        {sheet}
+      </View>
+    );
+  }
+
   return (
     <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <Animated.View style={[styles.scrim, { opacity: anim }]}>
         <Pressable style={styles.scrimFill} onPress={onClose} />
       </Animated.View>
-      <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
-        <View style={styles.grabRow}>
-          <View style={styles.grab} />
-        </View>
-        <View style={styles.headRow}>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
-            <Feather name="x" size={20} color={colors.textMuted} />
-          </Pressable>
-        </View>
-        <ScrollView
-          style={styles.body}
-          contentContainerStyle={styles.bodyContent}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          {children}
-        </ScrollView>
-      </Animated.View>
+      {sheet}
     </Modal>
   );
 }
@@ -101,12 +137,26 @@ const useStyles = makeStyles((c, t) => ({
     backgroundColor: 'rgba(0,0,0,0.55)',
   },
   scrimFill: { flex: 1 },
+  // Floating mode: a FULL-SCREEN box-none overlay (top:0 too, so the
+  // bottom-anchored sheet inside has a full-height box to pin against);
+  // box-none lets taps above the sheet reach the live map.
+  floatOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 40,
+  },
   sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    maxHeight: '86%',
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 800,
+    maxHeight: '82%',
     backgroundColor: c.bg,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,

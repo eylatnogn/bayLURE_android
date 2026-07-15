@@ -17,7 +17,7 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import type { Conditions, Strategy, WeatherConditions } from '@/types';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { hourOf, localDateStr } from '@/utils/dates';
@@ -52,7 +52,7 @@ interface Props {
 // Chart geometry (SVG viewBox units; rendered responsive via aspectRatio).
 // Kept short on purpose so the map above the sheet gets its full height.
 const W = 360;
-const H = 190;
+const H = 170;
 const M = { top: 24, right: 10, bottom: 30, left: 10 };
 const IW = W - M.left - M.right;
 const IH = H - M.top - M.bottom;
@@ -672,6 +672,19 @@ export function TideGraphModal({
           </HaloText>
         ))}
 
+        {/* Wind arrow — points the way the wind is actually blowing (TO), for
+            the selected hour (or the day). windDirectionDeg is where it comes
+            FROM, so add 180. Parked in the bottom-right below the axis, clear
+            of the peak-bite callout and the hour labels. */}
+        <SvgText x={W - M.right - 10} y={H - 22} fontSize={8} fontWeight="700" fill={colors.textMuted} textAnchor="middle">
+          {`${hourWeather.windMph}`}
+        </SvgText>
+        <Circle cx={W - M.right - 10} cy={H - 11} r={8} fill={colors.card} opacity={0.9} stroke={colors.cardBorder} strokeWidth={0.75} />
+        <G originX={W - M.right - 10} originY={H - 11} rotation={(hourWeather.windDirectionDeg + 180) % 360}>
+          <Line x1={W - M.right - 10} y1={H - 6.5} x2={W - M.right - 10} y2={H - 15} stroke={colors.accent} strokeWidth={2} strokeLinecap="round" />
+          <Path d={`M ${W - M.right - 10} ${H - 17.5} L ${W - M.right - 13} ${H - 13.5} L ${W - M.right - 7} ${H - 13.5} Z`} fill={colors.accent} />
+        </G>
+
         {/* Tap targets — last, so they sit on top and catch the touches. */}
         {biteByHour.map((score, hr) =>
           score == null ? null : (
@@ -863,20 +876,20 @@ export function TideGraphModal({
               chart
             )}
 
-            {/* Best bite windows for the day (moved here from the Plan card, so
-                the "when to go" summary sits with the hourly chart). */}
+            {/* Best bite windows — compact colored chips (time + a dot whose
+                color reads the quality) so the "when to go" summary sits under
+                the chart on one or two lines instead of a tall stacked list. */}
             {strategy.bestWindows.length > 0 ? (
               <View style={styles.windows}>
                 <Text style={styles.windowsHead}>Best bite times</Text>
-                {strategy.bestWindows.map((win, i) => (
-                  <View key={i} style={styles.window}>
-                    <Feather name="crosshair" size={14} color={colors.accent} style={styles.windowIcon} />
-                    <Text style={styles.windowRange}>{win.range}</Text>
-                    <View style={[styles.windowPill, { backgroundColor: scoreColor(win.score) }]}>
-                      <Text style={styles.windowPillText}>{win.biteLabel}</Text>
+                <View style={styles.windowChips}>
+                  {strategy.bestWindows.map((win, i) => (
+                    <View key={i} style={styles.windowChip}>
+                      <View style={[styles.windowDot, { backgroundColor: scoreColor(win.score) }]} />
+                      <Text style={styles.windowChipText}>{win.range}</Text>
                     </View>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
             ) : null}
 
@@ -1045,14 +1058,23 @@ const useStyles = makeStyles((c, t) => ({
     fontSize: 13,
     marginVertical: spacing.md,
   },
-  // Best bite windows (relocated from the Plan card).
-  windows: { gap: spacing.sm, marginTop: spacing.md },
-  windowsHead: { color: c.textMuted, fontSize: 12, fontWeight: '700', marginBottom: 2 },
-  window: { flexDirection: 'row', alignItems: 'center' },
-  windowIcon: { marginRight: spacing.sm },
-  windowRange: { color: c.text, fontSize: 15, fontWeight: '800', flex: 1 },
-  windowPill: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 10 },
-  windowPillText: { color: '#0e1f12', fontSize: 12, fontWeight: '900' },
+  // Best bite windows — compact wrap of colored chips.
+  windows: { marginTop: spacing.sm },
+  windowsHead: { color: c.textMuted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs },
+  windowChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
+  windowChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 3,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: c.bgElevated,
+    borderWidth: 1,
+    borderColor: c.cardBorder,
+  },
+  windowDot: { width: 8, height: 8, borderRadius: 4 },
+  windowChipText: { color: c.text, fontSize: 12.5, fontWeight: '800' },
   legend: {
     flexDirection: 'row',
     alignItems: 'center',

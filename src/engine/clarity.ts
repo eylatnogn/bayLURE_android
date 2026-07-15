@@ -62,11 +62,20 @@ export function buildClarityPlaybook(c: Conditions): PlaybookSection[] {
         ],
       },
       {
-        title: 'Where fish hold & how to work it',
+        title: 'Where to cast',
         tips: [
-          'Fish move shallower and bury tight to cover in dirty water — put the bait right on the wood, grass, or rock.',
-          'Slow down and make repeated casts to the same spot so fish can home in on the vibration.',
-          `Fish are far less spooky now — get close and work high-percentage targets methodically${target}.`,
+          'Pitch INTO the cover, not near it — lay the bait against the log, dock post, grass edge or rock. Dirty-water fish sit tight and won\'t chase.',
+          'Fish the shallowest cover first (1–4 ft): mud warms fast and pushes bait — and fish — up shallow.',
+          'Hunt current seams, creek mouths, and inside bends where moving water stacks bait against a hard edge.',
+          'Target incoming water — a feeder creek, culvert, or run-off after rain dumps warmer, bait-rich water fish stack on.',
+        ],
+      },
+      {
+        title: 'How to work it',
+        tips: [
+          'Slow-roll or crawl the bait so it stays in the strike zone; make repeat casts to the same target so fish can home in on the thump.',
+          'Keep the bait in contact with the bottom or cover — muddy fish track it by feel, not sight.',
+          `You\'re far less likely to spook them — get close, fish methodically, and pick apart high-percentage targets one at a time${target}.`,
         ],
       },
     ];
@@ -89,10 +98,19 @@ export function buildClarityPlaybook(c: Conditions): PlaybookSection[] {
         ],
       },
       {
-        title: 'Where fish hold & timing',
+        title: 'Where to cast',
         tips: [
-          'Fish hold deeper, under shade, or tight to cover to escape bright light — target those edges.',
-          `Low-light windows (dawn, dusk, overcast, wind chop) are prime when the water is clear${target}.`,
+          'Cast long and keep your distance — fish (and the boat\'s shadow) are visible from a long way off in clear water.',
+          'Target shade and depth: overhanging trees, docks, deep weed edges, bluff walls, and drop-offs where fish duck bright light.',
+          'Work main-lake points, humps, and channel edges — clear-water fish suspend and roam deeper, harder structure.',
+          'Cast past your target and swim the bait into it, so the fish sees the lure before it sees you.',
+        ],
+      },
+      {
+        title: 'How & when to work it',
+        tips: [
+          'Use a steady, natural swim with subtle action and long pauses over cover — let the bait glide, don\'t thrash it.',
+          `Best in low light — dawn, dusk, overcast, or wind chop that breaks up the surface and hides your approach${target}.`,
         ],
       },
     ];
@@ -108,10 +126,18 @@ export function buildClarityPlaybook(c: Conditions): PlaybookSection[] {
       ],
     },
     {
-      title: 'Presentation',
+      title: 'Where to cast',
       tips: [
-        'You can fish a bit more aggressively than in clear water — moderate vibration baits cover water well.',
-        `Fish relate to cover and edges; keep the bait in the strike zone a little longer${target}.`,
+        'Run cover edges — cast to and parallel along grass lines, laydowns, riprap, and dock rows, keeping the bait tight to the break.',
+        'Focus the 2–8 ft zone, and hunt any clarity edge where slightly clearer meets dirtier water — that seam is a feeding line.',
+        'Cover water to find active fish, then slow down and pick apart the spots that produced a bite.',
+      ],
+    },
+    {
+      title: 'How to work it',
+      tips: [
+        'A moderate, steady retrieve covers water well; you can fish a bit more aggressively than in clear water.',
+        `Around cover, slow down and keep the bait in the strike zone a beat longer${target}.`,
       ],
     },
   ];

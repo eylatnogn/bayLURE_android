@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import type {
   CatchConditions,
   Conditions,
@@ -67,7 +68,6 @@ import { MapPicker } from '@/components/MapPicker';
 import { ReorderableList } from '@/components/ReorderableList';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
-import { Button } from '@/components/Button';
 import { APP_VERSION } from '@/version';
 import { FREE_LIMITS, usePro } from '@/purchases/pro';
 import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
@@ -80,7 +80,7 @@ interface Props {
 }
 
 export function HomeScreen({ onSnapshot, onForecast }: Props) {
-  const { colors } = useTheme();
+  const { colors, gradients } = useTheme();
   const styles = useStyles();
   const { isPro, limitsActive, showPaywall } = usePro();
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
@@ -550,6 +550,35 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     });
   }, [nearForecast, measureInScroll]);
 
+  // Bring the map to the top of the viewport so a bottom sheet opens "locked
+  // up to the map" — the same feel as the Tides & Bite sheet — instead of
+  // floating over whatever happened to be scrolled into view.
+  const scrollMapIntoView = useCallback(() => {
+    const scroller = scrollRef.current;
+    const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
+      ?.getInnerViewNode?.();
+    const mapNode = mapWrapRef.current as unknown as {
+      measureLayout?: (node: unknown, ok: (x: number, y: number) => void, fail: () => void) => void;
+    } | null;
+    if (scroller && inner && mapNode?.measureLayout) {
+      mapNode.measureLayout(
+        inner,
+        (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 6), animated: true }),
+        () => scroller.scrollTo({ y: 0, animated: true }),
+      );
+    } else {
+      scroller?.scrollTo({ y: 0, animated: true });
+    }
+  }, []);
+
+  const openDetail = useCallback(
+    (kind: 'picks' | 'insights' | 'playbooks' | 'regs' | 'fish') => {
+      scrollMapIntoView();
+      setDetailSheet(kind);
+    },
+    [scrollMapIntoView],
+  );
+
   return (
     <View style={styles.root}>
     <ScrollView
@@ -959,13 +988,40 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         </View>
       ) : null}
 
-      <Button
-        title={coordinates ? 'Analyze my spot' : 'Set a location first'}
-        icon="target"
+      {/* Primary CTA styled like the Tides & Bite Graph feature tile — icon,
+          title + subtitle, trailing chevron — but on the foliage gradient so
+          it still reads as the hero action. */}
+      <Pressable
         onPress={() => onAnalyze()}
         disabled={analyzing || !coordinates}
-        loading={analyzing}
-      />
+        style={({ pressed }) => [
+          styles.analyzeShadow,
+          (analyzing || !coordinates) && styles.analyzeDisabled,
+          pressed && pressedStyle,
+        ]}
+      >
+        <LinearGradient
+          colors={gradients.button}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.analyzeTile}
+        >
+          <View style={styles.analyzeIconWrap}>
+            <Feather name="target" size={22} color={colors.onAccent} />
+          </View>
+          <View style={styles.analyzeBody}>
+            <Text style={styles.analyzeTitle}>
+              {coordinates ? 'Analyze my spot' : 'Set a location first'}
+            </Text>
+            <Text style={styles.analyzeSub}>Live weather, water & the bite plan</Text>
+          </View>
+          {analyzing ? (
+            <ActivityIndicator color={colors.onAccent} />
+          ) : (
+            <Feather name="chevron-right" size={20} color={colors.onAccent} />
+          )}
+        </LinearGradient>
+      </Pressable>
 
       {error ? (
         <View style={styles.errorBox}>
@@ -992,29 +1048,11 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             selectedDay={selectedDay}
             selectedHour={selectedHour}
             pickDayRef={pickDayRef}
-            onShowWhy={() => setDetailSheet('insights')}
+            onShowWhy={() => openDetail('insights')}
             onShowTideGraph={() => {
               // Scroll the MAP (not the page top) into the strip above the
               // sheet, so the spot and the graph are visible together.
-              const scroller = scrollRef.current;
-              const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
-                ?.getInnerViewNode?.();
-              const mapNode = mapWrapRef.current as unknown as {
-                measureLayout?: (
-                  node: unknown,
-                  ok: (x: number, y: number) => void,
-                  fail: () => void,
-                ) => void;
-              } | null;
-              if (scroller && inner && mapNode?.measureLayout) {
-                mapNode.measureLayout(
-                  inner,
-                  (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 6), animated: true }),
-                  () => scroller.scrollTo({ y: 0, animated: true }),
-                );
-              } else {
-                scroller?.scrollTo({ y: 0, animated: true });
-              }
+              scrollMapIntoView();
               setTideGraphOpen(true);
             }}
           />
@@ -1029,32 +1067,32 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             icon="target"
             title="Throw this"
             subtitle="Lures, rigs & bait for now"
-            onPress={() => setDetailSheet('picks')}
+            onPress={() => openDetail('picks')}
           />
           <DetailTile
             icon="help-circle"
             title="Why they're biting"
             subtitle="What the fish are doing & why"
-            onPress={() => setDetailSheet('insights')}
+            onPress={() => openDetail('insights')}
           />
           <DetailTile
             icon="book-open"
             title="Playbooks"
             subtitle="Water clarity & pressure tactics"
-            onPress={() => setDetailSheet('playbooks')}
+            onPress={() => openDetail('playbooks')}
           />
           <DetailTile
             icon="file-text"
             title="Regulations"
             subtitle="Local size & bag limits"
-            onPress={() => setDetailSheet('regs')}
+            onPress={() => openDetail('regs')}
           />
           {areaFish.length > 0 ? (
             <DetailTile
               icon="anchor"
               title="Nearby fish"
               subtitle="Species reported here"
-              onPress={() => setDetailSheet('fish')}
+              onPress={() => openDetail('fish')}
             />
           ) : null}
         </View>
@@ -1113,8 +1151,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         />
       ) : null}
 
-      {/* Deep-detail cards, one tap away — same content, now in a sheet. */}
-      <DetailSheet visible={detailSheet !== null} onClose={() => setDetailSheet(null)}>
+      {/* Deep-detail cards, one tap away — a sheet that floats over the live
+          map (rendered at the screen root, so `floating` lines up correctly). */}
+      <DetailSheet floating visible={detailSheet !== null} onClose={() => setDetailSheet(null)}>
         {detailSheet === 'picks' && strategy ? <PicksCard strategy={strategy} /> : null}
         {detailSheet === 'insights' && strategy ? (
           <InsightsCard strategy={strategy} part="behavior" />
@@ -1269,6 +1308,38 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   content: {
     paddingBottom: spacing.xl * 2,
   },
+  // Analyze CTA — the Tides & Bite feature-tile shape on the foliage gradient.
+  analyzeShadow: {
+    borderRadius: radius.lg,
+    marginBottom: spacing.md,
+    shadowColor: colors.accentDeep,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  analyzeDisabled: { opacity: 0.5 },
+  analyzeTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    overflow: 'hidden',
+  },
+  analyzeIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analyzeBody: { flex: 1 },
+  analyzeTitle: { color: colors.onAccent, fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
+  analyzeSub: { color: colors.onAccent, opacity: 0.82, fontSize: 12, marginTop: 2 },
+
   // Two-column tiles for the deep-detail cards (Throw this, Why, Regs, Fish).
   detailTiles: {
     flexDirection: 'row',

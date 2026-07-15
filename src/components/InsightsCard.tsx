@@ -1,57 +1,35 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { PlaybookSection, Strategy } from '@/types';
 import { Section } from '@/components/Section';
-import { makeStyles, pressedStyle, spacing } from '@/theme';
+import { makeStyles, spacing } from '@/theme';
 
-/** A collapsible, categorized playbook (collapsed by default to cut clutter). */
+/** A categorized, always-open playbook: intro, then tactic sections. */
 function Playbook({
   title,
   intro,
   sections,
-  defaultOpen = false,
 }: {
   title: string;
   intro: string;
   sections: PlaybookSection[];
-  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const styles = useStyles();
   if (sections.length === 0) return null;
-  const tipCount = sections.reduce((n, s) => n + s.tips.length, 0);
 
   return (
-    <Section
-      title={title}
-      right={
-        <Pressable
-          onPress={() => setOpen((v) => !v)}
-          hitSlop={8}
-          style={({ pressed }) => pressed && pressedStyle}
-        >
-          <Text style={styles.toggle}>{open ? 'Hide  ▴' : `Show ${tipCount}  ▾`}</Text>
-        </Pressable>
-      }
-    >
-      {open ? (
-        <>
-          <Text style={styles.intro}>{intro}</Text>
-          {sections.map((section) => (
-            <View key={section.title} style={styles.section}>
-              <Text style={styles.heading}>{section.title}</Text>
-              {section.tips.map((t, i) => (
-                <View key={i} style={styles.row}>
-                  <Text style={styles.bulletWater}>›</Text>
-                  <Text style={styles.text}>{t}</Text>
-                </View>
-              ))}
+    <Section title={title}>
+      <Text style={styles.intro}>{intro}</Text>
+      {sections.map((section) => (
+        <View key={section.title} style={styles.section}>
+          <Text style={styles.heading}>{section.title}</Text>
+          {section.tips.map((t, i) => (
+            <View key={i} style={styles.row}>
+              <Text style={styles.bulletWater}>›</Text>
+              <Text style={styles.text}>{t}</Text>
             </View>
           ))}
-        </>
-      ) : (
-        <Text style={styles.collapsed}>{intro} Tap “Show” to read the playbook.</Text>
-      )}
+        </View>
+      ))}
     </Section>
   );
 }
@@ -99,7 +77,6 @@ export function InsightsCard({
           title="Water Clarity Playbook"
           intro="Tuned to the water clarity you reported."
           sections={strategy.clarityPlaybook}
-          defaultOpen={part === 'playbooks'}
         />
       ) : null}
 
@@ -108,7 +85,6 @@ export function InsightsCard({
           title="Pressured-Water Playbook"
           intro="This water is heavily fished — outfinesse the crowd."
           sections={strategy.pressurePlaybook}
-          defaultOpen={part === 'playbooks'}
         />
       ) : null}
     </>
@@ -116,9 +92,7 @@ export function InsightsCard({
 }
 
 const useStyles = makeStyles((colors) => ({
-  toggle: { color: colors.accent, fontSize: 13, fontWeight: '700' },
   intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.md },
-  collapsed: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
   section: { marginBottom: spacing.md },
   heading: {
     color: colors.water,
