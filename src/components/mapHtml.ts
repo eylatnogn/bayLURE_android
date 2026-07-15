@@ -782,27 +782,46 @@ export function buildMapHtml(
     // coastal DEM and injects the elevations back via window.__depthCells.
     // depthReqSeq lets us drop stale replies after a pan.
     var depthReqSeq = 0;
-    // The padded area + zoom the last drawn grid covers: pans inside it (and
-    // any zoom-in) reuse the drawn layers instead of refetching, so moving
-    // around with Contour on doesn't stutter on a network call every pan.
+    // The padded area + zoom the last drawn grid covers: a PAN at the same
+    // zoom reuses the drawn layers instead of refetching, so moving around
+    // with Contour on doesn't stutter on a network call every pan. Any zoom
+    // change always refetches — the grid is a fixed 20x20 sample of whatever
+    // is in view, so zooming in needs a smaller, finer-resolution re-sample
+    // rather than reusing the coarser one (reusing across zoom is what made
+    // contour lines look frozen / cut across land after zooming back in).
     var lastDepthFetch = null;
     var pendingDepthArea = null;
+    // Below this zoom the visible area is too large for a 20x20 sample grid to
+    // mean anything: the resulting contour lines are coarse guesses that can
+    // cut across real land/coastline instead of tracking it. Depth/Contour
+    // simply pause down here (clearing anything drawn) and say why, instead of
+    // drawing misleading lines across a whole region or coastline.
+    var MIN_DEPTH_ZOOM = 9;
     function refreshDepthShading() {
       if (!depthEnabled && !contourEnabled) { return; }
+      if (map.getZoom() < MIN_DEPTH_ZOOM) {
+        depthShade.clearLayers();
+        contourLines.clearLayers();
+        lastDepthFetch = null; // forces a fresh fetch once zoomed back in
+        depthReqSeq++; // drop any in-flight reply for the old, larger area
+        setDepthNotice('Zoom in to chart depth here');
+        return;
+      }
+      setDepthNotice('');
       try {
         var b = map.getBounds();
         var north = b.getNorth(), south = b.getSouth();
         var west = b.getWest(), east = b.getEast();
         if (east - west > 30) { var mx = (east + west) / 2; west = mx - 15; east = mx + 15; }
         if (north - south > 30) { var my = (north + south) / 2; south = my - 15; north = my + 15; }
-        // Reuse the last fetch while the view stays inside its padded area and
-        // hasn't zoomed out — unless an overlay was just switched on and has
-        // nothing drawn yet.
+        // Reuse the last fetch only for a pan at the SAME zoom, while the view
+        // stays inside its padded area — unless an overlay was just switched
+        // on and has nothing drawn yet.
         var needDraw =
           (depthEnabled && depthShade.getLayers().length === 0) ||
           (contourEnabled && contourLines.getLayers().length === 0);
         if (!needDraw && lastDepthFetch &&
-            map.getZoom() >= lastDepthFetch.z &&
+            map.getZoom() === lastDepthFetch.z &&
             north <= lastDepthFetch.n && south >= lastDepthFetch.s &&
             west >= lastDepthFetch.w && east <= lastDepthFetch.e) { return; }
         // Fetch 30% beyond each edge so nearby panning needs no new call.
@@ -827,12 +846,17 @@ export function buildMapHtml(
       } catch (e) { /* optional */ }
     }
 
-    // Show/hide the "no charted depth here" banner (only meaningful when depth
-    // is on — e.g. an inland freshwater lake reads above sea level, so GEBCO
-    // has no below-surface reading to shade).
-    function showDepthNotice(on) {
+    // One bottom banner, two different heads-up messages: "no charted depth
+    // here" (e.g. an inland freshwater lake reads above sea level, so GEBCO
+    // has no below-surface reading to shade) and "zoom in to chart depth here"
+    // (too zoomed out for the sample grid to mean anything). Only shown while
+    // Depth or Contour is actually on.
+    function setDepthNotice(msg) {
       var el = document.getElementById('depthnotice');
-      if (el) { el.style.display = (on && (depthEnabled || contourEnabled)) ? 'block' : 'none'; }
+      if (!el) { return; }
+      var show = !!msg && (depthEnabled || contourEnabled);
+      if (show) { el.textContent = msg; }
+      el.style.display = show ? 'block' : 'none';
     }
 
     // Marching squares over the sampled grid: line segments where the water
@@ -930,7 +954,7 @@ export function buildMapHtml(
           ));
         }
       }
-      showDepthNotice(wet === 0);
+      setDepthNotice(wet === 0 ? 'No charted depth for this area' : '');
       if (wet === 0 || !contourEnabled) { return; }
 
       // Contour lines with a depth label on each level.
@@ -1047,7 +1071,7 @@ export function buildMapHtml(
         if (noaaLayer) { map.removeLayer(noaaLayer); }
         map.removeLayer(depthShade);
         setLegend('depthlegend', false);
-        if (!contourEnabled) { showDepthNotice(false); }
+        if (!contourEnabled) { setDepthNotice(''); }
       }
       postHost({ type: 'depth', on: on });
     }
@@ -1073,7 +1097,7 @@ export function buildMapHtml(
         contourBtn.classList.add('off');
         map.removeLayer(contourLines);
         setLegend('contourlegend', false);
-        if (!depthEnabled) { showDepthNotice(false); }
+        if (!depthEnabled) { setDepthNotice(''); }
       }
       postHost({ type: 'contour', on: on });
     }
