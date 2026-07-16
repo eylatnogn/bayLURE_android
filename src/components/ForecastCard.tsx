@@ -3,7 +3,13 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import Svg, { Polyline, Rect as SvgRect } from 'react-native-svg';
 import type { Conditions, Strategy } from '@/types';
-import { DEFAULT_METRIC_ORDER, METRICS, type MetricKey } from '@/config/metrics';
+import {
+  ALL_METRIC_KEYS,
+  DEFAULT_METRIC_ORDER,
+  isMetricAvailable,
+  METRICS,
+  type MetricKey,
+} from '@/config/metrics';
 import { Section } from '@/components/Section';
 import { DetailSheet } from '@/components/DetailSheet';
 import { ReorderableStrip } from '@/components/ReorderableStrip';
@@ -113,10 +119,27 @@ export function ForecastCard({
   const trend = trendArrow[w.pressureTrend] ?? '';
 
   // The key conditions, scrollable across; the rest are in the "More" sheet.
-  // Content and default order live in config/metrics; the angler's saved order
-  // (metricOrder) decides which they see first. Icons echo the fuller grid.
-  const metricCtx = { w, water, trend };
+  // Content and default order live in config/metrics; the angler's saved set +
+  // order (metricOrder) decides which show and first. Icons echo the fuller grid.
+  const metricCtx = {
+    w,
+    water,
+    trend,
+    clarity: conditions.clarity,
+    chartedDepthFt: chartedDepth?.depthFt ?? null,
+    tideState: tide?.state ?? null,
+  };
   const condChips = metricOrder.map((k) => METRICS[k]);
+  // Metrics not on the strip yet but available for this spot (mirrors "More").
+  const activeSet = new Set(metricOrder);
+  const availableToAdd = ALL_METRIC_KEYS.filter(
+    (k) => !activeSet.has(k) && isMetricAvailable(k, metricCtx),
+  );
+  const addMetric = (k: MetricKey) => onReorderMetrics?.([...metricOrder, k]);
+  const removeMetric = (k: MetricKey) => {
+    // Keep at least one metric on the strip.
+    if (metricOrder.length > 1) onReorderMetrics?.(metricOrder.filter((m) => m !== k));
+  };
 
   return (
     <>
@@ -166,7 +189,7 @@ export function ForecastCard({
       {reordering ? (
         <View style={styles.reorderWrap}>
           <View style={styles.reorderHead}>
-            <Text style={styles.reorderHint}>Drag the tiles to reorder</Text>
+            <Text style={styles.reorderHint}>Drag to reorder · tap ✕ to remove</Text>
             <Pressable
               onPress={() => setReordering(false)}
               hitSlop={8}
@@ -179,10 +202,19 @@ export function ForecastCard({
           <ReorderableStrip
             items={condChips}
             keyOf={(chip) => chip.key}
-            height={52}
+            height={54}
             onReorder={(list) => onReorderMetrics?.(list.map((chip) => chip.key))}
             renderItem={(chip, dragging) => (
               <View style={[styles.reorderTile, dragging && styles.reorderTileActive]}>
+                {condChips.length > 1 ? (
+                  <Pressable
+                    onPress={() => removeMetric(chip.key)}
+                    hitSlop={10}
+                    style={styles.tileRemove}
+                  >
+                    <Feather name="x" size={11} color="#fff" />
+                  </Pressable>
+                ) : null}
                 <Feather
                   name={chip.icon}
                   size={14}
@@ -194,6 +226,24 @@ export function ForecastCard({
               </View>
             )}
           />
+          {availableToAdd.length ? (
+            <View style={styles.addSection}>
+              <Text style={styles.addLabel}>Add a metric</Text>
+              <View style={styles.addRow}>
+                {availableToAdd.map((k) => (
+                  <Pressable
+                    key={k}
+                    onPress={() => addMetric(k)}
+                    style={({ pressed }) => [styles.addChip, pressed && pressedStyle]}
+                  >
+                    <Feather name={METRICS[k].icon} size={12} color={colors.accent} />
+                    <Text style={styles.addChipLabel}>{METRICS[k].label}</Text>
+                    <Feather name="plus" size={12} color={colors.accent} />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </View>
       ) : (
         <View style={styles.condRow}>
@@ -462,6 +512,42 @@ const useStyles = makeStyles((colors) => ({
     shadowRadius: 8,
   },
   reorderTileLabel: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  // Remove badge in the tile's top-right corner.
+  tileRemove: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: colors.bad,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  // "Add a metric" — tap-to-add chips for everything not on the strip yet.
+  addSection: { marginTop: spacing.md },
+  addLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: spacing.xs,
+  },
+  addRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  addChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+  },
+  addChipLabel: { color: colors.text, fontSize: 12, fontWeight: '700' },
   condChip: {
     backgroundColor: colors.card,
     borderColor: colors.cardBorder,

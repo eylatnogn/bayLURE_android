@@ -140,8 +140,10 @@ function DragTile({
 
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      // Claim on MOVE, not on touch-start, so a quick tap falls through to a
+      // nested control (the remove "×" on the tile); a real drag still grabs.
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
       // Hold the gesture once grabbed so nothing steals it mid-drag.
       onPanResponderTerminationRequest: () => false,
       onShouldBlockNativeResponder: () => true,
