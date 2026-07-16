@@ -111,6 +111,8 @@ export function buildMapHtml(
       background: #3a7d52; color: #f7faf3; cursor: pointer;
       font: 600 12px -apple-system, Roboto, sans-serif;
       padding: 6px 10px; border-radius: 8px;
+      /* Drop shadow so the controls lift off the map imagery behind them. */
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     }
     .maptoggle.off { background: rgba(34,46,28,0.82); color: #cdd8c4; }
     .mapicon { padding: 8px; line-height: 0; }
