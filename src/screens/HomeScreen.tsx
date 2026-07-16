@@ -1074,6 +1074,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             }))}
             selectedDay={selectedDay}
             selectedHour={selectedHour}
+            onSelectDay={pickDay}
+            onSelectHour={setSelectedHour}
+            lockedFromDay={lockedFromDay}
             pickDayRef={pickDayRef}
             metricOrder={metricOrder}
             onReorderMetrics={onReorderMetrics}

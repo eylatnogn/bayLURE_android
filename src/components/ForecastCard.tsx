@@ -29,8 +29,14 @@ interface Props {
   days: OutlookDay[];
   selectedDay: number;
   /** Index into the day's hours, or null for the whole-day overview. Set from
-   * the graph sheet; the conditions strip reflects it. */
+   * the graph sheet or the on-page When filter; the conditions strip reflects it. */
   selectedHour: number | null;
+  /** Pick a day from the on-page When filter (gates locked days → paywall). */
+  onSelectDay?: (day: number) => void;
+  /** Pick an hour (or null for whole-day) from the on-page When filter. */
+  onSelectHour?: (hour: number | null) => void;
+  /** First Pro-locked day, or null when the whole week is open. */
+  lockedFromDay?: number | null;
   /** Opens the tide + bite graph — where the day, hour, and best times live. */
   onShowTideGraph?: () => void;
   /** Opens the "Why they're biting" detail sheet from the score's "Why" link. */
@@ -76,6 +82,9 @@ export function ForecastCard({
   days,
   selectedDay,
   selectedHour,
+  onSelectDay,
+  onSelectHour,
+  lockedFromDay = null,
   onShowTideGraph,
   onShowWhy,
   pickDayRef,
@@ -282,6 +291,85 @@ export function ForecastCard({
         </View>
       )}
 
+      {/* When — pick the day and hour right here; the conditions above and the
+          bite score both follow it (the graph sheet has the same controls). */}
+      {onSelectDay ? (
+        <View style={styles.whenBlock}>
+          <Text style={styles.sectionLabel}>When</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.whenRow}
+          >
+            {days.map((d, i) => {
+              const active = i === selectedDay;
+              const locked = lockedFromDay != null && i >= lockedFromDay;
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => onSelectDay(i)}
+                  style={({ pressed }) => [
+                    styles.dayFilter,
+                    active && styles.dayFilterActive,
+                    pressed && pressedStyle,
+                  ]}
+                >
+                  <Text style={[styles.dayFilterLabel, active && styles.dayFilterActiveText]}>
+                    {d.label}
+                  </Text>
+                  <Text style={[styles.dayFilterNum, active && styles.dayFilterActiveText]}>
+                    {d.num}
+                  </Text>
+                  {locked ? (
+                    <Feather name="lock" size={9} color={colors.textMuted} />
+                  ) : (
+                    <View style={[styles.dayFilterPill, { backgroundColor: scoreColor(d.score) }]}>
+                      <Text style={styles.dayFilterPillText}>{d.score}</Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.whenRow}
+          >
+            <Pressable
+              onPress={() => onSelectHour?.(null)}
+              style={({ pressed }) => [
+                styles.hourFilter,
+                selectedHour == null && styles.hourFilterActive,
+                pressed && pressedStyle,
+              ]}
+            >
+              <Text style={[styles.hourFilterText, selectedHour == null && styles.hourFilterActiveText]}>
+                All day
+              </Text>
+            </Pressable>
+            {hours.map((h, i) => {
+              const active = selectedHour === i;
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => onSelectHour?.(i)}
+                  style={({ pressed }) => [
+                    styles.hourFilter,
+                    active && styles.hourFilterActive,
+                    pressed && pressedStyle,
+                  ]}
+                >
+                  <Text style={[styles.hourFilterText, active && styles.hourFilterActiveText]}>
+                    {hrShort(h.timeISO)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {onShowTideGraph ? (
         <>
           <Text style={styles.sectionLabel}>Plan</Text>
@@ -402,6 +490,14 @@ function shortTime(iso: string): string {
   return parts[1] ?? iso;
 }
 
+/** Compact hour label for the When filter chips: "12a", "6a", "3p", "11p". */
+function hrShort(iso: string): string {
+  const h = new Date(iso).getHours();
+  const ap = h < 12 ? 'a' : 'p';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${ap}`;
+}
+
 const useStyles = makeStyles((colors) => ({
   // Section eyebrow labels ("Bite", "Plan").
   sectionLabel: {
@@ -413,6 +509,39 @@ const useStyles = makeStyles((colors) => ({
     marginTop: spacing.sm,
     marginBottom: spacing.sm,
   },
+  // When filter — day + hour scrollers below the conditions strip.
+  whenBlock: { marginTop: spacing.xs },
+  whenRow: { gap: spacing.xs, paddingVertical: spacing.xs, paddingRight: spacing.xs },
+  dayFilter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    minWidth: 46,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+  },
+  dayFilterActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  dayFilterLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  dayFilterNum: { color: colors.textMuted, fontSize: 10 },
+  dayFilterActiveText: { color: colors.accent },
+  dayFilterPill: { minWidth: 22, alignItems: 'center', borderRadius: radius.pill, paddingHorizontal: 5, paddingVertical: 1 },
+  dayFilterPillText: { color: '#0c140e', fontSize: 10, fontWeight: '800' },
+  hourFilter: {
+    justifyContent: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+  },
+  hourFilterActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  hourFilterText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  hourFilterActiveText: { color: colors.accent },
 
   // Bite hero
   heroCard: {
