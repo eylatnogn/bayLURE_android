@@ -303,11 +303,9 @@ export function ForecastCard({
       {onSelectDay ? (
         <View style={styles.whenBlock}>
           <Text style={styles.sectionLabel}>When</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.whenRow}
-          >
+          {/* Days spread evenly across the full width (fixed count), so the row
+              fills any screen instead of left-packing on a wider phone. */}
+          <View style={styles.dayRow}>
             {days.map((d, i) => {
               const active = i === selectedDay;
               const locked = lockedFromDay != null && i >= lockedFromDay;
@@ -321,7 +319,10 @@ export function ForecastCard({
                     pressed && pressedStyle,
                   ]}
                 >
-                  <Text style={[styles.dayFilterLabel, active && styles.dayFilterActiveText]}>
+                  <Text
+                    style={[styles.dayFilterLabel, active && styles.dayFilterActiveText]}
+                    numberOfLines={1}
+                  >
                     {d.label}
                   </Text>
                   <Text style={[styles.dayFilterNum, active && styles.dayFilterActiveText]}>
@@ -337,7 +338,7 @@ export function ForecastCard({
                 </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -519,13 +520,15 @@ const useStyles = makeStyles((colors) => ({
   // When filter — day + hour scrollers below the conditions strip.
   whenBlock: { marginTop: spacing.xs },
   whenRow: { gap: spacing.xs, paddingVertical: spacing.xs, paddingRight: spacing.xs },
+  // Day chips share the full width evenly (7 fixed days).
+  dayRow: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.xs },
   dayFilter: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
-    minWidth: 46,
     paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 2,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.cardBorder,
