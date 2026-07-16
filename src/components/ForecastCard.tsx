@@ -10,6 +10,7 @@ import {
   METRICS,
   type MetricKey,
 } from '@/config/metrics';
+import { biteLabel } from '@/engine/strategy';
 import { Section } from '@/components/Section';
 import { DetailSheet } from '@/components/DetailSheet';
 import { ReorderableStrip } from '@/components/ReorderableStrip';
@@ -124,7 +125,13 @@ export function ForecastCard({
         : `${hourLabel(thunderHours[0]!.timeISO)} – ${hourLabel(thunderHours[thunderHours.length - 1]!.timeISO)}`
       : null;
 
-  const barColor = scoreColor(strategy.biteScore);
+  // The shown bite score follows the When filter: a picked hour shows that
+  // hour's bite (strategy.hourly is index-aligned with the day's hourlyWeather),
+  // while "all day" shows the day's overall score.
+  const hourScore = selectedHour != null ? strategy.hourly[selectedHour]?.score ?? null : null;
+  const shownScore = hourScore ?? strategy.biteScore;
+  const shownLabel = hourScore != null ? biteLabel(hourScore) : strategy.biteLabel;
+  const barColor = scoreColor(shownScore);
   const trend = trendArrow[w.pressureTrend] ?? '';
 
   // The key conditions, scrollable across; the rest are in the "More" sheet.
@@ -155,11 +162,11 @@ export function ForecastCard({
       <Text style={styles.sectionLabel}>Bite</Text>
       <View ref={pickDayRef} collapsable={false} style={styles.heroCard}>
         <View style={styles.heroRow}>
-          <Text style={[styles.scoreBig, { color: barColor }]}>{strategy.biteScore}</Text>
+          <Text style={[styles.scoreBig, { color: barColor }]}>{shownScore}</Text>
           <View style={styles.heroBody}>
             <View style={styles.heroLabelRow}>
               <Text style={[styles.biteLabel, { color: barColor }]} numberOfLines={1}>
-                {strategy.biteLabel}
+                {shownLabel}
               </Text>
               {onShowWhy ? (
                 <Pressable
@@ -175,7 +182,7 @@ export function ForecastCard({
               ) : null}
             </View>
             <View style={styles.bar}>
-              <View style={[styles.barFill, { width: `${strategy.biteScore}%`, backgroundColor: barColor }]} />
+              <View style={[styles.barFill, { width: `${shownScore}%`, backgroundColor: barColor }]} />
             </View>
           </View>
         </View>
