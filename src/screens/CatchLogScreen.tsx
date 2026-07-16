@@ -23,6 +23,7 @@ import { onBackupImported } from '@/utils/backup';
 import { base64ToBytes, metaFromJpegBytes, metaFromPickerExif, type PhotoMeta } from '@/utils/exif';
 import { summarizeCatchConditions } from '@/utils/snapshot';
 import { CatchReportCard } from '@/components/CatchReportCard';
+import { PhotoViewer } from '@/components/PhotoViewer';
 import { SearchPick } from '@/components/SearchPick';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
@@ -121,6 +122,8 @@ export function CatchLogScreen({ snapshot, forecast, active }: Props) {
   const styles = useStyles();
   const { isPro, limitsActive, showPaywall } = usePro();
   const [catches, setCatches] = useState<CatchRecord[]>([]);
+  // The catch photo currently open full-screen (tap a thumbnail), or null.
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
   // Saved spots — so a catch on a saved location shows that spot's name.
   const [favorites, setFavorites] = useState<FavoriteLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -468,6 +471,7 @@ export function CatchLogScreen({ snapshot, forecast, active }: Props) {
   }, [favorites]);
 
   return (
+    <>
     <ScrollView
       ref={scrollRef}
       style={styles.screen}
@@ -592,7 +596,9 @@ export function CatchLogScreen({ snapshot, forecast, active }: Props) {
           <Text style={styles.fieldLabel}>Photo (optional)</Text>
           {photoUri ? (
             <View>
-              <Image source={{ uri: photoUri }} style={styles.preview} />
+              <Pressable onPress={() => setViewingPhoto(photoUri)}>
+                <Image source={{ uri: photoUri }} style={styles.preview} />
+              </Pressable>
               {photoMetaNote ? <Text style={styles.photoMetaNote}>{photoMetaNote}</Text> : null}
               <Pressable
                 onPress={() => {
@@ -727,7 +733,15 @@ export function CatchLogScreen({ snapshot, forecast, active }: Props) {
         catches.map((c) => (
           <View key={c.id} style={styles.card}>
             {c.photoUri ? (
-              <Image source={{ uri: c.photoUri }} style={styles.thumb} />
+              <Pressable
+                onPress={() => setViewingPhoto(c.photoUri ?? null)}
+                style={({ pressed }) => [styles.thumbWrap, pressed && pressedStyle]}
+              >
+                <Image source={{ uri: c.photoUri }} style={styles.thumb} />
+                <View style={styles.thumbHint}>
+                  <Feather name="maximize-2" size={10} color="#fff" />
+                </View>
+              </Pressable>
             ) : null}
             <View style={styles.cardBody}>
               <View style={styles.cardHead}>
@@ -818,6 +832,8 @@ export function CatchLogScreen({ snapshot, forecast, active }: Props) {
       )}
       </View>
     </ScrollView>
+    <PhotoViewer uri={viewingPhoto} onClose={() => setViewingPhoto(null)} />
+    </>
   );
 }
 
@@ -1043,12 +1059,27 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     marginTop: spacing.md,
     ...shadow.card,
   },
+  thumbWrap: {
+    marginRight: spacing.md,
+    alignSelf: 'flex-start',
+  },
   thumb: {
     width: 64,
     height: 64,
     borderRadius: radius.md,
-    marginRight: spacing.md,
     backgroundColor: colors.bgElevated,
+  },
+  // Small corner badge hinting the thumbnail opens full-screen.
+  thumbHint: {
+    position: 'absolute',
+    right: 3,
+    bottom: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardBody: { flex: 1 },
   cardHead: {
