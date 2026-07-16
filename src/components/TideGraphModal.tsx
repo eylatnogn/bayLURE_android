@@ -267,8 +267,14 @@ export function TideGraphModal({
 
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 3,
+      // Claim on a small vertical MOVE rather than on touch-start, so a tap
+      // still reaches the close button but any downward/upward drag anywhere on
+      // the header grabs the sheet. Once grabbed, refuse to hand it back so the
+      // gesture can't be dropped mid-drag ("sometimes it doesn't register").
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 2 && Math.abs(g.dy) >= Math.abs(g.dx),
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: () => {
         dragBase.current = sheetHRef.current ?? naturalH.current;
       },
@@ -744,26 +750,30 @@ export function TideGraphModal({
           }
         }}
       >
-        {/* Drag handle: pull down for more map, up for more graph. Fling it
-            down quickly to dismiss, or up quickly to snap back to full height. */}
-        <View style={styles.grabRow} {...pan.panHandlers}>
-          <View style={styles.grab} />
+        {/* Drag handle — the whole header (grab bar + title) resizes the sheet:
+            pull down for more map, up for more graph. Fling it down quickly to
+            dismiss, or up quickly to snap back to full height. Making the entire
+            header the drag target (not just the thin bar) keeps a downward swipe
+            from being missed and swallowed by the scroll view below. */}
+        <View {...pan.panHandlers}>
+          <View style={styles.grabRow}>
+            <View style={styles.grab} />
+          </View>
+          <View style={styles.head}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>{tide ? 'Tides & Bite' : 'Hourly & Bite'}</Text>
+              {tide ? (
+                <Text style={styles.subtitle}>
+                  {tide.stationName} ({tide.stationDistanceMi} mi)
+                </Text>
+              ) : null}
+            </View>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
+              <Feather name="x" size={20} color={colors.textMuted} />
+            </Pressable>
+          </View>
         </View>
         <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
-            <View style={styles.head}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>{tide ? 'Tides & Bite' : 'Hourly & Bite'}</Text>
-                {tide ? (
-                  <Text style={styles.subtitle}>
-                    {tide.stationName} ({tide.stationDistanceMi} mi)
-                  </Text>
-                ) : null}
-              </View>
-              <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
-                <Feather name="x" size={20} color={colors.textMuted} />
-              </Pressable>
-            </View>
-
             {/* Day picker. */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
               {days.map((d, i) => {
@@ -977,10 +987,11 @@ const useStyles = makeStyles((c, t) => ({
   },
   grabRow: {
     alignItems: 'center',
-    paddingVertical: spacing.xs + 2,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
   },
   grab: {
-    width: 52,
+    width: 60,
     height: 6,
     borderRadius: radius.pill,
     backgroundColor: c.textMuted,
