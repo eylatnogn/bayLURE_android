@@ -14,6 +14,7 @@ import { biteLabel } from '@/engine/strategy';
 import { Section } from '@/components/Section';
 import { DetailSheet } from '@/components/DetailSheet';
 import { ReorderableStrip } from '@/components/ReorderableStrip';
+import { HourPicker } from '@/components/HourPicker';
 import { tideAt } from '@/api/tides';
 import { hourLabel } from '@/utils/dates';
 import { fonts, makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
@@ -339,42 +340,16 @@ export function ForecastCard({
               );
             })}
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.whenRow}
-          >
-            <Pressable
-              onPress={() => onSelectHour?.(null)}
-              style={({ pressed }) => [
-                styles.hourFilter,
-                selectedHour == null && styles.hourFilterActive,
-                pressed && pressedStyle,
-              ]}
-            >
-              <Text style={[styles.hourFilterText, selectedHour == null && styles.hourFilterActiveText]}>
-                All day
-              </Text>
-            </Pressable>
-            {hours.map((h, i) => {
-              const active = selectedHour === i;
-              return (
-                <Pressable
-                  key={i}
-                  onPress={() => onSelectHour?.(i)}
-                  style={({ pressed }) => [
-                    styles.hourFilter,
-                    active && styles.hourFilterActive,
-                    pressed && pressedStyle,
-                  ]}
-                >
-                  <Text style={[styles.hourFilterText, active && styles.hourFilterActiveText]}>
-                    {hrShort(h.timeISO)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          {/* Scroll the hour under the centre highlight to set it — a tap works
+              too. "All day" is the first option. */}
+          <HourPicker
+            value={selectedHour}
+            onChange={(hr) => onSelectHour?.(hr)}
+            items={[
+              { label: 'All day', hour: null },
+              ...hours.map((h, i) => ({ label: hrShort(h.timeISO), hour: i })),
+            ]}
+          />
         </View>
       ) : null}
 
@@ -519,7 +494,6 @@ const useStyles = makeStyles((colors) => ({
   },
   // When filter — day + hour scrollers below the conditions strip.
   whenBlock: { marginTop: spacing.xs },
-  whenRow: { gap: spacing.xs, paddingVertical: spacing.xs, paddingRight: spacing.xs },
   // Day chips share the full width evenly (7 fixed days).
   dayRow: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.xs },
   dayFilter: {
@@ -540,18 +514,6 @@ const useStyles = makeStyles((colors) => ({
   dayFilterActiveText: { color: colors.accent },
   dayFilterPill: { minWidth: 22, alignItems: 'center', borderRadius: radius.pill, paddingHorizontal: 5, paddingVertical: 1 },
   dayFilterPillText: { color: '#0c140e', fontSize: 10, fontWeight: '800' },
-  hourFilter: {
-    justifyContent: 'center',
-    paddingVertical: 5,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    backgroundColor: colors.card,
-  },
-  hourFilterActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
-  hourFilterText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  hourFilterActiveText: { color: colors.accent },
 
   // Bite hero
   heroCard: {
