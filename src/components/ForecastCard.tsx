@@ -6,6 +6,7 @@ import type { Conditions, Strategy } from '@/types';
 import { DEFAULT_METRIC_ORDER, METRICS, type MetricKey } from '@/config/metrics';
 import { Section } from '@/components/Section';
 import { DetailSheet } from '@/components/DetailSheet';
+import { ReorderableStrip } from '@/components/ReorderableStrip';
 import { tideAt } from '@/api/tides';
 import { hourLabel } from '@/utils/dates';
 import { fonts, makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
@@ -34,6 +35,8 @@ interface Props {
   /** The angler's chosen order for the conditions strip (see config/metrics).
    * Defaults to the standard order when not set. */
   metricOrder?: MetricKey[];
+  /** Persist a new strip order (from dragging the tiles in reorder mode). */
+  onReorderMetrics?: (order: MetricKey[]) => void;
 }
 
 const trendArrow: Record<string, string> = {
@@ -71,10 +74,13 @@ export function ForecastCard({
   onShowWhy,
   pickDayRef,
   metricOrder = DEFAULT_METRIC_ORDER,
+  onReorderMetrics,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { water, chartedDepth } = conditions;
+  // Drag-to-reorder mode for the conditions strip (tap the reorder icon).
+  const [reordering, setReordering] = useState(false);
   const hours = conditions.hourlyWeather;
   // Full conditions grid lives one tap away, behind the "More" chip.
   const [condOpen, setCondOpen] = useState(false);
@@ -155,29 +161,76 @@ export function ForecastCard({
         ) : null}
       </View>
 
-      {/* Conditions — five key chips scroll across; "More" opens the full grid. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.condStrip}
-      >
-        {condChips.map((chip) => (
-          <View key={chip.key} style={styles.condChip}>
-            <Text style={styles.condChipValue}>{chip.value(metricCtx)}</Text>
-            <View style={styles.condChipLabelRow}>
-              <Feather name={chip.icon} size={11} color={colors.textMuted} />
-              <Text style={styles.condChipLabel}>{chip.label}</Text>
-            </View>
+      {/* Conditions — key chips scroll across; "More" opens the full grid, and
+          the reorder icon drops the tiles into drag-to-reorder mode. */}
+      {reordering ? (
+        <View style={styles.reorderWrap}>
+          <View style={styles.reorderHead}>
+            <Text style={styles.reorderHint}>Drag the tiles to reorder</Text>
+            <Pressable
+              onPress={() => setReordering(false)}
+              hitSlop={8}
+              style={({ pressed }) => [styles.doneBtn, pressed && pressedStyle]}
+            >
+              <Feather name="check" size={13} color={colors.accent} />
+              <Text style={styles.doneText}>Done</Text>
+            </Pressable>
           </View>
-        ))}
-        <Pressable
-          onPress={() => setCondOpen(true)}
-          style={({ pressed }) => [styles.moreChip, pressed && pressedStyle]}
-        >
-          <Text style={styles.moreChipText}>More</Text>
-          <Feather name="chevron-right" size={13} color={colors.accent} />
-        </Pressable>
-      </ScrollView>
+          <ReorderableStrip
+            items={condChips}
+            keyOf={(chip) => chip.key}
+            height={52}
+            onReorder={(list) => onReorderMetrics?.(list.map((chip) => chip.key))}
+            renderItem={(chip, dragging) => (
+              <View style={[styles.reorderTile, dragging && styles.reorderTileActive]}>
+                <Feather
+                  name={chip.icon}
+                  size={14}
+                  color={dragging ? colors.accent : colors.text}
+                />
+                <Text style={styles.reorderTileLabel} numberOfLines={1}>
+                  {chip.label}
+                </Text>
+              </View>
+            )}
+          />
+        </View>
+      ) : (
+        <View style={styles.condRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.condStrip}
+          >
+            {condChips.map((chip) => (
+              <View key={chip.key} style={styles.condChip}>
+                <Text style={styles.condChipValue}>{chip.value(metricCtx)}</Text>
+                <View style={styles.condChipLabelRow}>
+                  <Feather name={chip.icon} size={11} color={colors.textMuted} />
+                  <Text style={styles.condChipLabel}>{chip.label}</Text>
+                </View>
+              </View>
+            ))}
+            <Pressable
+              onPress={() => setCondOpen(true)}
+              style={({ pressed }) => [styles.moreChip, pressed && pressedStyle]}
+            >
+              <Text style={styles.moreChipText}>More</Text>
+              <Feather name="chevron-right" size={13} color={colors.accent} />
+            </Pressable>
+          </ScrollView>
+          {onReorderMetrics ? (
+            <Pressable
+              onPress={() => setReordering(true)}
+              hitSlop={8}
+              accessibilityLabel="Reorder conditions"
+              style={({ pressed }) => [styles.reorderBtn, pressed && pressedStyle]}
+            >
+              <Feather name="move" size={15} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+      )}
 
       {onShowTideGraph ? (
         <>
@@ -355,7 +408,60 @@ const useStyles = makeStyles((colors) => ({
   thunderText: { flex: 1, color: colors.errorText, fontSize: 12, lineHeight: 17, fontWeight: '600' },
 
   // Conditions chip strip
+  condRow: { flexDirection: 'row', alignItems: 'center' },
   condStrip: { gap: spacing.sm, paddingVertical: spacing.xs, paddingRight: spacing.xs },
+  // Reorder toggle sitting at the right end of the strip row.
+  reorderBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.sm,
+  },
+  reorderWrap: { paddingVertical: spacing.xs },
+  reorderHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  reorderHint: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
+  doneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.accentDim,
+  },
+  doneText: { color: colors.accent, fontSize: 12, fontWeight: '800' },
+  reorderTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    marginHorizontal: 3,
+    alignSelf: 'stretch',
+  },
+  reorderTileActive: {
+    borderColor: colors.accent,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  reorderTileLabel: { color: colors.text, fontSize: 11, fontWeight: '700' },
   condChip: {
     backgroundColor: colors.card,
     borderColor: colors.cardBorder,
