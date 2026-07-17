@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Coordinates, TideConditions, TideEvent } from '@/types';
 import { distanceMiles, round } from '@/utils/format';
 import { addDays, localDateStr, yyyymmdd } from '@/utils/dates';
@@ -5,6 +6,20 @@ import { addDays, localDateStr, yyyymmdd } from '@/utils/dates';
 const STATIONS_URL =
   'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
 const DATA_URL = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';
+
+// NOAA has brownouts where requests hang ~10s before a 5xx; cap the wait so a
+// bad day at NOAA slows analysis by seconds, not tens of seconds.
+const FETCH_TIMEOUT_MS = 6000;
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 interface StationMeta {
   id: string;
@@ -22,21 +37,45 @@ interface PredictionsResponse {
   error?: { message: string };
 }
 
-// NOAA's full tide-prediction station list is large and static; cache per session.
+// NOAA's full tide-prediction station list is large and static; cache per
+// session, and persist the last good copy so a NOAA outage doesn't take
+// saltwater detection down with it.
 let stationCache: StationMeta[] | null = null;
+const STATIONS_KEY = 'balure.tidestations.v1';
 
 async function loadStations(): Promise<StationMeta[]> {
   if (stationCache) return stationCache;
-  const res = await fetch(STATIONS_URL);
-  if (!res.ok) throw new Error(`Tide station list failed (${res.status}).`);
-  const data = (await res.json()) as StationsResponse;
-  stationCache = (data.stations ?? []).map((s) => ({
-    id: s.id,
-    name: s.name,
-    lat: s.lat,
-    lng: s.lng,
-  }));
-  return stationCache;
+  try {
+    const res = await fetchWithTimeout(STATIONS_URL);
+    if (!res.ok) throw new Error(`Tide station list failed (${res.status}).`);
+    const data = (await res.json()) as StationsResponse;
+    const fresh = (data.stations ?? []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      lat: s.lat,
+      lng: s.lng,
+    }));
+    if (!fresh.length) throw new Error('Tide station list empty.');
+    stationCache = fresh;
+    AsyncStorage.setItem(STATIONS_KEY, JSON.stringify(fresh)).catch(() => {});
+    return fresh;
+  } catch (err) {
+    // NOAA down or slow — fall back to the last list we fetched successfully.
+    // Station locations essentially never change, so stale is fine.
+    try {
+      const raw = await AsyncStorage.getItem(STATIONS_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw) as StationMeta[];
+        if (Array.isArray(stored) && stored.length) {
+          stationCache = stored;
+          return stored;
+        }
+      }
+    } catch {
+      /* fall through to the original error */
+    }
+    throw err;
+  }
 }
 
 function nearestStation(
@@ -60,15 +99,17 @@ function nearestStation(
  * stations sit on coasts and tidal rivers, so a station within ~12 mi means
  * the water is tidal (salt/brackish). Lakes and inland rivers have none nearby.
  * Great Lakes have no tide predictions, so they correctly read as freshwater.
- * Falls back to false (freshwater) on any error or outside the US.
+ * Returns null when the check itself is impossible (NOAA down and no cached
+ * station list) — "couldn't check" must NOT read as "freshwater", or an outage
+ * flips a known-saltwater spot to fresh on load.
  */
-export async function isLikelySaltwater(coords: Coordinates): Promise<boolean> {
+export async function isLikelySaltwater(coords: Coordinates): Promise<boolean | null> {
   try {
     const stations = await loadStations();
     const nearest = nearestStation(coords, stations);
     return !!nearest && nearest.distanceMi <= 12;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -101,7 +142,7 @@ export async function fetchWeekTides(
     format: 'json',
   });
 
-  const res = await fetch(`${DATA_URL}?${params.toString()}`);
+  const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
   if (!res.ok) throw new Error(`Tide predictions failed (${res.status}).`);
   const data = (await res.json()) as PredictionsResponse;
   if (data.error || !data.predictions) return empty;
@@ -164,7 +205,7 @@ export async function fetchTideHeights(
     interval: 'h',
     format: 'json',
   });
-  const res = await fetch(`${DATA_URL}?${params.toString()}`);
+  const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
   if (!res.ok) throw new Error(`Tide heights failed (${res.status}).`);
   const data = (await res.json()) as { predictions?: Array<{ t: string; v: string }> };
   const points = (data.predictions ?? [])

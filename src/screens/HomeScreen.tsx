@@ -400,11 +400,13 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   );
 
   // Auto-pick water type from the spot (coastal → saltwater) unless the angler
-  // has already set it by hand or via a preset.
+  // has already set it by hand or via a preset. null means the check couldn't
+  // run (NOAA outage, no cached station list) — keep the current setting rather
+  // than flipping a known-saltwater spot to freshwater.
   useEffect(() => {
     if (!coordinates || userSetWaterType.current) return;
     void isLikelySaltwater(coordinates).then((salt) => {
-      if (userSetWaterType.current) return;
+      if (userSetWaterType.current || salt == null) return;
       setWaterTypeFiltered(salt ? 'saltwater' : 'freshwater');
     });
   }, [coordinates, setWaterTypeFiltered]);
