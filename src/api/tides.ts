@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Coordinates, TideConditions, TideEvent } from '@/types';
+import { TIDE_STATION_COORDS } from '@/data/tideStationCoords';
 import { distanceMiles, round } from '@/utils/format';
 import { addDays, localDateStr, yyyymmdd } from '@/utils/dates';
 
@@ -99,9 +100,11 @@ function nearestStation(
  * stations sit on coasts and tidal rivers, so a station within ~12 mi means
  * the water is tidal (salt/brackish). Lakes and inland rivers have none nearby.
  * Great Lakes have no tide predictions, so they correctly read as freshwater.
- * Returns null when the check itself is impossible (NOAA down and no cached
- * station list) — "couldn't check" must NOT read as "freshwater", or an outage
- * flips a known-saltwater spot to fresh on load.
+ * Works through NOAA outages: live list → last persisted list → the station
+ * coordinates bundled with the app (locations are static, so a snapshot is
+ * fine for a proximity test). Returns null only when even the bundled data is
+ * missing — "couldn't check" must NOT read as "freshwater", or an outage flips
+ * a known-saltwater spot to fresh on load.
  */
 export async function isLikelySaltwater(coords: Coordinates): Promise<boolean | null> {
   try {
@@ -109,7 +112,16 @@ export async function isLikelySaltwater(coords: Coordinates): Promise<boolean | 
     const nearest = nearestStation(coords, stations);
     return !!nearest && nearest.distanceMi <= 12;
   } catch {
-    return null;
+    if (TIDE_STATION_COORDS.length < 2) return null;
+    let best = Infinity;
+    for (let i = 0; i + 1 < TIDE_STATION_COORDS.length; i += 2) {
+      const d = distanceMiles(coords, {
+        latitude: TIDE_STATION_COORDS[i]!,
+        longitude: TIDE_STATION_COORDS[i + 1]!,
+      });
+      if (d < best) best = d;
+    }
+    return best <= 12;
   }
 }
 
