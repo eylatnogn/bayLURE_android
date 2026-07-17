@@ -340,16 +340,26 @@ export function ForecastCard({
               );
             })}
           </View>
-          {/* Scroll the hour under the centre highlight to set it — a tap works
-              too. "All day" is the first option. */}
-          <HourPicker
-            value={selectedHour}
-            onChange={(hr) => onSelectHour?.(hr)}
-            items={[
-              { label: 'All day', hour: null },
-              ...hours.map((h, i) => ({ label: hrShort(h.timeISO), hour: i })),
-            ]}
-          />
+          {/* Scroll the hour under the needle to set it — a tap works too. The
+              dial rests on "All day" at the 6am boundary: the fishable hours
+              run to the right, and the dead-of-night hours (12–5am) are tucked
+              to the LEFT — swipe right to reach them. */}
+          {(() => {
+            const hourItems = hours.map((h, i) => ({
+              label: hrShort(h.timeISO),
+              hour: i as number | null,
+              clock: new Date(h.timeISO).getHours(),
+            }));
+            const early = hourItems.filter((it) => it.clock < 6);
+            const rest = hourItems.filter((it) => it.clock >= 6);
+            return (
+              <HourPicker
+                value={selectedHour}
+                onChange={(hr) => onSelectHour?.(hr)}
+                items={[...early, { label: 'All day', hour: null }, ...rest]}
+              />
+            );
+          })()}
         </View>
       ) : null}
 

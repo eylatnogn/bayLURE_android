@@ -7,9 +7,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import { makeStyles, radius, spacing, useTheme } from '@/theme';
+import { makeStyles, radius } from '@/theme';
 
-const ITEM_W = 64;
+const ITEM_W = 52;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 export interface HourItem {
@@ -93,8 +93,10 @@ export function HourPicker({ items, value, onChange }: Props) {
   };
 
   return (
+    // Styled like a vintage car-radio tuner: a cream dial face with the hours
+    // as the frequency scale, tick marks on a baseline, and a fixed red needle
+    // in the middle — scroll and the hours glide under the needle.
     <View style={styles.wrap} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      <View pointerEvents="none" style={[styles.frame, { left: sidePad, width: ITEM_W }]} />
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -120,30 +122,78 @@ export function HourPicker({ items, value, onChange }: Props) {
             >
               {it.label}
             </Text>
+            <View style={styles.tick} />
           </Pressable>
         ))}
       </ScrollView>
+      {/* Printed-on-the-glass details: scale baseline, needle, brand mark. */}
+      <View pointerEvents="none" style={styles.baseline} />
+      <View pointerEvents="none" style={[styles.needle, { left: sidePad + ITEM_W / 2 - 1 }]} />
+      <Text pointerEvents="none" style={styles.brand}>
+        bayLURE
+      </Text>
     </View>
   );
 }
 
-const useStyles = makeStyles((c) => ({
-  wrap: { height: 42, justifyContent: 'center' },
-  frame: {
+const useStyles = makeStyles((c, t) => ({
+  // The dial face — same surface as the Tides & Bite sheet, so the tuner reads
+  // as a piece of that graph pulled onto the main page.
+  wrap: {
+    height: 52,
+    justifyContent: 'center',
+    backgroundColor: t.mode === 'dark' ? '#0a120d' : '#dfe8d9',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: t.mode === 'dark' ? '#33443a' : c.cardBorder,
+    overflow: 'hidden',
+  },
+  item: {
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    paddingBottom: 10,
+  },
+  itemText: { color: c.textMuted, fontSize: 12, fontWeight: '700' },
+  itemTextActive: { color: c.accent, fontSize: 13, fontWeight: '800' },
+  // Scale graduation under each hour, sitting on the baseline (bite-bar green,
+  // echoing the graph's hour bars).
+  tick: {
+    position: 'absolute',
+    bottom: 9,
+    width: 2,
+    height: 6,
+    backgroundColor: c.accent,
+    opacity: 0.55,
+  },
+  baseline: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 9,
+    height: 1,
+    backgroundColor: c.textMuted,
+    opacity: 0.4,
+  },
+  // The tuning needle, fixed at the dial's centre — tide-curve teal, like the
+  // graph's tide line.
+  needle: {
     position: 'absolute',
     top: 3,
     bottom: 3,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: c.accent,
-    backgroundColor: c.accentDim,
+    width: 2.5,
+    borderRadius: 2,
+    backgroundColor: c.water,
   },
-  item: {
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xs,
+  brand: {
+    position: 'absolute',
+    right: 8,
+    bottom: 1,
+    fontSize: 7,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: c.textMuted,
+    opacity: 0.6,
   },
-  itemText: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
-  itemTextActive: { color: c.accent, fontSize: 14, fontWeight: '800' },
 }));
