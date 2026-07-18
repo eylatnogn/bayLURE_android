@@ -22,6 +22,41 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
+/**
+ * Fetch a datagetter prediction payload, retrying once on failure. While NOAA
+ * recovers from a brownout it flaps: the same URL can return an HTTP 5xx, OR a
+ * 200 whose body is {"error": ...} with no predictions, then succeed seconds
+ * later. Both flavors count as a failed attempt here — an error body is an
+ * outage symptom, not a valid "no data" answer, since every station we query
+ * comes from NOAA's own tide-prediction station list. Throwing (rather than
+ * returning empty) lets the caller flag the outage to the angler instead of
+ * silently blanking the tides. Mirrors weather.ts's fetchNwsWithRetry.
+ */
+async function fetchPredictionsWithRetry(
+  params: URLSearchParams,
+  attempts = 2,
+): Promise<PredictionsResponse> {
+  let lastErr: unknown = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
+      if (!res.ok) throw new Error(`Tide predictions failed (${res.status}).`);
+      const data = (await res.json()) as PredictionsResponse;
+      if (data.error || !data.predictions) {
+        throw new Error(data.error?.message ?? 'Tide predictions empty.');
+      }
+      return data;
+    } catch (err) {
+      lastErr = err;
+      // Brief pause before the retry — the flap usually clears immediately.
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Tide predictions failed.');
+}
+
 interface StationMeta {
   id: string;
   name: string;
@@ -155,12 +190,12 @@ export async function fetchWeekTides(
     format: 'json',
   });
 
-  const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`Tide predictions failed (${res.status}).`);
-  const data = (await res.json()) as PredictionsResponse;
-  if (data.error || !data.predictions) return empty;
+  // Throws on an outage (HTTP failure OR a 200 carrying an error body) after
+  // one retry, so conditions.ts flags it to the angler instead of silently
+  // rendering a tideless forecast for a spot that clearly has tides.
+  const data = await fetchPredictionsWithRetry(params);
 
-  const events: TideEvent[] = data.predictions.map((p) => ({
+  const events: TideEvent[] = (data.predictions ?? []).map((p) => ({
     time: p.t,
     type: p.type === 'H' ? 'high' : 'low',
     heightFt: round(Number(p.v), 1),
@@ -218,9 +253,9 @@ export async function fetchTideHeights(
     interval: 'h',
     format: 'json',
   });
-  const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`Tide heights failed (${res.status}).`);
-  const data = (await res.json()) as { predictions?: Array<{ t: string; v: string }> };
+  // Same retry + throw-on-error-body as the hi/lo fetch; the graph modal's
+  // .catch shows its "couldn't load" state instead of a silently empty curve.
+  const data = await fetchPredictionsWithRetry(params);
   const points = (data.predictions ?? [])
     .map((p) => ({ time: p.t, heightFt: Number(p.v) }))
     .filter((p) => Number.isFinite(p.heightFt));
