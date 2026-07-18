@@ -13,13 +13,17 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import type { CatchConditions, CatchRecord, Conditions } from '@/types';
+import type { CatchConditions, CatchRecord, Conditions, FavoriteLocation } from '@/types';
 import { SPECIES } from '@/engine/species';
 import { LURES } from '@/engine/lureDatabase';
 import { addCatch, deleteCatch, loadCatches, updateCatch } from '@/storage/catchLog';
+import { loadFavorites } from '@/storage/favorites';
+import { reverseGeocode } from '@/api/location';
 import { onBackupImported } from '@/utils/backup';
+import { base64ToBytes, metaFromJpegBytes, metaFromPickerExif, type PhotoMeta } from '@/utils/exif';
 import { summarizeCatchConditions } from '@/utils/snapshot';
 import { CatchReportCard } from '@/components/CatchReportCard';
+import { PhotoViewer } from '@/components/PhotoViewer';
 import { SearchPick } from '@/components/SearchPick';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
@@ -50,18 +54,78 @@ const GEAR_OPTIONS = LURES.map((l) => ({
   tag: l.category.toUpperCase(),
 }));
 
+/** Parse a positive number from a text field, or undefined when blank/invalid. */
+function parseNum(s: string): number | undefined {
+  const t = s.trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** Trim a stored measurement to a tidy label ("18", "3.5"). */
+function numLabel(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
+}
+
+/** Best-effort split of a legacy free-text size ("18 in", "3.5 lb") into the
+ * new length/weight fields, so editing an old catch migrates it cleanly. */
+function parseLegacySize(s?: string): { lengthIn?: number; weightLb?: number } {
+  if (!s) return {};
+  const out: { lengthIn?: number; weightLb?: number } = {};
+  const len = /(\d+(?:\.\d+)?)\s*(?:in\b|inch|inches|")/i.exec(s);
+  if (len) out.lengthIn = Number(len[1]);
+  const wt = /(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?|#)/i.exec(s);
+  if (wt) out.weightLb = Number(wt[1]);
+  return out;
+}
+
+/** The catch's measurements as a label ("18 in · 3.5 lb"), falling back to any
+ * legacy free-text size for older entries. */
+function formatCatchSize(c: CatchRecord): string {
+  const parts: string[] = [];
+  if (c.lengthIn != null) parts.push(`${numLabel(c.lengthIn)} in`);
+  if (c.weightLb != null) parts.push(`${numLabel(c.weightLb)} lb`);
+  if (parts.length) return parts.join(' · ');
+  return c.size ?? '';
+}
+
+/** ~120 m — close enough to be the same saved spot, not a neighbouring one. */
+const FAV_MATCH_DEG = 0.0011;
+
+/** If a catch's coordinates land on a saved spot, that spot's name; else null. */
+function favoriteNameFor(
+  favs: FavoriteLocation[],
+  lat?: number,
+  lng?: number,
+): string | null {
+  if (lat == null || lng == null) return null;
+  const match = favs.find(
+    (f) =>
+      Math.abs(f.latitude - lat) < FAV_MATCH_DEG &&
+      Math.abs(f.longitude - lng) < FAV_MATCH_DEG,
+  );
+  return match ? match.label : null;
+}
+
 interface Props {
   /** Latest analyzed conditions from the planner, offered for attaching. */
   snapshot?: CatchConditions | null;
   /** Latest 7-day forecast from the planner, for upcoming-day matching. */
   forecast?: Conditions[] | null;
+  /** True while the Log tab is the visible one. Both screens stay mounted, so
+   * this is our cue to re-read saved spots that changed on the Plan tab. */
+  active?: boolean;
 }
 
-export function CatchLogScreen({ snapshot, forecast }: Props) {
+export function CatchLogScreen({ snapshot, forecast, active }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { isPro, limitsActive, showPaywall } = usePro();
   const [catches, setCatches] = useState<CatchRecord[]>([]);
+  // The catch photo currently open full-screen (tap a thumbnail), or null.
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+  // Saved spots — so a catch on a saved location shows that spot's name.
+  const [favorites, setFavorites] = useState<FavoriteLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   // Set while editing an existing catch (vs. logging a new one).
@@ -74,7 +138,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
   const [rig, setRig] = useState<string | null>(null);
   const [bait, setBait] = useState<string | null>(null);
   const [gearOther, setGearOther] = useState<string | null>(null);
-  const [size, setSize] = useState('');
+  const [lengthIn, setLengthIn] = useState('');
+  const [weightLb, setWeightLb] = useState('');
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [attachConditions, setAttachConditions] = useState(true);
@@ -82,6 +147,11 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
   // backdated and labeled, instead of logging as "today at the analyzed spot".
   const [catchDate, setCatchDate] = useState(todayInput());
   const [placeLabel, setPlaceLabel] = useState('');
+  // What the photo's EXIF filled in (shown as a hint; everything editable).
+  const [photoMetaNote, setPhotoMetaNote] = useState<string | null>(null);
+  // Exact moment + position from the photo, used at save time for the
+  // conditions timestamp/coordinates unless the angler overrides the date.
+  const photoMetaRef = useRef<PhotoMeta | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -93,17 +163,26 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       setCatches(list);
       setLoading(false);
     });
+    void loadFavorites().then(setFavorites);
   }, []);
 
-  // A backup import (Guide tab) can add catches while this screen stays
-  // mounted — reload the list when that happens.
+  // A backup import (Guide tab) can add catches or saved spots while this
+  // screen stays mounted — reload both when that happens.
   useEffect(
     () =>
       onBackupImported(() => {
         void loadCatches().then(setCatches);
+        void loadFavorites().then(setFavorites);
       }),
     [],
   );
+
+  // Both screens are always mounted, so a spot saved on the Plan tab isn't in
+  // this screen's state yet. Re-read saved spots each time the Log tab opens,
+  // so a catch on a saved spot resolves to that spot's name.
+  useEffect(() => {
+    if (active) void loadFavorites().then(setFavorites);
+  }, [active]);
 
   const resetForm = useCallback(() => {
     setSpecies(null);
@@ -111,13 +190,16 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setRig(null);
     setBait(null);
     setGearOther(null);
-    setSize('');
+    setLengthIn('');
+    setWeightLb('');
     setNotes('');
     setPhotoUri(null);
     setEditingId(null);
     setError(null);
     setCatchDate(todayInput());
     setPlaceLabel('');
+    setPhotoMetaNote(null);
+    photoMetaRef.current = null;
   }, []);
 
   const resolvedSpecies = species ?? '';
@@ -136,6 +218,43 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     else setBait(name);
   }, []);
 
+  // Pre-fill the form from a photo's EXIF: the date it was taken and, when
+  // GPS is embedded, the place. Everything stays editable — the metadata is
+  // the starting point, the angler has the final word.
+  const applyPhotoMeta = useCallback(
+    async (meta: PhotoMeta) => {
+      if (editingId) return; // editing keeps its logged date/conditions
+      const bits: string[] = [];
+      if (meta.takenAt && meta.takenAt.getTime() <= Date.now()) {
+        setCatchDate(
+          `${meta.takenAt.getMonth() + 1}/${meta.takenAt.getDate()}/${meta.takenAt.getFullYear()}`,
+        );
+        bits.push(
+          meta.takenAt.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          }),
+        );
+      }
+      if (meta.latitude != null && meta.longitude != null) {
+        const label = await reverseGeocode({
+          latitude: meta.latitude,
+          longitude: meta.longitude,
+        });
+        const place = label || `${meta.latitude.toFixed(4)}, ${meta.longitude.toFixed(4)}`;
+        setPlaceLabel(place);
+        bits.push(place);
+      }
+      if (bits.length) {
+        photoMetaRef.current = meta;
+        setPhotoMetaNote(`From the photo: ${bits.join(' · ')} — edit below if that's off.`);
+      }
+    },
+    [editingId],
+  );
+
   const pickPhoto = useCallback(async () => {
     setError(null);
     try {
@@ -149,10 +268,22 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
         allowsEditing: true,
         quality: 0.4,
         base64: Platform.OS === 'web',
+        exif: true,
       });
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset) return;
+      // Photo metadata is a bonus — never let it block adding the photo.
+      try {
+        let meta = metaFromPickerExif(asset.exif as Record<string, unknown> | undefined);
+        if (!meta.takenAt && meta.latitude == null && asset.base64) {
+          // Web: the picker strips EXIF from its response, so read the bytes.
+          meta = metaFromJpegBytes(base64ToBytes(asset.base64));
+        }
+        await applyPhotoMeta(meta);
+      } catch {
+        /* ignore — the photo itself still attaches below */
+      }
       // Resize down before storing — full-res photos blow past on-device
       // storage limits (this caused the "quota exceeded" error on web).
       const wantsBase64 = Platform.OS === 'web';
@@ -186,7 +317,7 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open the photo library.');
     }
-  }, []);
+  }, [applyPhotoMeta]);
 
   const onSave = useCallback(async () => {
     // Free tier caps *new* catches; editing an existing one is always allowed.
@@ -231,20 +362,49 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       : attachConditions && snapshot
         ? snapshot
         : undefined;
-    if (!editingId && conditions && when) {
-      const place = placeLabel.trim() || conditions.place;
-      const capturedAt = dateISO
-        ? `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}T12:00`
-        : conditions.capturedAt;
+    if (editingId && conditions) {
+      // Editing keeps the logged conditions as-is, except the location label,
+      // which the angler can rename (or clear) from the edit form.
+      const place = placeLabel.trim();
+      conditions = { ...conditions, place: place || undefined };
+    } else if (!editingId && conditions && when) {
+      // Blank label → the saved-spot name when this catch sits on one, else
+      // whatever the snapshot already called the place.
+      const favName = favoriteNameFor(favorites, conditions.latitude, conditions.longitude);
+      const place = placeLabel.trim() || favName || conditions.place;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      // The photo's exact moment beats the backdate default of local noon —
+      // but only while the entered date still matches the photo's day (a
+      // hand-edited date means the angler overrode the photo).
+      const meta = photoMetaRef.current;
+      const photoDay =
+        meta?.takenAt && meta.takenAt.toDateString() === when.toDateString()
+          ? meta.takenAt
+          : null;
+      const capturedAt = photoDay
+        ? `${photoDay.getFullYear()}-${pad(photoDay.getMonth() + 1)}-${pad(photoDay.getDate())}T${pad(photoDay.getHours())}:${pad(photoDay.getMinutes())}`
+        : dateISO
+          ? `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T12:00`
+          : conditions.capturedAt;
       conditions = { ...conditions, place, capturedAt };
+      // The photo's GPS pins the catch precisely, wherever the label ends up.
+      if (meta && meta.latitude != null && meta.longitude != null) {
+        conditions = { ...conditions, latitude: meta.latitude, longitude: meta.longitude };
+      }
     }
+    const lengthNum = parseNum(lengthIn);
+    const weightNum = parseNum(weightLb);
     const record = {
       species: resolvedSpecies,
       lure: lure ?? undefined,
       rig: rig ?? undefined,
       bait: bait ?? undefined,
       gearOther: gearOther ?? undefined,
-      size: size.trim() || undefined,
+      lengthIn: lengthNum,
+      weightLb: weightNum,
+      // Drop any legacy free-text size once real measurements are entered;
+      // otherwise keep the original so an old, unparseable size isn't lost.
+      size: lengthNum == null && weightNum == null ? original?.size : undefined,
       notes: notes.trim() || undefined,
       photoUri: photoUri ?? undefined,
       dateISO,
@@ -275,7 +435,7 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [resolvedSpecies, hasGear, lure, rig, bait, gearOther, size, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm, isPro, limitsActive, showPaywall, catchDate, placeLabel]);
+  }, [resolvedSpecies, hasGear, lure, rig, bait, gearOther, lengthIn, weightLb, notes, photoUri, attachConditions, snapshot, editingId, catches, resetForm, isPro, limitsActive, showPaywall, catchDate, placeLabel, favorites]);
 
   const onDelete = useCallback(async (id: string) => {
     const next = await deleteCatch(id);
@@ -290,15 +450,28 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
     setRig(c.rig ?? null);
     setBait(c.bait ?? null);
     setGearOther(c.gearOther ?? null);
-    setSize(c.size ?? '');
+    // Prefer the structured fields; fall back to migrating a legacy size string.
+    const legacy = parseLegacySize(c.size);
+    const len = c.lengthIn ?? legacy.lengthIn;
+    const wt = c.weightLb ?? legacy.weightLb;
+    setLengthIn(len != null ? numLabel(len) : '');
+    setWeightLb(wt != null ? numLabel(wt) : '');
     setNotes(c.notes ?? '');
     setPhotoUri(c.photoUri ?? null);
+    setPlaceLabel(
+      favoriteNameFor(favorites, c.conditions?.latitude, c.conditions?.longitude) ??
+        c.conditions?.place ??
+        '',
+    );
+    setPhotoMetaNote(null);
+    photoMetaRef.current = null;
     setEditingId(c.id);
     setFormOpen(true);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }, []);
+  }, [favorites]);
 
   return (
+    <>
     <ScrollView
       ref={scrollRef}
       style={styles.screen}
@@ -321,7 +494,13 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
             setNotice(null);
             setEditingId(null);
             setCatchDate(todayInput());
-            setPlaceLabel(snapshot?.place ?? '');
+            setPlaceLabel(
+              favoriteNameFor(favorites, snapshot?.latitude, snapshot?.longitude) ??
+                snapshot?.place ??
+                '',
+            );
+            setPhotoMetaNote(null);
+            photoMetaRef.current = null;
             setFormOpen(true);
           }}
         >
@@ -377,14 +556,32 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
             onPick={onPickGear}
           />
 
-          <Text style={styles.fieldLabel}>Size (optional)</Text>
-          <TextInput
-            value={size}
-            onChangeText={setSize}
-            placeholder='e.g. 18 in or 3.5 lb'
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-          />
+          <View style={styles.measureRow}>
+            <View style={styles.measureField}>
+              <Text style={styles.fieldLabel}>Length (in)</Text>
+              <TextInput
+                value={lengthIn}
+                onChangeText={setLengthIn}
+                placeholder="e.g. 18"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                style={styles.input}
+              />
+            </View>
+            <View style={styles.measureField}>
+              <Text style={styles.fieldLabel}>Weight (lb)</Text>
+              <TextInput
+                value={weightLb}
+                onChangeText={setWeightLb}
+                placeholder="e.g. 3.5"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                style={styles.input}
+              />
+            </View>
+          </View>
 
           <Text style={styles.fieldLabel}>Notes (optional)</Text>
           <TextInput
@@ -399,8 +596,17 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
           <Text style={styles.fieldLabel}>Photo (optional)</Text>
           {photoUri ? (
             <View>
-              <Image source={{ uri: photoUri }} style={styles.preview} />
-              <Pressable onPress={() => setPhotoUri(null)}>
+              <Pressable onPress={() => setViewingPhoto(photoUri)}>
+                <Image source={{ uri: photoUri }} style={styles.preview} />
+              </Pressable>
+              {photoMetaNote ? <Text style={styles.photoMetaNote}>{photoMetaNote}</Text> : null}
+              <Pressable
+                onPress={() => {
+                  setPhotoUri(null);
+                  setPhotoMetaNote(null);
+                  photoMetaRef.current = null;
+                }}
+              >
                 <Text style={styles.removePhoto}>Remove photo</Text>
               </Pressable>
             </View>
@@ -435,9 +641,19 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
 
           {editingId ? (
             catches.find((c) => c.id === editingId)?.conditions ? (
-              <Text style={styles.attachHint}>
-                The conditions logged with this catch are kept as they were.
-              </Text>
+              <>
+                <Text style={styles.fieldLabel}>Location label</Text>
+                <TextInput
+                  value={placeLabel}
+                  onChangeText={setPlaceLabel}
+                  placeholder="Where was this caught? (e.g. Balus Creek dock)"
+                  placeholderTextColor={colors.textMuted}
+                  style={styles.input}
+                />
+                <Text style={styles.attachHint}>
+                  The other conditions logged with this catch are kept as they were.
+                </Text>
+              </>
             ) : null
           ) : snapshot ? (
             <>
@@ -453,7 +669,12 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
                 <View style={styles.attachText}>
                   <Text style={styles.attachLabel}>Attach current conditions</Text>
                   <Text style={styles.attachPreview}>
-                    {snapshot.place ? `${snapshot.place} · ` : ''}
+                    {(() => {
+                      const place =
+                        favoriteNameFor(favorites, snapshot.latitude, snapshot.longitude) ??
+                        snapshot.place;
+                      return place ? `${place} · ` : '';
+                    })()}
                     {summarizeCatchConditions(snapshot)}
                   </Text>
                 </View>
@@ -512,7 +733,15 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
         catches.map((c) => (
           <View key={c.id} style={styles.card}>
             {c.photoUri ? (
-              <Image source={{ uri: c.photoUri }} style={styles.thumb} />
+              <Pressable
+                onPress={() => setViewingPhoto(c.photoUri ?? null)}
+                style={({ pressed }) => [styles.thumbWrap, pressed && pressedStyle]}
+              >
+                <Image source={{ uri: c.photoUri }} style={styles.thumb} />
+                <View style={styles.thumbHint}>
+                  <Feather name="maximize-2" size={10} color="#fff" />
+                </View>
+              </Pressable>
             ) : null}
             <View style={styles.cardBody}>
               <View style={styles.cardHead}>
@@ -579,12 +808,21 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
                 ))}
               <Text style={styles.cardMeta}>
                 {formatDate(c.dateISO)}
-                {c.size ? `  ·  ${c.size}` : ''}
+                {formatCatchSize(c) ? `  ·  ${formatCatchSize(c)}` : ''}
               </Text>
               {c.notes ? <Text style={styles.cardNotes}>{c.notes}</Text> : null}
               {c.conditions ? (
                 <Text style={styles.cardConditions}>
-                  {c.conditions.place ? `${c.conditions.place} · ` : ''}
+                  {(() => {
+                    // A saved spot's name wins over the raw/reverse-geocoded place.
+                    const place =
+                      favoriteNameFor(
+                        favorites,
+                        c.conditions.latitude,
+                        c.conditions.longitude,
+                      ) ?? c.conditions.place;
+                    return place ? `${place} · ` : '';
+                  })()}
                   {summarizeCatchConditions(c.conditions)}
                 </Text>
               ) : null}
@@ -594,6 +832,8 @@ export function CatchLogScreen({ snapshot, forecast }: Props) {
       )}
       </View>
     </ScrollView>
+    <PhotoViewer uri={viewingPhoto} onClose={() => setViewingPhoto(null)} />
+    </>
   );
 }
 
@@ -733,6 +973,9 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 15,
   },
   inputMultiline: { minHeight: 64, textAlignVertical: 'top' },
+  // Length + weight sit on one row, each taking half the width.
+  measureRow: { flexDirection: 'row', gap: spacing.md },
+  measureField: { flex: 1 },
   photoBtn: {
     backgroundColor: colors.accentDim,
     borderColor: colors.accent,
@@ -761,6 +1004,11 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 13,
     fontWeight: '700',
     marginTop: spacing.sm,
+  },
+  photoMetaNote: {
+    color: colors.accent,
+    fontSize: 12,
+    marginTop: spacing.xs,
   },
   attachRow: {
     flexDirection: 'row',
@@ -811,12 +1059,27 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     marginTop: spacing.md,
     ...shadow.card,
   },
+  thumbWrap: {
+    marginRight: spacing.md,
+    alignSelf: 'flex-start',
+  },
   thumb: {
     width: 64,
     height: 64,
     borderRadius: radius.md,
-    marginRight: spacing.md,
     backgroundColor: colors.bgElevated,
+  },
+  // Small corner badge hinting the thumbnail opens full-screen.
+  thumbHint: {
+    position: 'absolute',
+    right: 3,
+    bottom: 3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardBody: { flex: 1 },
   cardHead: {

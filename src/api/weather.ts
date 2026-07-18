@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Coordinates, SkyCondition, WeatherConditions } from '@/types';
 import {
   degreesToCompass,
@@ -164,6 +165,152 @@ function skyFromCloudCover(pct: number): SkyCondition {
   return 'overcast';
 }
 
+/**
+ * Hourly sea-level pressure FORECAST (converted to inHg) from MET Norway's
+ * free Locationforecast API — keyless, global, CC-BY 4.0 (commercial use OK
+ * with attribution; credited in the Guide tab + API_LICENSING.md). NWS grids
+ * ship no pressure forecast at all, so this is what lets the pressure value
+ * and trend look ahead across the whole week instead of holding "steady".
+ * Hourly for ~2-3 days, then 6-hourly steps to ~9 days; each value carries to
+ * the next entry. Best-effort: an empty series on any failure.
+ */
+const MET_NO_CACHE_PREFIX = 'balure.metno.v1.';
+const MET_NO_CACHE_TTL_MS = 6 * 3600000;
+
+function parseMetNoSeries(json: unknown): Series['points'] {
+  const ts =
+    (json as {
+      properties?: {
+        timeseries?: Array<{
+          time?: string;
+          data?: { instant?: { details?: { air_pressure_at_sea_level?: number | null } } };
+        }>;
+      };
+    }).properties?.timeseries ?? [];
+  const raw = ts
+    .map((t) => ({
+      ms: new Date(t.time ?? '').getTime(),
+      hPa: t.data?.instant?.details?.air_pressure_at_sea_level,
+    }))
+    .filter((p): p is { ms: number; hPa: number } => !Number.isNaN(p.ms) && p.hPa != null)
+    .sort((a, b) => a.ms - b.ms);
+  return raw.map((p, i) => ({
+    start: p.ms,
+    end: raw[i + 1]?.ms ?? p.ms + 6 * 3600000,
+    value: p.hPa * 0.02953,
+  }));
+}
+
+async function fetchMetNoPressure(coords: Coordinates): Promise<Series> {
+  // met.no asks for max 4 decimals and an identifying User-Agent.
+  const lat = coords.latitude.toFixed(4);
+  const lon = coords.longitude.toFixed(4);
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+  const cacheKey = `${MET_NO_CACHE_PREFIX}${lat},${lon}`;
+
+  // Two attempts. The second drops our custom headers entirely — some native
+  // HTTP stacks reject a fetch that sets User-Agent, and met.no answers 200
+  // without one, so this recovers the whole feature on those devices.
+  const headersFor = (attempt: number): Record<string, string> | undefined =>
+    attempt === 0 ? { 'User-Agent': NWS_HEADERS['User-Agent'], Accept: 'application/json' } : undefined;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      const res = await fetch(url, { headers: headersFor(attempt), signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+      const points = parseMetNoSeries(await res.json());
+      if (points.length) {
+        // Persist the good forecast so a later fetch that fails (flaky network,
+        // transient block) reuses it instead of collapsing to one flat value.
+        void AsyncStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), points })).catch(() => {});
+        return { points };
+      }
+    } catch {
+      // Fall through to the next attempt / the cache.
+    }
+  }
+
+  // Every fetch failed — reuse a recent cached forecast if we have one.
+  try {
+    const raw = await AsyncStorage.getItem(cacheKey);
+    if (raw) {
+      const cached = JSON.parse(raw) as { at?: number; points?: Series['points'] };
+      if (
+        cached?.points?.length &&
+        typeof cached.at === 'number' &&
+        Date.now() - cached.at < MET_NO_CACHE_TTL_MS
+      ) {
+        return { points: cached.points };
+      }
+    }
+  } catch {
+    // No usable cache.
+  }
+  return { points: [] };
+}
+
+/**
+ * Latest real barometric reading (inHg) + ~3h change from the nearest NWS
+ * observation station. NWS *forecast* grids usually ship an empty pressure
+ * series (it isn't a standard forecast element), so without this the app
+ * would show the 29.92 standard-atmosphere placeholder forever. Tries the
+ * first few stations (some don't report pressure); null on any failure.
+ */
+async function fetchObservedPressure(
+  stationsUrl: string | undefined,
+): Promise<{ inHg: number; changeInHg: number } | null> {
+  if (!stationsUrl) return null;
+  try {
+    const sRes = await fetchNwsWithRetry(stationsUrl);
+    const sJson = (await sRes.json()) as { observationStations?: string[] };
+    const stations = (sJson.observationStations ?? []).slice(0, 3);
+    const nowMs = Date.now();
+    for (const stationUrl of stations) {
+      try {
+        const readAt = async (query: string): Promise<{ ms: number; inHg: number } | null> => {
+          const res = await fetchNwsWithRetry(`${stationUrl}/observations?${query}`);
+          const json = (await res.json()) as {
+            features?: Array<{
+              properties?: {
+                timestamp?: string;
+                barometricPressure?: { value: number | null };
+                seaLevelPressure?: { value: number | null };
+              };
+            }>;
+          };
+          for (const f of json.features ?? []) {
+            const pa =
+              f.properties?.seaLevelPressure?.value ??
+              f.properties?.barometricPressure?.value;
+            const ms = new Date(f.properties?.timestamp ?? '').getTime();
+            if (pa != null && !Number.isNaN(ms)) return { ms, inHg: toInHg(pa) };
+          }
+          return null;
+        };
+        const latest = await readAt('limit=4');
+        if (!latest) continue; // station without pressure — try the next one
+        // A reading ~3h before the latest, for the rising/falling trend.
+        const from = new Date(latest.ms - 4 * 3600000).toISOString();
+        const to = new Date(latest.ms - 2.5 * 3600000).toISOString();
+        const past = await readAt(
+          `start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}&limit=4`,
+        );
+        // Stale stations (no reading in the last 3h) shouldn't pass as "now".
+        if (nowMs - latest.ms > 3 * 3600000) continue;
+        return { inHg: latest.inHg, changeInHg: past ? latest.inHg - past.inHg : 0 };
+      } catch {
+        // Try the next station.
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export interface WeekWeather {
   /** One representative snapshot per day (index 0 = today). */
   days: WeatherConditions[];
@@ -190,7 +337,7 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   const lon = coords.longitude.toFixed(4);
   const pointsRes = await fetchNwsWithRetry(`${POINTS_URL}/${lat},${lon}`);
   const points = (await pointsRes.json()) as {
-    properties?: { forecastGridData?: string; timeZone?: string };
+    properties?: { forecastGridData?: string; timeZone?: string; observationStations?: string };
   };
   const gridUrl = points.properties?.forecastGridData;
   const spotTimeZone = points.properties?.timeZone;
@@ -198,7 +345,14 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
     throw new Error('This spot is outside NWS forecast coverage (US only).');
   }
 
-  const gridRes = await fetchNwsWithRetry(gridUrl);
+  // Pressure rides along in parallel: the NWS grid's own pressure series is
+  // usually empty, so met.no supplies the week's forecast curve and a real
+  // station reading anchors "now" if that fails too.
+  const [gridRes, metNoPressure, obsPressure] = await Promise.all([
+    fetchNwsWithRetry(gridUrl),
+    fetchMetNoPressure(coords),
+    fetchObservedPressure(points.properties?.observationStations),
+  ]);
   const grid = ((await gridRes.json()) as { properties?: GridProperties }).properties;
   if (!grid) throw new Error('Weather response was missing forecast data.');
 
@@ -222,10 +376,29 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   const nowMs = base.getTime();
 
   function snap(ms: number, date: Date, timeISO: string): WeatherConditions {
-    const pressureNow = valueAt(pressure, ms);
-    const pressurePast = valueAt(pressure, ms - 3 * 3600000);
-    const pInHg = pressureNow ?? 29.92;
-    const change = pressureNow != null && pressurePast != null ? pressureNow - pressurePast : 0;
+    // Pressure source order: NWS grid (usually empty) -> met.no's hourly
+    // forecast (whole week, real trend everywhere) -> the nearest station's
+    // live reading (true ~3h trend near now, steady further out) -> 29.92.
+    // The trend always pairs now/past from the SAME source, so a mixed read
+    // never fabricates a rise or fall.
+    // 6h tendency window: forecast pressure curves are smoother than live
+    // barograph traces, so a 3h delta on a calm week rounds to "steady" every
+    // day. Six hours (a standard barometric-tendency period) surfaces the real
+    // slope without inventing movement.
+    const TREND_MS = 6 * 3600000;
+    const gridNow = valueAt(pressure, ms);
+    const gridPast = valueAt(pressure, ms - TREND_MS);
+    const metNow = valueAt(metNoPressure, ms);
+    const metPast = valueAt(metNoPressure, ms - TREND_MS);
+    const pInHg = gridNow ?? metNow ?? obsPressure?.inHg ?? 29.92;
+    const change =
+      gridNow != null && gridPast != null
+        ? gridNow - gridPast
+        : metNow != null && metPast != null
+          ? metNow - metPast
+          : obsPressure && Math.abs(ms - nowMs) < 6 * 3600000
+            ? obsPressure.changeInHg
+            : 0;
 
     const cloud = valueAt(sky, ms) ?? 0;
     const dir = valueAt(windDir, ms) ?? 0;

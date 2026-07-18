@@ -1,12 +1,23 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import Svg, { Polyline, Rect as SvgRect } from 'react-native-svg';
 import type { Conditions, Strategy } from '@/types';
+import {
+  ALL_METRIC_KEYS,
+  DEFAULT_METRIC_ORDER,
+  isMetricAvailable,
+  METRICS,
+  type MetricKey,
+} from '@/config/metrics';
+import { biteLabel } from '@/engine/strategy';
 import { Section } from '@/components/Section';
+import { DetailSheet } from '@/components/DetailSheet';
+import { ReorderableStrip } from '@/components/ReorderableStrip';
+import { HourPicker } from '@/components/HourPicker';
 import { tideAt } from '@/api/tides';
 import { hourLabel } from '@/utils/dates';
 import { fonts, makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
-
-const BAR_MAX = 60;
 
 export interface OutlookDay {
   label: string;
@@ -19,12 +30,27 @@ interface Props {
   conditions: Conditions;
   days: OutlookDay[];
   selectedDay: number;
-  onSelectDay: (index: number) => void;
-  /** Index into the day's hours, or null for the whole-day overview. */
+  /** Index into the day's hours, or null for the whole-day overview. Set from
+   * the graph sheet or the on-page When filter; the conditions strip reflects it. */
   selectedHour: number | null;
-  onSelectHour: (hour: number | null) => void;
-  /** Opens the tide + bite graph (shown only when the spot has a tide station). */
+  /** Pick a day from the on-page When filter (gates locked days → paywall). */
+  onSelectDay?: (day: number) => void;
+  /** Pick an hour (or null for whole-day) from the on-page When filter. */
+  onSelectHour?: (hour: number | null) => void;
+  /** First Pro-locked day, or null when the whole week is open. */
+  lockedFromDay?: number | null;
+  /** Opens the tide + bite graph — where the day, hour, and best times live. */
   onShowTideGraph?: () => void;
+  /** Opens the "Why they're biting" detail sheet from the score's "Why" link. */
+  onShowWhy?: () => void;
+  /** Anchor for the host's jump button: the bite hero, so a jump lands on the
+   * score + conditions rather than the score header. */
+  pickDayRef?: React.RefObject<View | null>;
+  /** The angler's chosen order for the conditions strip (see config/metrics).
+   * Defaults to the standard order when not set. */
+  metricOrder?: MetricKey[];
+  /** Persist a new strip order (from dragging the tiles in reorder mode). */
+  onReorderMetrics?: (order: MetricKey[]) => void;
 }
 
 const trendArrow: Record<string, string> = {
@@ -46,25 +72,35 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
 }
 
 /**
- * One container that merges the old Bite Forecast, 7-Day Outlook, and Conditions
- * cards. The day strip and the (tappable) hourly bite chart sit together, so a
- * day and an hour can be chosen side by side; the conditions grid below reflects
- * whatever day + hour is selected.
+ * The Plan tab's result summary: a bite-score hero, a scrollable strip of the
+ * five key conditions (tap "More" for the full grid), and the graph feature
+ * tile. Day and hour picking, best bite times, and the hourly chart live in
+ * the graph sheet the tile opens — so the main page stays a scannable
+ * dashboard and detail is one tap away.
  */
 export function ForecastCard({
   strategy,
   conditions,
   days,
   selectedDay,
-  onSelectDay,
   selectedHour,
+  onSelectDay,
   onSelectHour,
+  lockedFromDay = null,
   onShowTideGraph,
+  onShowWhy,
+  pickDayRef,
+  metricOrder = DEFAULT_METRIC_ORDER,
+  onReorderMetrics,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles();
   const { water, chartedDepth } = conditions;
+  // Drag-to-reorder mode for the conditions strip (tap the reorder icon).
+  const [reordering, setReordering] = useState(false);
   const hours = conditions.hourlyWeather;
+  // Full conditions grid lives one tap away, behind the "More" chip.
+  const [condOpen, setCondOpen] = useState(false);
 
   // Active weather: the selected hour, or the day's representative snapshot.
   const w =
@@ -90,228 +126,345 @@ export function ForecastCard({
         : `${hourLabel(thunderHours[0]!.timeISO)} – ${hourLabel(thunderHours[thunderHours.length - 1]!.timeISO)}`
       : null;
 
+  // The shown bite score follows the When filter: a picked hour shows that
+  // hour's bite (strategy.hourly is index-aligned with the day's hourlyWeather),
+  // while "all day" shows the day's overall score.
+  const hourScore = selectedHour != null ? strategy.hourly[selectedHour]?.score ?? null : null;
+  const shownScore = hourScore ?? strategy.biteScore;
+  const shownLabel = hourScore != null ? biteLabel(hourScore) : strategy.biteLabel;
+  const barColor = scoreColor(shownScore);
+  const trend = trendArrow[w.pressureTrend] ?? '';
+
+  // The key conditions, scrollable across; the rest are in the "More" sheet.
+  // Content and default order live in config/metrics; the angler's saved set +
+  // order (metricOrder) decides which show and first. Icons echo the fuller grid.
+  const metricCtx = {
+    w,
+    water,
+    trend,
+    clarity: conditions.clarity,
+    chartedDepthFt: chartedDepth?.depthFt ?? null,
+    tideState: tide?.state ?? null,
+  };
+  const condChips = metricOrder.map((k) => METRICS[k]);
+  // Metrics not on the strip yet but available for this spot (mirrors "More").
+  const activeSet = new Set(metricOrder);
+  const availableToAdd = ALL_METRIC_KEYS.filter(
+    (k) => !activeSet.has(k) && isMetricAvailable(k, metricCtx),
+  );
+  const addMetric = (k: MetricKey) => onReorderMetrics?.([...metricOrder, k]);
+  const removeMetric = (k: MetricKey) => {
+    // Keep at least one metric on the strip.
+    if (metricOrder.length > 1) onReorderMetrics?.(metricOrder.filter((m) => m !== k));
+  };
+
   return (
-    <Section
-      title="Forecast"
-      right={
-        <Text style={[styles.score, { color: scoreColor(strategy.biteScore) }]}>
-          {strategy.biteScore}
-          <Text style={styles.scoreMax}>/100</Text>
-        </Text>
-      }
-    >
-      <Text style={[styles.biteLabel, { color: scoreColor(strategy.biteScore) }]}>
-        {strategy.biteLabel}
-      </Text>
-      <View style={styles.bar}>
-        <View
-          style={[
-            styles.barFill,
-            { width: `${strategy.biteScore}%`, backgroundColor: scoreColor(strategy.biteScore) },
-          ]}
-        />
-      </View>
-      <Text style={styles.summary}>{strategy.summary}</Text>
-
-      {thunderRange ? (
-        <View style={styles.thunder}>
-          <Feather name="zap" size={15} color={colors.warn} />
-          <Text style={styles.thunderText}>
-            Thunderstorms forecast {thunderRange}{' '}
-            ({dayText === 'Tom' ? 'tomorrow' : dayText.toLowerCase()}) —
-            lightning and open water don't mix. Plan around it.
-          </Text>
-        </View>
-      ) : null}
-
-      <View style={styles.divider} />
-
-      {/* Day picker */}
-      <Text style={styles.subhead}>Pick a day</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.dayRow}
-      >
-        {days.map((d, i) => {
-          const active = i === selectedDay;
-          return (
-            <Pressable
-              key={i}
-              onPress={() => onSelectDay(i)}
-              style={({ pressed }) => [
-                styles.day,
-                active && styles.dayActive,
-                pressed && pressedStyle,
-              ]}
-            >
-              <Text style={[styles.dayLabel, active && styles.dayLabelActive]}>{d.label}</Text>
-              <Text style={[styles.dayNum, active && styles.dayLabelActive]}>{d.num}</Text>
-              <View style={[styles.dayPill, { backgroundColor: scoreColor(d.score) }]}>
-                <Text style={styles.dayPillText}>{d.score}</Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {conditions.tide && onShowTideGraph ? (
-        <Pressable
-          onPress={onShowTideGraph}
-          style={({ pressed }) => [styles.tideBtn, pressed && pressedStyle]}
-        >
-          <Feather name="bar-chart-2" size={17} color="#12332a" />
-          <Text style={styles.tideBtnText}>Tides & Bite Graph</Text>
-          <Feather name="chevron-right" size={17} color="#12332a" />
-        </Pressable>
-      ) : null}
-
-      {strategy.bestWindows.length > 0 ? (
-        <View style={styles.windows}>
-          <Text style={styles.subhead}>Best bite times</Text>
-          {strategy.bestWindows.map((win, i) => (
-            <View key={i} style={styles.window}>
-              <Feather name="crosshair" size={14} color={colors.accent} style={styles.target} />
-              <Text style={styles.windowRange}>{win.range}</Text>
-              <View style={[styles.windowPill, { backgroundColor: scoreColor(win.score) }]}>
-                <Text style={styles.windowPillText}>{win.biteLabel}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      {/* Hour picker = tappable hourly bite chart */}
-      {hours.length > 0 ? (
-        <View>
-          <View style={styles.hourHead}>
-            <Text style={styles.subhead}>Pick an hour</Text>
-            <Pressable
-              onPress={() => onSelectHour(null)}
-              style={({ pressed }) => [
-                styles.allday,
-                selectedHour == null && styles.alldayActive,
-                pressed && pressedStyle,
-              ]}
-            >
-              <Text style={[styles.alldayText, selectedHour == null && styles.alldayTextActive]}>
-                All day
+    <>
+      <Text style={styles.sectionLabel}>Bite</Text>
+      <View ref={pickDayRef} collapsable={false} style={styles.heroCard}>
+        <View style={styles.heroRow}>
+          <Text style={[styles.scoreBig, { color: barColor }]}>{shownScore}</Text>
+          <View style={styles.heroBody}>
+            <View style={styles.heroLabelRow}>
+              <Text style={[styles.biteLabel, { color: barColor }]} numberOfLines={1}>
+                {shownLabel}
               </Text>
+              {onShowWhy ? (
+                <Pressable
+                  onPress={onShowWhy}
+                  hitSlop={8}
+                  style={({ pressed }) => (pressed ? pressedStyle : undefined)}
+                >
+                  <View style={styles.whyRow}>
+                    <Text style={styles.whyText}>Why</Text>
+                    <Feather name="chevron-right" size={14} color={colors.textMuted} />
+                  </View>
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.bar}>
+              <View style={[styles.barFill, { width: `${shownScore}%`, backgroundColor: barColor }]} />
+            </View>
+          </View>
+        </View>
+        <Text style={styles.summary}>{strategy.summary}</Text>
+
+        {thunderRange ? (
+          <View style={styles.thunder}>
+            <Feather name="zap" size={15} color={colors.warn} />
+            <Text style={styles.thunderText}>
+              Thunderstorms forecast {thunderRange}{' '}
+              ({dayText === 'Tom' ? 'tomorrow' : dayText.toLowerCase()}) —
+              lightning and open water don't mix. Plan around it.
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Conditions — key chips scroll across; "More" opens the full grid, and
+          the reorder icon drops the tiles into drag-to-reorder mode. */}
+      {reordering ? (
+        <View style={styles.reorderWrap}>
+          <View style={styles.reorderHead}>
+            <Text style={styles.reorderHint}>Drag to reorder · tap ✕ to remove</Text>
+            <Pressable
+              onPress={() => setReordering(false)}
+              hitSlop={8}
+              style={({ pressed }) => [styles.doneBtn, pressed && pressedStyle]}
+            >
+              <Feather name="check" size={13} color={colors.accent} />
+              <Text style={styles.doneText}>Done</Text>
             </Pressable>
           </View>
+          <ReorderableStrip
+            items={condChips}
+            keyOf={(chip) => chip.key}
+            height={54}
+            onReorder={(list) => onReorderMetrics?.(list.map((chip) => chip.key))}
+            renderItem={(chip, dragging) => (
+              <View style={[styles.reorderTile, dragging && styles.reorderTileActive]}>
+                {condChips.length > 1 ? (
+                  <Pressable
+                    onPress={() => removeMetric(chip.key)}
+                    hitSlop={10}
+                    style={styles.tileRemove}
+                  >
+                    <Feather name="x" size={11} color="#fff" />
+                  </Pressable>
+                ) : null}
+                <Feather
+                  name={chip.icon}
+                  size={14}
+                  color={dragging ? colors.accent : colors.text}
+                />
+                <Text style={styles.reorderTileLabel} numberOfLines={1}>
+                  {chip.label}
+                </Text>
+              </View>
+            )}
+          />
+          {availableToAdd.length ? (
+            <View style={styles.addSection}>
+              <Text style={styles.addLabel}>Add a metric</Text>
+              <View style={styles.addRow}>
+                {availableToAdd.map((k) => (
+                  <Pressable
+                    key={k}
+                    onPress={() => addMetric(k)}
+                    style={({ pressed }) => [styles.addChip, pressed && pressedStyle]}
+                  >
+                    <Feather name={METRICS[k].icon} size={12} color={colors.accent} />
+                    <Text style={styles.addChipLabel}>{METRICS[k].label}</Text>
+                    <Feather name="plus" size={12} color={colors.accent} />
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <View style={styles.condRow}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chart}
+            contentContainerStyle={styles.condStrip}
           >
-            {strategy.hourly.map((h, i) => {
-              const active = i === selectedHour;
+            {condChips.map((chip) => (
+              <View key={chip.key} style={styles.condChip}>
+                <Text style={styles.condChipValue}>{chip.value(metricCtx)}</Text>
+                <View style={styles.condChipLabelRow}>
+                  <Feather name={chip.icon} size={11} color={colors.textMuted} />
+                  <Text style={styles.condChipLabel}>{chip.label}</Text>
+                </View>
+              </View>
+            ))}
+            <Pressable
+              onPress={() => setCondOpen(true)}
+              style={({ pressed }) => [styles.moreChip, pressed && pressedStyle]}
+            >
+              <Text style={styles.moreChipText}>More</Text>
+              <Feather name="chevron-right" size={13} color={colors.accent} />
+            </Pressable>
+          </ScrollView>
+          {onReorderMetrics ? (
+            <Pressable
+              onPress={() => setReordering(true)}
+              hitSlop={8}
+              accessibilityLabel="Reorder conditions"
+              style={({ pressed }) => [styles.reorderBtn, pressed && pressedStyle]}
+            >
+              <Feather name="move" size={15} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+
+      {/* When — pick the day and hour right here; the conditions above and the
+          bite score both follow it (the graph sheet has the same controls). */}
+      {onSelectDay ? (
+        <View style={styles.whenBlock}>
+          <Text style={styles.sectionLabel}>When</Text>
+          {/* Days spread evenly across the full width (fixed count), so the row
+              fills any screen instead of left-packing on a wider phone. */}
+          <View style={styles.dayRow}>
+            {days.map((d, i) => {
+              const active = i === selectedDay;
+              const locked = lockedFromDay != null && i >= lockedFromDay;
               return (
                 <Pressable
                   key={i}
-                  onPress={() => onSelectHour(i)}
+                  onPress={() => onSelectDay(i)}
                   style={({ pressed }) => [
-                    styles.col,
-                    !h.isDay && !active && styles.night,
-                    active && styles.colActive,
+                    styles.dayFilter,
+                    active && styles.dayFilterActive,
                     pressed && pressedStyle,
                   ]}
                 >
-                  <Text style={styles.colScore}>{h.score}</Text>
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.hbar,
-                        {
-                          height: Math.max(4, (h.score / 100) * BAR_MAX),
-                          backgroundColor: scoreColor(h.score),
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.colLabel, active && styles.colLabelActive]}>{h.label}</Text>
+                  <Text
+                    style={[styles.dayFilterLabel, active && styles.dayFilterActiveText]}
+                    numberOfLines={1}
+                  >
+                    {d.label}
+                  </Text>
+                  <Text style={[styles.dayFilterNum, active && styles.dayFilterActiveText]}>
+                    {d.num}
+                  </Text>
+                  {locked ? (
+                    <Feather name="lock" size={9} color={colors.textMuted} />
+                  ) : (
+                    <View style={[styles.dayFilterPill, { backgroundColor: scoreColor(d.score) }]}>
+                      <Text style={styles.dayFilterPillText}>{d.score}</Text>
+                    </View>
+                  )}
                 </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
+          {/* Scroll the hour under the needle to set it — a tap works too. The
+              dial rests on "All day" at the 6am boundary: the fishable hours
+              run to the right, and the dead-of-night hours (12–5am) are tucked
+              to the LEFT — swipe right to reach them. */}
+          {(() => {
+            const hourItems = hours.map((h, i) => ({
+              label: hrShort(h.timeISO),
+              hour: i as number | null,
+              clock: new Date(h.timeISO).getHours(),
+            }));
+            const early = hourItems.filter((it) => it.clock < 6);
+            const rest = hourItems.filter((it) => it.clock >= 6);
+            return (
+              <HourPicker
+                value={selectedHour}
+                onChange={(hr) => onSelectHour?.(hr)}
+                items={[...early, { label: 'All day', hour: null }, ...rest]}
+              />
+            );
+          })()}
         </View>
       ) : null}
 
-      <View style={styles.divider} />
-
-      {/* Conditions for the selected day + hour */}
-      <Text style={styles.condHead}>Conditions · {whenText}</Text>
-      <View style={styles.grid}>
-        <Stat label="Air" value={`${w.airTempF}°F`} />
-        <Stat
-          label="Water"
-          value={`${water.waterTempF}°F`}
-          hint={water.isEstimated ? 'estimated' : 'measured'}
-        />
-        {chartedDepth ? (
-          <Stat label="Depth" value={`≈${chartedDepth.depthFt} ft`} hint="charted bottom" />
-        ) : null}
-        <Stat
-          label="Pressure"
-          value={`${w.pressureInHg}"`}
-          hint={`${trendArrow[w.pressureTrend] ?? '·'} ${w.pressureTrend}`}
-        />
-        <Stat
-          label="Wind"
-          value={`${w.windMph} mph`}
-          hint={`${w.windDirectionLabel} · g${w.windGustMph}`}
-        />
-        <Stat label="Sky" value={skyShort(w.sky)} hint={`${w.cloudCoverPct}% cloud`} />
-        <Stat
-          label="Rain"
-          value={`${w.precipChancePct}%`}
-          hint={w.thunder ? '⚡ thunderstorms' : w.precipChancePct >= 35 ? w.weatherLabel : 'chance'}
-        />
-        <Stat label="Clarity" value={cap(conditions.clarity)} />
-        <Stat label="Humidity" value={`${w.humidityPct}%`} hint={w.weatherLabel} />
-        <Stat label="Sunrise" value={w.sunrise} />
-        <Stat label="Sunset" value={w.sunset} />
-        <Stat
-          label="Moon"
-          value={`${w.moonIllumPct}%`}
-          hint={w.moonMajor ? `${w.moonPhase} ◆` : w.moonPhase}
-        />
-        {water.waveHeightFt != null ? (
-          <Stat label="Waves" value={`${water.waveHeightFt} ft`} />
-        ) : null}
-        {tide ? (
-          <Stat
-            label="Tide"
-            value={cap(tide.state)}
-            hint={tide.nextEvent ? `${tide.nextEvent.type} ${shortTime(tide.nextEvent.time)}` : undefined}
-          />
-        ) : null}
-      </View>
-
-      {tide ? (
-        <Text style={styles.meta}>
-          NOAA station {tide.stationName} · {tide.stationDistanceMi} mi away
-        </Text>
-      ) : null}
-      <Text style={styles.meta}>
-        {chartedDepth
-          ? `Charted bottom depth from ${chartedDepth.source}`
-          : 'No charted bottom depth here — your selected depth zone still guides the picks.'}
-      </Text>
-
-      {strategy.aiNarrative ? (
-        <View style={styles.ai}>
-          <Text style={styles.aiLabel}>GUIDE'S TAKE (AI)</Text>
-          <Text style={styles.aiText}>{strategy.aiNarrative}</Text>
-        </View>
+      {onShowTideGraph ? (
+        <>
+          <Text style={styles.sectionLabel}>Plan</Text>
+          <Pressable
+            onPress={onShowTideGraph}
+            style={({ pressed }) => [styles.featureTile, pressed && pressedStyle]}
+          >
+            <Svg width={64} height={38} viewBox="0 0 64 38">
+              <SvgRect x={2} y={26} width={6} height={9} rx={1} fill={colors.accent} opacity={0.7} />
+              <SvgRect x={17} y={20} width={6} height={15} rx={1} fill={colors.accent} opacity={0.7} />
+              <SvgRect x={32} y={16} width={6} height={19} rx={1} fill={colors.accent} opacity={0.7} />
+              <SvgRect x={47} y={23} width={6} height={12} rx={1} fill={colors.accent} opacity={0.7} />
+              <Polyline
+                points="0,28 12,16 24,20 36,8 48,13 64,22"
+                fill="none"
+                stroke={colors.water}
+                strokeWidth={2.2}
+              />
+            </Svg>
+            <View style={styles.featureBody}>
+              {/* Freshwater has no tide station, but the hourly weather/bite
+                  charts still work — the sheet opens on the air-temp chart. */}
+              <Text style={styles.featureTitle}>
+                {conditions.tide ? 'Tides & Bite Graph' : 'Hourly & Bite Graph'}
+              </Text>
+              <Text style={styles.featureSub}>Hourly bite, tide, and every condition</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={colors.textMuted} />
+          </Pressable>
+        </>
       ) : null}
 
-      <Text style={styles.hint}>
-        Tap a day, then an hour to see the bite and conditions for that moment.
-        Bite is graded hour by hour (night dimmed); peaks usually fall around
-        dawn and dusk. Future days are forecasts.
-      </Text>
-    </Section>
+      {/* Full conditions grid — one tap from the "More" chip. */}
+      <DetailSheet visible={condOpen} onClose={() => setCondOpen(false)}>
+        <Section title={`Conditions · ${whenText}`}>
+          <View style={styles.grid}>
+            <Stat label="Air" value={`${w.airTempF}°F`} />
+            <Stat
+              label="Water"
+              value={`${water.waterTempF}°F`}
+              hint={water.isEstimated ? 'estimated' : 'measured'}
+            />
+            {chartedDepth ? (
+              <Stat label="Depth" value={`≈${chartedDepth.depthFt} ft`} hint="charted bottom" />
+            ) : null}
+            <Stat
+              label="Pressure"
+              value={`${w.pressureInHg}"`}
+              hint={`${trendArrow[w.pressureTrend] ?? '·'} ${w.pressureTrend}`}
+            />
+            <Stat
+              label="Wind"
+              value={`${w.windMph} mph`}
+              hint={`${w.windDirectionLabel} · g${w.windGustMph}`}
+            />
+            <Stat label="Sky" value={skyShort(w.sky)} hint={`${w.cloudCoverPct}% cloud`} />
+            <Stat
+              label="Rain"
+              value={`${w.precipChancePct}%`}
+              hint={w.thunder ? '⚡ thunderstorms' : w.precipChancePct >= 35 ? w.weatherLabel : 'chance'}
+            />
+            <Stat label="Clarity" value={cap(conditions.clarity)} />
+            <Stat label="Humidity" value={`${w.humidityPct}%`} hint={w.weatherLabel} />
+            <Stat label="Sunrise" value={w.sunrise} />
+            <Stat label="Sunset" value={w.sunset} />
+            <Stat
+              label="Moon"
+              value={`${w.moonIllumPct}%`}
+              hint={w.moonMajor ? `${w.moonPhase} ◆` : w.moonPhase}
+            />
+            {water.waveHeightFt != null ? (
+              <Stat label="Waves" value={`${water.waveHeightFt} ft`} />
+            ) : null}
+            {tide ? (
+              <Stat
+                label="Tide"
+                value={cap(tide.state)}
+                hint={tide.nextEvent ? `${tide.nextEvent.type} ${shortTime(tide.nextEvent.time)}` : undefined}
+              />
+            ) : null}
+          </View>
+
+          {tide ? (
+            <Text style={styles.meta}>
+              NOAA station {tide.stationName} · {tide.stationDistanceMi} mi away
+            </Text>
+          ) : null}
+          <Text style={styles.meta}>
+            {chartedDepth
+              ? `Charted bottom depth from ${chartedDepth.source}`
+              : 'No charted bottom depth here — your selected depth zone still guides the picks.'}
+          </Text>
+
+          {strategy.aiNarrative ? (
+            <View style={styles.ai}>
+              <Text style={styles.aiLabel}>GUIDE'S TAKE (AI)</Text>
+              <Text style={styles.aiText}>{strategy.aiNarrative}</Text>
+            </View>
+          ) : null}
+        </Section>
+      </DetailSheet>
+    </>
   );
 }
 
@@ -330,22 +483,78 @@ function shortTime(iso: string): string {
   return parts[1] ?? iso;
 }
 
+/** Compact hour label for the When filter chips: "12a", "6a", "3p", "11p". */
+function hrShort(iso: string): string {
+  const h = new Date(iso).getHours();
+  const ap = h < 12 ? 'a' : 'p';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${ap}`;
+}
+
 const useStyles = makeStyles((colors) => ({
-  // Bite headline
-  score: { fontFamily: fonts.displayBold, fontSize: 32 },
-  scoreMax: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
-  biteLabel: { fontSize: 16, fontWeight: '700', marginBottom: spacing.sm },
+  // Section eyebrow labels ("Bite", "Plan").
+  sectionLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  // When filter — day + hour scrollers below the conditions strip.
+  whenBlock: { marginTop: spacing.xs },
+  // Day chips share the full width evenly (7 fixed days).
+  dayRow: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.xs },
+  dayFilter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: 2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.card,
+  },
+  dayFilterActive: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  dayFilterLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  dayFilterNum: { color: colors.textMuted, fontSize: 10 },
+  dayFilterActiveText: { color: colors.accent },
+  dayFilterPill: { minWidth: 22, alignItems: 'center', borderRadius: radius.pill, paddingHorizontal: 5, paddingVertical: 1 },
+  dayFilterPillText: { color: '#0c140e', fontSize: 10, fontWeight: '800' },
+
+  // Bite hero
+  heroCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  scoreBig: { fontFamily: fonts.displayBold, fontSize: 46, lineHeight: 50 },
+  heroBody: { flex: 1 },
+  heroLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  biteLabel: { fontSize: 16, fontWeight: '800', flex: 1 },
+  whyRow: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  whyText: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
   bar: {
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.bgElevated,
     overflow: 'hidden',
-    marginBottom: spacing.md,
   },
   barFill: { height: '100%', borderRadius: 4 },
-  summary: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  summary: { color: colors.text, fontSize: 14, lineHeight: 20, marginTop: spacing.md },
 
-  divider: { height: 1, backgroundColor: colors.cardBorder, marginVertical: spacing.md },
   thunder: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -358,95 +567,140 @@ const useStyles = makeStyles((colors) => ({
     borderColor: colors.errorBorder,
   },
   thunderText: { flex: 1, color: colors.errorText, fontSize: 12, lineHeight: 17, fontWeight: '600' },
-  subhead: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-  },
 
-  // Day strip
-  dayRow: { gap: spacing.sm, paddingVertical: spacing.xs },
-  day: {
-    width: 58,
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
+  // Conditions chip strip
+  condRow: { flexDirection: 'row', alignItems: 'center' },
+  condStrip: { gap: spacing.sm, paddingVertical: spacing.xs, paddingRight: spacing.xs },
+  // Reorder toggle sitting at the right end of the strip row.
+  reorderBtn: {
+    width: 34,
+    height: 34,
     borderRadius: radius.md,
-    backgroundColor: colors.bgElevated,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-    gap: 4,
-  },
-  dayActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
-  dayLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  dayLabelActive: { color: colors.text },
-  dayNum: { color: colors.textMuted, fontSize: 11 },
-  dayPill: {
-    minWidth: 30,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
+    backgroundColor: colors.card,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing.sm,
   },
-  dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
-
-  // Tide graph opener — a raised white pill so it pops off the dark card.
-  tideBtn: {
+  reorderWrap: { paddingVertical: spacing.xs },
+  reorderHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: '#ffffff',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  reorderHint: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
+  doneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
+    borderColor: colors.accent,
+    backgroundColor: colors.accentDim,
+  },
+  doneText: { color: colors.accent, fontSize: 12, fontWeight: '800' },
+  reorderTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    marginHorizontal: 3,
+    alignSelf: 'stretch',
+  },
+  reorderTileActive: {
+    borderColor: colors.accent,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 9,
-    elevation: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  tideBtnText: { flex: 1, color: '#12332a', fontSize: 15, fontWeight: '800', letterSpacing: 0.3 },
-
-  // Best windows
-  windows: { gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.md },
-  window: { flexDirection: 'row', alignItems: 'center' },
-  target: { fontSize: 14, marginRight: spacing.sm },
-  windowRange: { color: colors.text, fontSize: 15, fontWeight: '800', flex: 1 },
-  windowPill: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 10 },
-  windowPillText: { color: '#0e1f12', fontSize: 12, fontWeight: '900' },
-
-  // Hourly chart / hour picker
-  hourHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  reorderTileLabel: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  // Remove badge in the tile's top-right corner.
+  tileRemove: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: colors.bad,
     alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
   },
-  allday: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.md,
-    backgroundColor: colors.bgElevated,
+  // "Add a metric" — tap-to-add chips for everything not on the strip yet.
+  addSection: { marginTop: spacing.md },
+  addLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: spacing.xs,
+  },
+  addRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  addChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
     borderWidth: 1,
-    borderColor: colors.cardBorder,
-    marginBottom: spacing.sm,
+    borderRadius: radius.pill,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
   },
-  alldayActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
-  alldayText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
-  alldayTextActive: { color: colors.text },
-  chart: { gap: spacing.sm, alignItems: 'flex-end', paddingVertical: spacing.xs },
-  col: { width: 36, alignItems: 'center', paddingVertical: 4, borderRadius: radius.sm },
-  colActive: { backgroundColor: colors.accentDim },
-  night: { opacity: 0.45 },
-  colScore: { color: colors.textMuted, fontSize: 10, fontWeight: '700', marginBottom: 2 },
-  barTrack: { height: BAR_MAX, justifyContent: 'flex-end' },
-  hbar: { width: 16, borderRadius: 4 },
-  colLabel: { color: colors.textMuted, fontSize: 9, marginTop: 4 },
-  colLabelActive: { color: colors.text, fontWeight: '700' },
+  addChipLabel: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  condChip: {
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    minWidth: 66,
+  },
+  condChipValue: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  condChipLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  condChipLabel: { color: colors.textMuted, fontSize: 10 },
+  moreChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    backgroundColor: colors.accentDim,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+  },
+  moreChipText: { color: colors.accent, fontSize: 12, fontWeight: '700' },
 
-  // Conditions grid
+  // Graph feature tile
+  featureTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
+    borderWidth: 2,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  featureBody: { flex: 1 },
+  featureTitle: { color: colors.text, fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
+  featureSub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+
+  // Conditions grid (in the "More" sheet)
   condHead: {
     fontFamily: fonts.display,
     color: colors.text,
@@ -460,7 +714,6 @@ const useStyles = makeStyles((colors) => ({
   statHint: { color: colors.accent, fontSize: 10, marginTop: 1 },
   meta: { color: colors.textMuted, fontSize: 11, marginTop: spacing.xs },
 
-  // AI + hint
   ai: {
     marginTop: spacing.md,
     paddingTop: spacing.md,
@@ -475,5 +728,4 @@ const useStyles = makeStyles((colors) => ({
     marginBottom: spacing.xs,
   },
   aiText: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  hint: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: spacing.md },
 }));

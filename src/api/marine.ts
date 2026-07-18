@@ -61,7 +61,9 @@ async function fetchMeasuredWaterTempF(coords: Coordinates): Promise<number | nu
     format: 'json',
   });
   const res = await fetch(`${DATA_URL}?${params.toString()}`);
-  if (!res.ok) return null;
+  // A station is in range but its reading failed to load — signal an outage by
+  // throwing (distinct from `null`, which means no station was near enough).
+  if (!res.ok) throw new Error(`Water temp read failed (${res.status}).`);
   const data = (await res.json()) as { data?: Array<{ v?: string }> };
   const v = Number(data.data?.[0]?.v);
   return Number.isFinite(v) ? v : null;
@@ -78,33 +80,53 @@ async function fetchMeasuredWaterTempF(coords: Coordinates): Promise<number | nu
  * `airTempByDay` aligns 1:1 with the requested days and drives the estimate.
  * `waveHeightFtByDay` comes from the NWS forecast grid (coastal grids only).
  */
+export interface WeekWaterResult {
+  /** One entry per requested day, aligned 1:1 with `airTempByDay`. */
+  days: WaterConditions[];
+  /**
+   * True ONLY when a saltwater spot has a station in range but its NOAA reading
+   * couldn't be fetched (an outage) — the temps below are then estimated as a
+   * fallback. Stays false for freshwater, and for saltwater spots with no
+   * station nearby, where estimating is normal rather than a failure.
+   */
+  measuredUnavailable: boolean;
+}
+
 export async function fetchWeekWater(
   coords: Coordinates,
   waterType: WaterType,
   airTempByDay: number[],
   waveHeightFtByDay?: Array<number | null>,
-): Promise<WaterConditions[]> {
+): Promise<WeekWaterResult> {
   const waveAt = (d: number) => waveHeightFtByDay?.[d] ?? null;
+  const estimatedDays = (): WaterConditions[] =>
+    airTempByDay.map((airTemp, d) => ({
+      ...estimate(airTemp),
+      waveHeightFt: waveAt(d),
+    }));
 
   if (waterType === 'saltwater') {
     try {
       const measured = await fetchMeasuredWaterTempF(coords);
       if (measured != null) {
-        return airTempByDay.map((_, d) => ({
-          waterTempF: round(measured),
-          isEstimated: false,
-          waveHeightFt: waveAt(d),
-        }));
+        return {
+          days: airTempByDay.map((_, d) => ({
+            waterTempF: round(measured),
+            isEstimated: false,
+            waveHeightFt: waveAt(d),
+          })),
+          measuredUnavailable: false,
+        };
       }
+      // measured == null → no station within range; estimating is expected.
     } catch {
-      // Fall through to estimates below.
+      // Station list or reading fetch failed — the source is down. Fall back to
+      // an estimate, but tell the caller so it can flag the outage to the user.
+      return { days: estimatedDays(), measuredUnavailable: true };
     }
   }
 
-  return airTempByDay.map((airTemp, d) => ({
-    ...estimate(airTemp),
-    waveHeightFt: waveAt(d),
-  }));
+  return { days: estimatedDays(), measuredUnavailable: false };
 }
 
 function estimate(airTempF: number): WaterConditions {

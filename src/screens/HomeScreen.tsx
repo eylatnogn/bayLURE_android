@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import type {
   CatchConditions,
   Conditions,
@@ -29,6 +30,7 @@ import {
   loadFavorites,
   addFavorite,
   deleteFavorite,
+  reorderFavorites,
 } from '@/storage/favorites';
 import { loadLastSpot, saveLastSpot } from '@/storage/lastSpot';
 import { loadSettings, saveSettings } from '@/storage/settings';
@@ -36,11 +38,12 @@ import {
   loadPresets,
   addPreset,
   deletePreset,
+  reorderPresets,
   type ConditionPreset,
 } from '@/storage/presets';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
-import { gatherForecast } from '@/api/conditions';
+import { gatherForecast, type SourceOutage } from '@/api/conditions';
 import { isLikelySaltwater } from '@/api/tides';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
@@ -50,6 +53,7 @@ import { buildCatchConditions } from '@/utils/snapshot';
 import { addDays, dayLabel, dayNumber, hourLabel } from '@/utils/dates';
 import { ForecastCard } from '@/components/ForecastCard';
 import { TideGraphModal } from '@/components/TideGraphModal';
+import { DetailSheet } from '@/components/DetailSheet';
 import { AreaFishCard } from '@/components/AreaFishCard';
 import { RegulationsCard } from '@/components/RegulationsCard';
 import { PicksCard } from '@/components/PicksCard';
@@ -61,9 +65,11 @@ import {
 } from '@/components/StructurePicker';
 import { SpeciesPicker } from '@/components/SpeciesPicker';
 import { MapPicker } from '@/components/MapPicker';
+import { ReorderableList } from '@/components/ReorderableList';
+import { DEFAULT_METRIC_ORDER, type MetricKey } from '@/config/metrics';
+import { loadMetricOrder, saveMetricOrder } from '@/storage/metricOrder';
 import { Section } from '@/components/Section';
 import { BrandHeader } from '@/components/BrandHeader';
-import { Button } from '@/components/Button';
 import { APP_VERSION } from '@/version';
 import { FREE_LIMITS, usePro } from '@/purchases/pro';
 import { makeStyles, pressedStyle, radius, spacing, useTheme } from '@/theme';
@@ -76,7 +82,7 @@ interface Props {
 }
 
 export function HomeScreen({ onSnapshot, onForecast }: Props) {
-  const { colors } = useTheme();
+  const { colors, gradients } = useTheme();
   const styles = useStyles();
   const { isPro, limitsActive, showPaywall } = usePro();
   const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
@@ -97,39 +103,85 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live sources that failed the last analysis (NOAA outage, etc.) — drives the
+  // "some data is temporarily unavailable" notice. Empty when all came through.
+  const [outages, setOutages] = useState<SourceOutage[]>([]);
   const [forecast, setForecast] = useState<Conditions[] | null>(null);
   const [strategies, setStrategies] = useState<Strategy[] | null>(null);
   const [selectedDay, setSelectedDay] = useState(0);
   // Index into the selected day's hourlyWeather, or null for the day overview.
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  // Free tier sees today + tomorrow; further days open the paywall. Follows
+  // the same fail-open rule as the save limits: dormant until billing exists.
+  const lockedFromDay = limitsActive && !isPro ? FREE_LIMITS.forecastDays : null;
+  const pickDay = (day: number) => {
+    if (lockedFromDay != null && day >= lockedFromDay) {
+      showPaywall();
+      return;
+    }
+    setSelectedDay(day);
+    setSelectedHour(null);
+  };
   const [areaFish, setAreaFish] = useState<AreaFish[]>([]);
   const [region, setRegion] = useState<Region | null>(null);
   // Presets are tucked away (collapsed); the refinements stay open by default.
-  const [quickStartOpen, setQuickStartOpen] = useState(false);
-  const [fineTuneOpen, setFineTuneOpen] = useState(true);
+  // The input area collapses into two summary bars: Location (the map stays
+  // visible; search / GPS / save / saved-spots tuck behind it) and Adjust
+  // conditions (presets + fine-tune). Both open until the first analysis.
+  const [locationOpen, setLocationOpen] = useState(true);
+  const [adjustOpen, setAdjustOpen] = useState(true);
   const [savedSpotsOpen, setSavedSpotsOpen] = useState(false);
-  // The "Tides & Bite" hourly graph modal (saltwater spots only).
+  // Two-step delete: first tap arms this id, a second tap on the confirm
+  // control removes it — so a stray tap never deletes a spot or preset.
+  const [confirmDeleteFav, setConfirmDeleteFav] = useState<string | null>(null);
+  const [confirmDeletePreset, setConfirmDeletePreset] = useState<string | null>(null);
+  // The "Tides & Bite" hourly graph sheet (freshwater gets the same sheet as
+  // "Hourly & Bite" — metric charts only, no tide curve).
   const [tideGraphOpen, setTideGraphOpen] = useState(false);
+  // Height the tide sheet opens at so its top butts against the map's bottom
+  // ("locked up to the map"). Computed on open from the measured map + viewport;
+  // null falls back to the sheet's content-fit height.
+  const [tideSheetH, setTideSheetH] = useState<number | null>(null);
+  // Which detail card is open in a bottom sheet (tap a dashboard tile). The
+  // cards themselves are unchanged — they just render in the sheet now.
+  const [detailSheet, setDetailSheet] = useState<
+    'picks' | 'insights' | 'playbooks' | 'regs' | 'fish' | null
+  >(null);
   // The angler's own saved condition configurations.
   const [customPresets, setCustomPresets] = useState<ConditionPreset[]>([]);
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetLabel, setPresetLabel] = useState('');
+  // The angler's chosen order for the main-page conditions strip — different
+  // anglers read different metrics first (see config/metrics).
+  const [metricOrder, setMetricOrder] = useState<MetricKey[]>(DEFAULT_METRIC_ORDER);
   // True once the angler has chosen a water type by hand/preset — auto-detect
   // then leaves it alone.
   const userSetWaterType = useRef(false);
 
   // Scroll plumbing for the floating jump button (top <-> bite forecast).
   const scrollRef = useRef<ScrollView>(null);
+  // The screen root — a stable window anchor for measuring the map's live
+  // on-screen position (its top == the scroll viewport's top).
+  const rootRef = useRef<View>(null);
+  // While a saved-spot/preset row is being dragged, freeze the page so the
+  // reorder gesture can't scroll the screen out from under the finger.
+  const [reordering, setReordering] = useState(false);
   const bodyY = useRef(0); // body offset within the scroll content
   // The map's wrapper, measured when the tide sheet opens so the map — not
   // the page top — lands in the strip above the sheet.
   const mapWrapRef = useRef<View>(null);
   // The forecast card's wrapper, for the jump button's fresh measurements.
   const forecastWrapRef = useRef<View>(null);
+  // The "Pick a day" anchor inside the card — the jump button lands here, on
+  // the day picker + conditions, not on the score header above them.
+  const pickDayRef = useRef<View>(null);
   const scrollYRef = useRef(0);
   // Collapse "Fine-tune your read" once, when the first results land.
   const hadResults = useRef(false);
   const forecastRelY = useRef(0); // forecast card offset within the body
+  const mapRelY = useRef(0); // map wrapper offset within the body
+  const mapH = useRef(0); // map wrapper height, for sizing the tide sheet
+  const viewportH = useRef(0); // scroll viewport height, for sizing the tide sheet
   const [nearForecast, setNearForecast] = useState(false);
 
   // Auto-analyze plumbing: the signature of the last setup we analyzed, and a
@@ -227,6 +279,20 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setCustomPresets(await deletePreset(id));
   }, []);
 
+  // Drag reorder: update the list immediately, persist the new order after.
+  const onReorderPresets = useCallback((list: ConditionPreset[]) => {
+    setCustomPresets(list);
+    void reorderPresets(list);
+  }, []);
+  const onReorderFavorites = useCallback((list: FavoriteLocation[]) => {
+    setFavorites(list);
+    void reorderFavorites(list);
+  }, []);
+  const onReorderMetrics = useCallback((list: MetricKey[]) => {
+    setMetricOrder(list);
+    void saveMetricOrder(list);
+  }, []);
+
   const toggleSpecies = useCallback((sp: Species) => {
     setSpecies((prev) =>
       prev.includes(sp) ? prev.filter((s) => s !== sp) : [...prev, sp],
@@ -321,6 +387,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     void loadPresets().then(setCustomPresets);
   }, []);
 
+  useEffect(() => {
+    void loadMetricOrder().then(setMetricOrder);
+  }, []);
+
   // A backup import (Guide tab) can add spots/presets while this screen stays
   // mounted — reload both lists when that happens.
   useEffect(
@@ -333,13 +403,14 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   );
 
   // Auto-pick water type from the spot (coastal → saltwater) unless the angler
-  // has already set it by hand or via a preset.
+  // has already set it by hand or via a preset. null means the check couldn't
+  // run (NOAA outage, no cached station list) — keep the current setting rather
+  // than flipping a known-saltwater spot to freshwater.
   useEffect(() => {
     if (!coordinates || userSetWaterType.current) return;
-    void isLikelySaltwater(coordinates).then((salt) => {
-      if (userSetWaterType.current) return;
-      setWaterTypeFiltered(salt ? 'saltwater' : 'freshwater');
-    });
+    const salt = isLikelySaltwater(coordinates);
+    if (salt == null) return;
+    setWaterTypeFiltered(salt ? 'saltwater' : 'freshwater');
   }, [coordinates, setWaterTypeFiltered]);
 
   const onSaveFavorite = useCallback(async () => {
@@ -389,7 +460,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setAnalyzing(true);
     if (!silent) setError(null);
     try {
-      const [week, fish, reg] = await Promise.all([
+      const [forecastRes, fish, reg] = await Promise.all([
         gatherForecast({
           coordinates,
           waterType,
@@ -402,6 +473,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
         reverseRegion(coordinates).catch(() => null),
       ]);
+      const week = forecastRes.days;
+      // Show (or clear) the source-outage notice for this run.
+      setOutages(forecastRes.outages);
       const strats = week.map((c) => buildStrategy(c));
       setForecast(week);
       onForecast?.(week);
@@ -415,7 +489,8 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       // star. Only once — re-runs while the angler tweaks it shouldn't fight.
       if (!hadResults.current) {
         hadResults.current = true;
-        setFineTuneOpen(false);
+        setLocationOpen(false);
+        setAdjustOpen(false);
       }
       // Catch log always attaches *today's* conditions, not a future forecast.
       if (week[0] && strats[0]) {
@@ -461,56 +536,79 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setNearForecast((prev) => (prev === near ? prev : near));
   }, []);
 
-  // Fresh y-offset of a wrapper inside the scroll content. Collapsing sections
-  // shifts everything, so stored offsets go stale — measure at press time.
-  const measureInScroll = useCallback((ref: React.RefObject<View | null>) => {
-    return new Promise<number | null>((resolve) => {
-      const scroller = scrollRef.current;
-      const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
-        ?.getInnerViewNode?.();
-      const node = ref.current as unknown as {
-        measureLayout?: (n: unknown, ok: (x: number, y: number) => void, fail: () => void) => void;
-      } | null;
-      if (!inner || !node?.measureLayout) {
-        resolve(null);
-        return;
-      }
-      node.measureLayout(inner, (_x, y) => resolve(y), () => resolve(null));
+  // Where the map's top sits in the scroll content, MEASURED LIVE. The cached
+  // onLayout offset (bodyY + mapRelY) went stale: collapsing the Location bar
+  // shifts the map up without changing the map's own size, and onLayout doesn't
+  // re-fire for a position-only move — so the jump landed in the middle of the
+  // map, not its top. measureInWindow reads the real current position instead.
+  // Unlike measureLayout / getInnerViewNode (which lean on the ScrollView's
+  // inner-view node that release-build Android view-flattening can drop), it
+  // measures the map view directly — and the map wrapper is collapsable={false},
+  // so it always resolves. The onLayout offset stays as a fallback.
+  const measureMapTop = useCallback((done: (y: number) => void) => {
+    const map = mapWrapRef.current;
+    const root = rootRef.current;
+    const fallback = () => done(Math.max(0, bodyY.current + mapRelY.current - 6));
+    if (!map?.measureInWindow || !root?.measureInWindow) {
+      fallback();
+      return;
+    }
+    // root top == scroll viewport top; map top - viewport top + current scroll
+    // = the map's offset within the scroll content.
+    root.measureInWindow((_rx, rootY) => {
+      map.measureInWindow((_mx, mapY) => {
+        if (typeof rootY !== 'number' || typeof mapY !== 'number') {
+          fallback();
+          return;
+        }
+        done(Math.max(0, scrollYRef.current + (mapY - rootY) - 6));
+      });
     });
   }, []);
 
-  const jumpToForecast = useCallback(async () => {
+  const jumpToForecast = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const [mapY, forecastY] = await Promise.all([
-      measureInScroll(mapWrapRef),
-      measureInScroll(forecastWrapRef),
-    ]);
-    if (mapY == null || forecastY == null) {
-      // Fallback to the stored offsets if measuring isn't available.
-      scroller.scrollTo({
-        y: nearForecast ? 0 : Math.max(0, bodyY.current + forecastRelY.current - 8),
-        animated: true,
-      });
-      return;
+    const forecastTop = Math.max(0, bodyY.current + forecastRelY.current - 8);
+    // At (or near) the forecast → hop up to the map; otherwise → down to it.
+    const atForecast = scrollYRef.current >= forecastTop - 160;
+    if (atForecast) {
+      measureMapTop((y) => scroller.scrollTo({ y, animated: true }));
+    } else {
+      scroller.scrollTo({ y: forecastTop, animated: true });
     }
-    // At (or past) the forecast → hop up to the map; otherwise → the forecast.
-    const atForecast = scrollYRef.current >= forecastY - 160;
-    scroller.scrollTo({
-      y: Math.max(0, (atForecast ? mapY : forecastY) - 8),
-      animated: true,
-    });
-  }, [nearForecast, measureInScroll]);
+  }, [measureMapTop]);
+
+  // Bring the map to the top of the viewport so a bottom sheet opens "locked
+  // up to the map" — the same feel as the Tides & Bite sheet — instead of
+  // floating over whatever happened to be scrolled into view.
+  const scrollMapIntoView = useCallback(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    measureMapTop((y) => scroller.scrollTo({ y, animated: true }));
+  }, [measureMapTop]);
+
+  const openDetail = useCallback(
+    (kind: 'picks' | 'insights' | 'playbooks' | 'regs' | 'fish') => {
+      scrollMapIntoView();
+      setDetailSheet(kind);
+    },
+    [scrollMapIntoView],
+  );
 
   return (
-    <View style={styles.root}>
+    <View ref={rootRef} collapsable={false} style={styles.root}>
     <ScrollView
       ref={scrollRef}
       style={styles.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      onLayout={(e) => {
+        viewportH.current = e.nativeEvent.layout.height;
+      }}
       onScroll={onScroll}
       scrollEventThrottle={16}
+      scrollEnabled={!reordering}
     >
       <BrandHeader
         heading="bayLURE"
@@ -526,68 +624,174 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           bodyY.current = e.nativeEvent.layout.y;
         }}
       >
-      {/* Step 1 — Location */}
-      <Section title="Location" icon="map-pin">
-        <Pressable
-          onPress={useMyLocation}
-          disabled={locating}
-          style={({ pressed }) => [
-            styles.secondaryBtn,
-            locating && styles.btnDisabled,
-            pressed && pressedStyle,
-          ]}
-        >
-          {locating ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <View style={styles.btnRow}>
-              <Feather name="map-pin" size={16} color={colors.text} />
-              <Text style={styles.secondaryBtnText}>Use my location</Text>
-            </View>
-          )}
-        </Pressable>
+      {/* Step 1 — Location: a summary bar; the map stays visible while the
+          search / GPS / save / saved-spots controls tuck behind its chevron. */}
+      <Pressable
+        onPress={() => setLocationOpen((v) => !v)}
+        style={({ pressed }) => [styles.summaryBar, pressed && pressedStyle]}
+      >
+        <View style={styles.summaryBarLeft}>
+          <Feather name="map-pin" size={16} color={colors.accent} />
+          <Text style={styles.summaryBarTitle} numberOfLines={1}>
+            {coordinates ? place : 'Set a location'}
+          </Text>
+          <View style={styles.waterPill}>
+            <Text style={styles.waterPillText}>
+              {waterType === 'saltwater' ? 'Saltwater' : 'Freshwater'}
+            </Text>
+          </View>
+        </View>
+        <Feather
+          name={locationOpen ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.textMuted}
+        />
+      </Pressable>
 
-        <Text style={styles.orLabel}>or enter an address or ZIP code</Text>
-        <View style={styles.searchRow}>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            onSubmitEditing={onFindAddress}
-            placeholder="e.g. 30301 or Lake Lanier, GA"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="words"
-            returnKeyType="search"
-            style={styles.input}
-          />
+      {locationOpen ? (
+        <View style={styles.inputBlock}>
           <Pressable
-            onPress={onFindAddress}
-            disabled={geocoding || !query.trim()}
+            onPress={useMyLocation}
+            disabled={locating}
             style={({ pressed }) => [
-              styles.findBtn,
-              (geocoding || !query.trim()) && styles.btnDisabled,
+              styles.secondaryBtn,
+              locating && styles.btnDisabled,
               pressed && pressedStyle,
             ]}
           >
-            {geocoding ? (
-              <ActivityIndicator color={colors.card} />
+            {locating ? (
+              <ActivityIndicator color={colors.accent} />
             ) : (
-              <Text style={styles.findBtnText}>Find</Text>
+              <View style={styles.btnRow}>
+                <Feather name="map-pin" size={16} color={colors.text} />
+                <Text style={styles.secondaryBtnText}>Use my location</Text>
+              </View>
             )}
           </Pressable>
-        </View>
 
-        <Text style={styles.orLabel}>or drop a pin on the map</Text>
-        {/* collapsable=false so the wrapper stays measurable on Android. */}
-        <View ref={mapWrapRef} collapsable={false}>
-          <MapPicker
-            center={coordinates}
-            onPick={onPickOnMap}
-            windTargetLabel={windTargetLabel}
-            windMph={windWx?.windMph ?? null}
-            windDirDeg={windWx?.windDirectionDeg ?? null}
-          />
-        </View>
+          <Text style={styles.orLabel}>or enter an address or ZIP code</Text>
+          <View style={styles.searchRow}>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={onFindAddress}
+              placeholder="e.g. 30301 or Lake Lanier, GA"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="words"
+              returnKeyType="search"
+              style={styles.input}
+            />
+            <Pressable
+              onPress={onFindAddress}
+              disabled={geocoding || !query.trim()}
+              style={({ pressed }) => [
+                styles.findBtn,
+                (geocoding || !query.trim()) && styles.btnDisabled,
+                pressed && pressedStyle,
+              ]}
+            >
+              {geocoding ? (
+                <ActivityIndicator color={colors.card} />
+              ) : (
+                <Text style={styles.findBtnText}>Find</Text>
+              )}
+            </Pressable>
+          </View>
 
+          {/* Saved spots live HERE, with the other "pick a location" controls —
+              up top where they're seen the moment Location expands, not buried
+              under the map. */}
+          {favorites.length > 0 ? (
+            <View style={styles.favList}>
+              <Pressable
+                onPress={() => setSavedSpotsOpen((v) => !v)}
+                style={({ pressed }) => [styles.favDropdown, pressed && pressedStyle]}
+              >
+                <Text style={styles.favDropdownLabel}>
+                  Saved spots ({favorites.length})
+                </Text>
+                <Feather
+                  name={savedSpotsOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+              {savedSpotsOpen ? (
+                <>
+                  <Text style={styles.dragHint}>
+                    Tap to load · press and hold 1.5s to reorder
+                  </Text>
+                  <ReorderableList
+                    items={favorites}
+                    keyOf={(f) => f.id}
+                    rowHeight={44}
+                    onReorder={onReorderFavorites}
+                    onActiveChange={setReordering}
+                    rowStyle={styles.favRowCard}
+                    onItemPress={(fav) => onLoadFavorite(fav)}
+                    renderItem={(fav) => (
+                      <>
+                        <Feather name="star" size={14} color={colors.warn} />
+                        <Text style={styles.favName} numberOfLines={1}>
+                          {fav.label}
+                        </Text>
+                      </>
+                    )}
+                    renderTrailing={(fav) =>
+                      confirmDeleteFav === fav.id ? (
+                        <View style={styles.confirmDeleteRow}>
+                          <Pressable
+                            onPress={() => {
+                              void onDeleteFavorite(fav.id);
+                              setConfirmDeleteFav(null);
+                            }}
+                            hitSlop={8}
+                          >
+                            <Text style={styles.confirmDeleteText}>Delete</Text>
+                          </Pressable>
+                          <Pressable onPress={() => setConfirmDeleteFav(null)} hitSlop={8}>
+                            <Text style={styles.confirmCancelText}>Cancel</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <Pressable onPress={() => setConfirmDeleteFav(fav.id)} hitSlop={8}>
+                          <Feather name="trash-2" size={15} color={colors.textMuted} />
+                        </Pressable>
+                      )
+                    }
+                  />
+                </>
+              ) : null}
+            </View>
+          ) : null}
+
+          <Text style={styles.orLabel}>or drop a pin on the map</Text>
+        </View>
+      ) : null}
+
+      {/* The map always stays visible. collapsable=false keeps the wrapper a
+          real view; onLayout records its offset within the body for the jump
+          button and the "lock map to top" scroll (re-fires on relayout). */}
+      <View
+        ref={mapWrapRef}
+        collapsable={false}
+        style={styles.mapWrap}
+        onLayout={(e) => {
+          mapRelY.current = e.nativeEvent.layout.y;
+          mapH.current = e.nativeEvent.layout.height;
+        }}
+      >
+        <MapPicker
+          center={coordinates}
+          onPick={onPickOnMap}
+          windTargetLabel={windTargetLabel}
+          windMph={windWx?.windMph ?? null}
+          windDirDeg={windWx?.windDirectionDeg ?? null}
+        />
+      </View>
+
+      {locationOpen ? (
+        <View style={styles.inputBlock}>
         <Text style={styles.selected}>
           {coordinates
             ? `Spot set — ${place}`
@@ -628,60 +832,31 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
           </View>
         ) : null}
 
-        {favorites.length > 0 ? (
-          <View style={styles.favList}>
-            <Pressable
-              onPress={() => setSavedSpotsOpen((v) => !v)}
-              style={({ pressed }) => [styles.favDropdown, pressed && pressedStyle]}
-            >
-              <Text style={styles.favDropdownLabel}>
-                Saved spots ({favorites.length})
-              </Text>
-              <Feather
-                name={savedSpotsOpen ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={colors.textMuted}
-              />
-            </Pressable>
-            {savedSpotsOpen
-              ? favorites.map((fav) => (
-                  <View key={fav.id} style={styles.favRow}>
-                    <Pressable
-                      style={({ pressed }) => [styles.favTap, pressed && pressedStyle]}
-                      onPress={() => onLoadFavorite(fav)}
-                    >
-                      <Feather
-                        name="star"
-                        size={14}
-                        color={colors.warn}
-                        style={styles.favStar}
-                      />
-                      <Text style={styles.favName}>{fav.label}</Text>
-                    </Pressable>
-                    <Pressable onPress={() => onDeleteFavorite(fav.id)} hitSlop={8}>
-                      <Feather name="x" size={16} color={colors.textMuted} />
-                    </Pressable>
-                  </View>
-                ))
-              : null}
-          </View>
-        ) : null}
-      </Section>
+        </View>
+      ) : null}
 
-      {/* Presets — collapsed by default, optional */}
+      {/* Step 2 — Adjust conditions: presets + fine-tune behind one bar. */}
       <Pressable
-        onPress={() => setQuickStartOpen((v) => !v)}
-        style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
+        onPress={() => setAdjustOpen((v) => !v)}
+        style={({ pressed }) => [styles.summaryBar, pressed && pressedStyle]}
       >
-        <Text style={styles.collapseTitle}>Presets</Text>
+        <View style={styles.summaryBarLeft}>
+          <Feather name="sliders" size={16} color={colors.accent} />
+          <Text style={styles.summaryBarTitle}>Adjust conditions</Text>
+          <Text style={styles.summaryBarSub} numberOfLines={1}>
+            {' · '}
+            {configSummary}
+          </Text>
+        </View>
         <Feather
-          name={quickStartOpen ? 'chevron-up' : 'chevron-down'}
+          name={adjustOpen ? 'chevron-up' : 'chevron-down'}
           size={18}
           color={colors.textMuted}
         />
       </Pressable>
 
-      {quickStartOpen ? (
+      {adjustOpen ? (
+        <View>
         <Section title="Quick Start" icon="zap">
           <Text style={styles.helper}>
             Tap a starter profile, or save your own setup below to reuse it.
@@ -698,21 +873,56 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
                 <Text style={styles.presetText}>{p.label}</Text>
               </Pressable>
             ))}
-            {customPresets.map((p) => (
-              <View key={p.id} style={styles.presetCustom}>
-                <Pressable
-                  style={({ pressed }) => [styles.presetCustomTap, pressed && pressedStyle]}
-                  onPress={() => applyCustomPreset(p)}
-                >
-                  <Feather name="bookmark" size={13} color={colors.accent} />
-                  <Text style={styles.presetText}>{p.label}</Text>
-                </Pressable>
-                <Pressable onPress={() => onDeletePreset(p.id)} hitSlop={8}>
-                  <Feather name="x" size={14} color={colors.textMuted} />
-                </Pressable>
-              </View>
-            ))}
           </View>
+
+          {/* The angler's own presets — a drag-to-reorder list (grip on the
+              right) so the order they see is the order they set. */}
+          {customPresets.length > 0 ? (
+            <View style={styles.presetList}>
+              <Text style={styles.dragHint}>
+                Tap to apply · press and hold 1.5s to reorder
+              </Text>
+              <ReorderableList
+                items={customPresets}
+                keyOf={(p) => p.id}
+                rowHeight={42}
+                onReorder={onReorderPresets}
+                onActiveChange={setReordering}
+                rowStyle={styles.presetRowCard}
+                onItemPress={(p) => applyCustomPreset(p)}
+                renderItem={(p) => (
+                  <>
+                    <Feather name="bookmark" size={13} color={colors.accent} />
+                    <Text style={styles.presetText} numberOfLines={1}>
+                      {p.label}
+                    </Text>
+                  </>
+                )}
+                renderTrailing={(p) =>
+                  confirmDeletePreset === p.id ? (
+                    <View style={styles.confirmDeleteRow}>
+                      <Pressable
+                        onPress={() => {
+                          void onDeletePreset(p.id);
+                          setConfirmDeletePreset(null);
+                        }}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.confirmDeleteText}>Delete</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setConfirmDeletePreset(null)} hitSlop={8}>
+                        <Text style={styles.confirmCancelText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable onPress={() => setConfirmDeletePreset(p.id)} hitSlop={8}>
+                      <Feather name="trash-2" size={14} color={colors.textMuted} />
+                    </Pressable>
+                  )
+                }
+              />
+            </View>
+          ) : null}
 
           {!savingPreset ? (
             <Pressable
@@ -741,23 +951,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             </View>
           )}
         </Section>
-      ) : null}
 
-      {/* Refinements, collapsed by default so the fast path stays short */}
-      <Pressable
-        onPress={() => setFineTuneOpen((v) => !v)}
-        style={({ pressed }) => [styles.collapse, pressed && pressedStyle]}
-      >
-        <Text style={styles.collapseTitle}>Fine-tune your read</Text>
-        <Feather
-          name={fineTuneOpen ? 'chevron-up' : 'chevron-down'}
-          size={18}
-          color={colors.textMuted}
-        />
-      </Pressable>
-
-      {fineTuneOpen ? (
-        <View>
           <Section title="Water Type" icon="droplet">
             <WaterTypeToggle value={waterType} onChange={onChangeWaterType} />
             <Text style={[styles.helper, styles.helperGap]}>
@@ -828,19 +1022,71 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         </View>
       ) : null}
 
-      <Text style={styles.summaryLine}>{configSummary}</Text>
-
-      <Button
-        title={coordinates ? 'Analyze my spot' : 'Set a location first'}
-        icon="target"
+      {/* Primary CTA styled like the Tides & Bite Graph feature tile — icon,
+          title + subtitle, trailing chevron — but on the foliage gradient so
+          it still reads as the hero action. */}
+      <Pressable
         onPress={() => onAnalyze()}
         disabled={analyzing || !coordinates}
-        loading={analyzing}
-      />
+        style={({ pressed }) => [
+          styles.analyzeShadow,
+          (analyzing || !coordinates) && styles.analyzeDisabled,
+          pressed && pressedStyle,
+        ]}
+      >
+        <LinearGradient
+          colors={gradients.button}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.analyzeTile}
+        >
+          <View style={styles.analyzeIconWrap}>
+            <Feather name="target" size={22} color={colors.onAccent} />
+          </View>
+          <View style={styles.analyzeBody}>
+            <Text style={styles.analyzeTitle}>
+              {coordinates ? 'Analyze my spot' : 'Set a location first'}
+            </Text>
+            <Text style={styles.analyzeSub}>Live weather, water & the bite plan</Text>
+          </View>
+          {analyzing ? (
+            <ActivityIndicator color={colors.onAccent} />
+          ) : (
+            <Feather name="chevron-right" size={20} color={colors.onAccent} />
+          )}
+        </LinearGradient>
+      </Pressable>
 
       {error ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
+
+      {/* A calm, non-blocking notice when a live source is down: the forecast
+          still renders (estimated/partial), and we say plainly it's the
+          provider's outage, not the angler's connection. */}
+      {outages.length > 0 && forecast ? (
+        <View style={styles.noticeBox}>
+          <View style={styles.noticeHead}>
+            <Feather name="alert-triangle" size={15} color={colors.warn} />
+            <Text style={styles.noticeTitle}>
+              Some live data is temporarily unavailable
+            </Text>
+          </View>
+          <Text style={styles.noticeText}>
+            {outages.length === 1 ? 'This source is' : 'These sources are'} down
+            right now, so parts of this read are estimated or missing:
+          </Text>
+          {outages.map((o) => (
+            <Text key={o.key} style={styles.noticeItem}>
+              {'•'}  {o.label} — {o.source}
+            </Text>
+          ))}
+          <Text style={styles.noticeFoot}>
+            This is on the provider's end, not your connection. Everything else
+            is live — try again shortly.
+          </Text>
         </View>
       ) : null}
 
@@ -861,50 +1107,68 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
               score: s.biteScore,
             }))}
             selectedDay={selectedDay}
-            onSelectDay={(day) => {
-              setSelectedDay(day);
-              setSelectedHour(null);
-            }}
             selectedHour={selectedHour}
+            onSelectDay={pickDay}
             onSelectHour={setSelectedHour}
+            lockedFromDay={lockedFromDay}
+            pickDayRef={pickDayRef}
+            metricOrder={metricOrder}
+            onReorderMetrics={onReorderMetrics}
+            onShowWhy={() => openDetail('insights')}
             onShowTideGraph={() => {
               // Scroll the MAP (not the page top) into the strip above the
               // sheet, so the spot and the graph are visible together.
-              const scroller = scrollRef.current;
-              const inner = (scroller as unknown as { getInnerViewNode?: () => unknown })
-                ?.getInnerViewNode?.();
-              const mapNode = mapWrapRef.current as unknown as {
-                measureLayout?: (
-                  node: unknown,
-                  ok: (x: number, y: number) => void,
-                  fail: () => void,
-                ) => void;
-              } | null;
-              if (scroller && inner && mapNode?.measureLayout) {
-                mapNode.measureLayout(
-                  inner,
-                  (_x, y) => scroller.scrollTo({ y: Math.max(0, y - 6), animated: true }),
-                  () => scroller.scrollTo({ y: 0, animated: true }),
-                );
-              } else {
-                scroller?.scrollTo({ y: 0, animated: true });
-              }
+              scrollMapIntoView();
+              // Size the sheet to fill the gap between the map's bottom (which
+              // the scroll parks 6px below the viewport top) and the screen
+              // bottom, so it opens locked up to the map instead of floating in
+              // the middle and revealing the Adjust-conditions bar. Falls back
+              // to content-fit until both measurements are in.
+              const gap = viewportH.current - mapH.current - 6;
+              setTideSheetH(mapH.current > 0 && gap > 0 ? gap : null);
               setTideGraphOpen(true);
             }}
           />
         ) : null}
       </View>
-      {strategy ? <PicksCard strategy={strategy} /> : null}
-      {strategy ? <InsightsCard strategy={strategy} /> : null}
+      {/* The deep-detail cards are one tap away now: a tile grid instead of a
+          long stack. Tapping a tile opens the same card, unchanged, in a
+          bottom sheet. */}
       {strategy ? (
-        <RegulationsCard region={region} />
-      ) : null}
-      {areaFish.length > 0 ? (
-        <AreaFishCard
-          fish={areaFish}
-          onPickTarget={onPickTarget}
-          regsUrl={regsUrl}
-        />
+        <View style={styles.detailTiles}>
+          <DetailTile
+            icon="target"
+            title="Throw this"
+            subtitle="Lures, rigs & bait for now"
+            onPress={() => openDetail('picks')}
+          />
+          <DetailTile
+            icon="help-circle"
+            title="Why they're biting"
+            subtitle="What the fish are doing & why"
+            onPress={() => openDetail('insights')}
+          />
+          <DetailTile
+            icon="book-open"
+            title="Playbooks"
+            subtitle="Water clarity & pressure tactics"
+            onPress={() => openDetail('playbooks')}
+          />
+          <DetailTile
+            icon="file-text"
+            title="Regulations"
+            subtitle="Local size & bag limits"
+            onPress={() => openDetail('regs')}
+          />
+          {areaFish.length > 0 ? (
+            <DetailTile
+              icon="anchor"
+              title="Nearby fish"
+              subtitle="Species reported here"
+              onPress={() => openDetail('fish')}
+            />
+          ) : null}
+        </View>
       ) : null}
 
       {!conditions && !analyzing && !error ? (
@@ -944,6 +1208,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       {strategies && forecast ? (
         <TideGraphModal
           visible={tideGraphOpen}
+          openHeight={tideSheetH}
           onClose={() => setTideGraphOpen(false)}
           forecast={forecast}
           strategies={strategies}
@@ -953,15 +1218,60 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             score: s.biteScore,
           }))}
           selectedDay={selectedDay}
-          onSelectDay={(day) => {
-            setSelectedDay(day);
-            setSelectedHour(null);
-          }}
+          onSelectDay={pickDay}
+          lockedFromDay={lockedFromDay}
           selectedHour={selectedHour}
           onSelectHour={setSelectedHour}
         />
       ) : null}
+
+      {/* Deep-detail cards, one tap away — a sheet that floats over the live
+          map (rendered at the screen root, so `floating` lines up correctly). */}
+      <DetailSheet floating visible={detailSheet !== null} onClose={() => setDetailSheet(null)}>
+        {detailSheet === 'picks' && strategy ? <PicksCard strategy={strategy} /> : null}
+        {detailSheet === 'insights' && strategy ? (
+          <InsightsCard strategy={strategy} part="behavior" />
+        ) : null}
+        {detailSheet === 'playbooks' && strategy ? (
+          <InsightsCard strategy={strategy} part="playbooks" />
+        ) : null}
+        {detailSheet === 'regs' ? <RegulationsCard region={region} /> : null}
+        {detailSheet === 'fish' ? (
+          <AreaFishCard fish={areaFish} onPickTarget={onPickTarget} regsUrl={regsUrl} />
+        ) : null}
+      </DetailSheet>
     </View>
+  );
+}
+
+/** One dashboard tile: icon, title, one-line teaser — opens a detail sheet. */
+function DetailTile({
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.detailTile, pressed && pressedStyle]}
+    >
+      <View style={styles.detailTileHead}>
+        <View style={styles.detailTileIcon}>
+          <Feather name={icon} size={16} color={colors.accent} />
+        </View>
+        <Feather name="chevron-right" size={16} color={colors.textMuted} />
+      </View>
+      <Text style={styles.detailTileTitle}>{title}</Text>
+      <Text style={styles.detailTileSub}>{subtitle}</Text>
+    </Pressable>
   );
 }
 
@@ -1010,16 +1320,14 @@ interface Preset {
   structures: StructureType[];
 }
 
-/** One-tap profiles that set water type + likely species + typical cover. */
+/** One-tap profiles that set water type + likely species + typical cover.
+ * Kept to the top four (three freshwater staples + one saltwater) so Quick
+ * Start reads at a glance — anything more specific is a saved preset. */
 const PRESETS: Preset[] = [
   { label: 'Lake bass', waterType: 'freshwater', species: ['largemouth'], structures: ['vegetation', 'wood'] },
-  { label: 'River smallmouth', waterType: 'freshwater', species: ['smallmouth'], structures: ['rock', 'current'] },
-  { label: 'Trout stream', waterType: 'freshwater', species: ['trout'], structures: ['rock', 'current'] },
   { label: 'Panfish', waterType: 'freshwater', species: ['panfish'], structures: ['wood', 'vegetation'] },
   { label: 'Catfish', waterType: 'freshwater', species: ['catfish'], structures: ['current', 'dropoff'] },
   { label: 'Inshore slam', waterType: 'saltwater', species: ['redfish', 'seatrout'], structures: ['vegetation', 'oyster'] },
-  { label: 'Snook & docks', waterType: 'saltwater', species: ['snook'], structures: ['mangrove', 'wood'] },
-  { label: 'Surf / stripers', waterType: 'saltwater', species: ['striper'], structures: ['current', 'open'] },
 ];
 
 interface PillOption<T extends string> {
@@ -1071,6 +1379,80 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   },
   content: {
     paddingBottom: spacing.xl * 2,
+  },
+  // Analyze CTA — the Tides & Bite feature-tile shape on the foliage gradient.
+  analyzeShadow: {
+    borderRadius: radius.lg,
+    marginBottom: spacing.md,
+    shadowColor: colors.accentDeep,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  analyzeDisabled: { opacity: 0.5 },
+  analyzeTile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    overflow: 'hidden',
+  },
+  analyzeIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  analyzeBody: { flex: 1 },
+  analyzeTitle: { color: colors.onAccent, fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
+  analyzeSub: { color: colors.onAccent, opacity: 0.82, fontSize: 12, marginTop: 2 },
+
+  // Two-column tiles for the deep-detail cards (Throw this, Why, Regs, Fish).
+  detailTiles: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  detailTile: {
+    width: '48.5%',
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadow.card,
+  },
+  detailTileHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  detailTileIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: colors.accentDim,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailTileTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  detailTileSub: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
   },
   jumpBtn: {
     position: 'absolute',
@@ -1146,7 +1528,9 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     color: colors.text,
-    fontSize: 15,
+    // 16px, not smaller: iOS Safari auto-zooms the page when a focused input's
+    // font is under 16px (location search, save-spot name, preset name).
+    fontSize: 16,
   },
   findBtn: {
     backgroundColor: colors.accent,
@@ -1235,25 +1619,48 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     fontSize: 14,
     fontWeight: '700',
   },
-  favRow: {
+  // Two-step delete confirm shown in place of the trash icon.
+  confirmDeleteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  confirmDeleteText: {
+    color: colors.errorText,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  confirmCancelText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // The map breaks out of most of the card padding for a wider preview, but
+  // stops short of the card edge so a strip stays on each side to grab for
+  // scrolling the page (the map itself captures vertical drags).
+  mapWrap: {
+    // Inset from the body padding so a comfortable strip stays on each side
+    // to grab for scrolling the page (the map itself captures vertical drags).
+    marginHorizontal: spacing.sm,
+    // Breathing room below the map so the Adjust-conditions bar (or the
+    // spot-set text when Location is expanded) doesn't sit flush against it.
+    marginBottom: spacing.md,
+  },
+  // Card look for a reorderable saved-spot row (positioned by ReorderableList,
+  // so no margin — the grip sits inside the card on the right).
+  favRowCard: {
     backgroundColor: colors.bgElevated,
     borderColor: colors.cardBorder,
     borderWidth: 1,
     borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingLeft: spacing.md,
+  },
+  // Small cue above the reorderable lists so the hold-to-reorder gesture is
+  // discoverable (a plain tap otherwise just loads/applies the row).
+  dragHint: {
+    color: colors.textMuted,
+    fontSize: 11,
     marginBottom: spacing.sm,
-  },
-  favTap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  favStar: {
-    marginRight: spacing.sm,
   },
   favName: {
     color: colors.text,
@@ -1276,21 +1683,14 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     borderWidth: 1,
     borderColor: colors.accent,
   },
-  presetCustom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
+  presetList: { marginTop: spacing.sm },
+  // Card look for a reorderable custom-preset row (grip inside, on the right).
+  presetRowCard: {
     backgroundColor: colors.accentDim,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.accent,
-  },
-  presetCustomTap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    paddingLeft: spacing.md,
   },
   presetText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   collapse: {
@@ -1307,12 +1707,38 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     ...shadow.card,
   },
   collapseTitle: { color: colors.text, fontSize: 14, fontWeight: '700', letterSpacing: 0.3 },
-  summaryLine: {
-    color: colors.textMuted,
-    fontSize: 12,
-    textAlign: 'center',
+  // Collapsed input summary bars (Location, Adjust conditions).
+  summaryBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     marginBottom: spacing.md,
+    ...shadow.card,
   },
+  summaryBarLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  summaryBarTitle: { color: colors.text, fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  summaryBarSub: { color: colors.textMuted, fontSize: 12, flexShrink: 1 },
+  waterPill: {
+    backgroundColor: colors.accentDim,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  waterPillText: { color: colors.accent, fontSize: 11, fontWeight: '700' },
+  // Wrapper for the location controls revealed above/below the map.
+  inputBlock: { marginBottom: spacing.md },
   cta: {
     backgroundColor: colors.accent,
     borderRadius: radius.lg,
@@ -1340,6 +1766,46 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   errorText: {
     color: colors.errorText,
     fontSize: 13,
+  },
+  // Amber "notice" — softer than the red errorBox: the analysis still succeeded,
+  // this just flags that a source was down so a reading is estimated/missing.
+  noticeBox: {
+    backgroundColor: colors.card,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  noticeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  noticeTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+    flex: 1,
+  },
+  noticeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  noticeItem: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  noticeFoot: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: spacing.sm,
   },
   hint: {
     color: colors.textMuted,

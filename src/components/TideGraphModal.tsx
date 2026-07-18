@@ -4,7 +4,7 @@
 // a Modal) so the map above it stays fully interactive; the host scrolls the
 // map into view when it opens. A grab handle above the title lets the angler
 // drag the sheet shorter/taller (it locks where they leave it).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -17,8 +17,9 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
-import type { Conditions, Strategy } from '@/types';
+import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+import type { Conditions, Strategy, WeatherConditions } from '@/types';
+import { biteLabel } from '@/engine/strategy';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { hourOf, localDateStr } from '@/utils/dates';
 import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
@@ -32,6 +33,9 @@ export interface TideGraphDay {
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** Height (px) to open at so the sheet's top butts against the map's bottom;
+   * null uses the content-fit height. Also becomes the drag ceiling. */
+  openHeight?: number | null;
   /** The full analyzed week (day 0 = today). */
   forecast: Conditions[];
   /** Strategies aligned with `forecast`. */
@@ -44,12 +48,15 @@ interface Props {
   /** Selected hour (null = whole-day). Shared so the map wind follows the hour. */
   selectedHour: number | null;
   onSelectHour: (hour: number | null) => void;
+  /** First Pro-only day index (free tier: today + tomorrow), or null when the
+   * whole week is open. Locked chips show a lock; the host opens the paywall. */
+  lockedFromDay?: number | null;
 }
 
 // Chart geometry (SVG viewBox units; rendered responsive via aspectRatio).
 // Kept short on purpose so the map above the sheet gets its full height.
 const W = 360;
-const H = 190;
+const H = 170;
 const M = { top: 24, right: 10, bottom: 30, left: 10 };
 const IW = W - M.left - M.right;
 const IH = H - M.top - M.bottom;
@@ -59,6 +66,10 @@ const BAR_MAX = 40;
 const PRIME = 65;
 /** How short/tall the sheet can be dragged. */
 const MIN_SHEET_H = 150;
+/** Flick-to-dismiss: release faster than this (px/ms) AND... */
+const DISMISS_VELOCITY = 0.85;
+/** ...having travelled at least this far (px) closes the sheet. */
+const DISMISS_DISTANCE = 70;
 
 /** Catmull-Rom → cubic bezier path through the points (smooth tide curve). */
 function smoothPath(pts: Array<{ x: number; y: number }>): string {
@@ -101,14 +112,94 @@ const TIDE_SHORT: Record<string, string> = {
   unknown: '—',
 };
 
-function MiniStat({ label, value, hint, warn }: { label: string; value: string; hint?: string; warn?: boolean }) {
+// Forecast metrics the chart can plot instead of the tide curve — tap a stat
+// tile to switch, tap Tide (or the revert button) to come back.
+type MetricKey = 'air' | 'rain' | 'wind' | 'pressure' | 'sky';
+interface MetricCfg {
+  /** Legend/heading text, e.g. "Rain %". */
+  legend: string;
+  /** Unit suffix for the high/low callouts. */
+  unit: string;
+  /** Min y-axis padding when the day's values are nearly flat. */
+  pad: number;
+  /** Fixed axis range (percent metrics), instead of fitting the data. */
+  domain?: [number, number];
+  decimals?: number;
+  get: (w: WeatherConditions) => number;
+}
+const METRICS: Record<MetricKey, MetricCfg> = {
+  air: { legend: 'Air °F', unit: '°F', pad: 2, get: (w) => w.airTempF },
+  rain: { legend: 'Rain %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.precipChancePct },
+  wind: { legend: 'Wind mph', unit: ' mph', pad: 2, get: (w) => w.windMph },
+  pressure: { legend: 'Pressure inHg', unit: ' inHg', pad: 0.05, decimals: 2, get: (w) => w.pressureInHg },
+  sky: { legend: 'Cloud %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.cloudCoverPct },
+};
+
+/** SVG text with a soft outline behind it (dark in dark mode, light in light
+ * mode), so the white/gray chart labels stay legible where they cross the bite
+ * bars, the curve, and the peak bands. */
+function HaloText({
+  halo,
+  children,
+  ...props
+}: ComponentProps<typeof SvgText> & { halo: string }) {
+  return (
+    <>
+      <SvgText {...props} fill={halo} stroke={halo} strokeWidth={2.6} strokeLinejoin="round">
+        {children}
+      </SvgText>
+      <SvgText {...props}>{children}</SvgText>
+    </>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  hint,
+  warn,
+  active,
+  onPress,
+  /** Compass bearing (deg, 0 = up/N) to point a small arrow — used by the
+   * Wind box to show which way the wind is blowing, right next to its label. */
+  arrowDeg,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  warn?: boolean;
+  active?: boolean;
+  onPress?: () => void;
+  arrowDeg?: number | null;
+}) {
+  const { colors } = useTheme();
   const styles = useStyles();
   return (
-    <View style={styles.mini}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [styles.mini, active && styles.miniActive, pressed && onPress ? pressedStyle : null]}
+    >
       <Text style={styles.miniValue}>{value}</Text>
       <Text style={styles.miniLabel}>{label}</Text>
-      {hint ? <Text style={[styles.miniHint, warn && styles.miniHintWarn]}>{hint}</Text> : null}
-    </View>
+      {hint ? (
+        arrowDeg != null ? (
+          <View style={styles.miniHintRow}>
+            <Feather
+              name="arrow-up"
+              size={11}
+              color={warn ? colors.warn : colors.accent}
+              style={{ transform: [{ rotate: `${arrowDeg}deg` }] }}
+            />
+            <Text style={[styles.miniHint, warn && styles.miniHintWarn, styles.miniHintInline]}>
+              {hint}
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.miniHint, warn && styles.miniHintWarn]}>{hint}</Text>
+        )
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -122,14 +213,20 @@ export function TideGraphModal({
   onSelectDay,
   selectedHour,
   onSelectHour,
+  lockedFromDay = null,
+  openHeight = null,
 }: Props) {
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const styles = useStyles();
+  // Outline colour behind chart labels — contrasts with the label's own color.
+  const textHalo = mode === 'dark' ? 'rgba(5,15,10,0.9)' : 'rgba(245,249,240,0.92)';
   // Aliases so the rest of the body reads the same as before.
   const selDay = selectedDay;
   const selHour = selectedHour;
   const [heights, setHeights] = useState<TideHeightPoint[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // What the chart's curve shows: the tide, or a tapped forecast metric.
+  const [metric, setMetric] = useState<'tide' | MetricKey>('tide');
   // Dragged sheet height; null = fit the content. Locks where the drag ends
   // and survives close/reopen, so the angler sets it once.
   const [sheetH, setSheetH] = useState<number | null>(null);
@@ -137,10 +234,47 @@ export function TideGraphModal({
   const naturalH = useRef(0); // last laid-out height, the drag baseline
   const dragBase = useRef(0);
 
+  // Drag-to-scrub across the chart: a horizontal drag maps the finger's page-X
+  // to an hour and selects it live. We keep the chart's on-screen X + width
+  // (measured on layout) so the pan handler can convert a touch into an hour.
+  const chartRef = useRef<View>(null);
+  const chartWRef = useRef(0);
+  const chartXRef = useRef(0);
+  const selectHourRef = useRef(onSelectHour);
+  selectHourRef.current = onSelectHour;
+  const pickHour = (pageX: number) => {
+    const w = chartWRef.current;
+    if (!w) return;
+    const svgX = ((pageX - chartXRef.current) / w) * W;
+    const hr = Math.max(0, Math.min(23, Math.round(((svgX - M.left) / IW) * 23)));
+    selectHourRef.current(hr);
+  };
+  const hourPan = useRef(
+    PanResponder.create({
+      // Let plain taps fall through to the SVG hour targets; claim only a
+      // clearly-horizontal drag so vertical scroll still works.
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderGrant: (_e, g) => pickHour(g.x0),
+      onPanResponderMove: (_e, g) => pickHour(g.moveX),
+    }),
+  ).current;
+
+  // Stable handle to the latest onClose so the once-created pan responder can
+  // dismiss the sheet on a fast flick.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 3,
+      // Claim on a small vertical MOVE rather than on touch-start, so a tap
+      // still reaches the close button but any downward/upward drag anywhere on
+      // the header grabs the sheet. Once grabbed, refuse to hand it back so the
+      // gesture can't be dropped mid-drag ("sometimes it doesn't register").
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 2 && Math.abs(g.dy) >= Math.abs(g.dx),
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: () => {
         dragBase.current = sheetHRef.current ?? naturalH.current;
       },
@@ -153,6 +287,20 @@ export function TideGraphModal({
         sheetHRef.current = next;
         setSheetH(next);
       },
+      onPanResponderRelease: (_e, g) => {
+        // A fast, medium-to-long vertical flick reacts by direction: fling
+        // DOWN to dismiss the sheet; fling UP to snap it back to the default
+        // (content-fit) height. Both need real speed + distance so a slow
+        // resize drag never triggers either.
+        if (Math.abs(g.vy) > DISMISS_VELOCITY && Math.abs(g.dy) > DISMISS_DISTANCE) {
+          if (g.dy > 0) {
+            onCloseRef.current();
+          } else {
+            sheetHRef.current = null;
+            setSheetH(null);
+          }
+        }
+      },
     }),
   ).current;
 
@@ -162,6 +310,7 @@ export function TideGraphModal({
     if (visible) {
       sheetHRef.current = null;
       setSheetH(null);
+      setMetric('tide');
     }
   }, [visible]);
 
@@ -178,6 +327,10 @@ export function TideGraphModal({
   const day = forecast[selDay];
   const strategy = strategies[selDay];
   const tide = day?.tide ?? null;
+  // Freshwater spots have no tide station, but every other metric still
+  // graphs fine — so "tide" quietly becomes the air-temp chart there, and the
+  // sheet works the same minus tide-specific UI (revert button, Tide tile).
+  const activeMetric: 'tide' | MetricKey = metric === 'tide' && !tide ? 'air' : metric;
 
   useEffect(() => {
     if (!visible || !tide || !day) return;
@@ -221,15 +374,131 @@ export function TideGraphModal({
   const isPeak = (s: number | null): s is number => s != null && s >= maxScore - 3 && s >= PRIME;
   const firstPeakHr = biteByHour.findIndex((s) => isPeak(s));
 
-  let chart = null;
-  if (heights && heights.length >= 2 && tide) {
+  // Chart geometry shared by every curve the chart can show.
+  const x = (hour: number) => M.left + (hour / 23) * IW;
+  const isToday = day.date === localDateStr(new Date());
+  const now = new Date();
+  const nowX = x(now.getHours() + now.getMinutes() / 60);
+  const CHAR_HALF = 2.9; // ~half a glyph's width in viewBox units at fontSize 11
+  const LABEL_GAP = 5; // min clear space between two labels
+  const LINE_H = 12; // labels only clash if within this vertical band (~one line)
+
+  // The curve layer: NOAA tide heights, or the tapped forecast metric.
+  let curveLayer: ReactNode = null;
+  let legendMain = { color: colors.water, label: 'Tide ft' };
+
+  if (activeMetric !== 'tide') {
+    const cfg = METRICS[activeMetric];
+    const series = (day.hourlyWeather ?? [])
+      .map((h) => ({ hr: hourOf(h.timeISO), v: cfg.get(h) }))
+      .filter((p) => !Number.isNaN(p.hr) && typeof p.v === 'number' && !Number.isNaN(p.v))
+      .sort((a, b) => a.hr - b.hr);
+    if (series.length >= 2) {
+      const vals = series.map((p) => p.v);
+      let min: number;
+      let max: number;
+      if (cfg.domain) {
+        [min, max] = cfg.domain;
+      } else {
+        const rawMin = Math.min(...vals);
+        const rawMax = Math.max(...vals);
+        const pad = Math.max(cfg.pad, (rawMax - rawMin) * 0.15);
+        min = rawMin - pad;
+        max = rawMax + pad;
+      }
+      const y = (v: number) => M.top + (1 - (v - min) / (max - min)) * IH;
+      const pts = series.map((p) => ({ x: x(p.hr), y: y(p.v) }));
+      const curve = smoothPath(pts);
+      const area = `${curve} L ${x(series[series.length - 1]!.hr)} ${M.top + IH} L ${x(series[0]!.hr)} ${M.top + IH} Z`;
+      // High/low callouts so the day's swing reads at a glance.
+      let hiIdx = 0;
+      let loIdx = 0;
+      series.forEach((p, i) => {
+        if (p.v > series[hiIdx]!.v) hiIdx = i;
+        if (p.v < series[loIdx]!.v) loIdx = i;
+      });
+      const fmtV = (v: number) =>
+        cfg.decimals != null ? v.toFixed(cfg.decimals) : String(Math.round(v));
+      // Compact two-row callouts (value, then time) at a smaller size, placed
+      // to dodge the fish/score markers riding above the bite bars — a single
+      // long row at full size blended straight into them.
+      const ROW_H = 11;
+      const FISH_TOP = M.top + IH - BAR_MAX - 34; // score numbers' top edge
+      const FISH_BOT = M.top + IH - BAR_MAX; // down to the bars
+      const primeXs: number[] = [];
+      biteByHour.forEach((s, hr) => {
+        if (s != null && s >= PRIME) primeXs.push(x(hr));
+      });
+      const callouts: {
+        row1: string;
+        row2: string;
+        cx: number;
+        cy: number;
+        halfW: number;
+        dotX: number;
+        dotY: number;
+      }[] = [];
+      [hiIdx, ...(loIdx !== hiIdx ? [loIdx] : [])].forEach((idx, k) => {
+        const p = series[idx]!;
+        const row1 = `${k === 0 ? 'High' : 'Low'} ${fmtV(p.v)}${cfg.unit}`;
+        const row2 = hr12(p.hr);
+        const halfW = Math.max(row1.length, row2.length) * 2.7;
+        const cx = Math.min(Math.max(x(p.hr), halfW + 2), W - halfW - 2);
+        const py = y(p.v);
+        const hitsFish = (top: number, bot: number) =>
+          bot > FISH_TOP &&
+          top < FISH_BOT &&
+          primeXs.some((px) => Math.abs(px - cx) < halfW + 8);
+        const collides = (cy: number) =>
+          hitsFish(cy - 9, cy + ROW_H + 2) ||
+          callouts.some(
+            (o) =>
+              Math.abs(o.cx - cx) < o.halfW + halfW + 6 &&
+              Math.abs(o.cy - cy) < ROW_H * 2 + 4,
+          );
+        // Try above the dot, higher above, below it, then the top edge.
+        let cy = Math.min(Math.max(py - 21, 12), M.top + IH - ROW_H - 6);
+        for (const cand of [py - 21, py - 44, py + 14, 22]) {
+          const cl = Math.min(Math.max(cand, 12), M.top + IH - ROW_H - 6);
+          if (!collides(cl)) {
+            cy = cl;
+            break;
+          }
+        }
+        callouts.push({ row1, row2, cx, cy, halfW, dotX: x(p.hr), dotY: py });
+      });
+      const selPt = selHour != null ? series.find((p) => p.hr === selHour) : undefined;
+      legendMain = { color: colors.accent, label: cfg.legend };
+      curveLayer = (
+        <>
+          <Path d={area} fill={colors.accent} opacity={0.13} />
+          <Path d={curve} stroke={colors.accent} strokeWidth={2.5} fill="none" />
+          {callouts.map((co, i) => (
+            <HaloText key={`mc${i}`} halo={textHalo} x={co.cx} y={co.cy} fontSize={10} fontWeight="700" fill={colors.text} textAnchor="middle">
+              {co.row1}
+            </HaloText>
+          ))}
+          {callouts.map((co, i) => (
+            <HaloText key={`mt${i}`} halo={textHalo} x={co.cx} y={co.cy + 11} fontSize={10} fill={colors.textMuted} textAnchor="middle">
+              {co.row2}
+            </HaloText>
+          ))}
+          {callouts.map((co, i) => (
+            <Circle key={`md${i}`} cx={co.dotX} cy={co.dotY} r={3.5} fill={colors.accent} stroke={colors.card} strokeWidth={1.5} />
+          ))}
+          {selPt ? (
+            <Circle cx={x(selPt.hr)} cy={y(selPt.v)} r={4.5} fill="none" stroke={colors.accent} strokeWidth={2} />
+          ) : null}
+        </>
+      );
+    }
+  } else if (heights && heights.length >= 2 && tide) {
     const values = heights.map((p) => p.heightFt);
     const rawMin = Math.min(...values);
     const rawMax = Math.max(...values);
     const pad = Math.max(0.3, (rawMax - rawMin) * 0.15);
     const min = rawMin - pad;
     const max = rawMax + pad;
-    const x = (hour: number) => M.left + (hour / 23) * IW;
     const y = (v: number) => M.top + (1 - (v - min) / (max - min)) * IH;
 
     const pts = heights
@@ -239,11 +508,91 @@ export function TideGraphModal({
     const curve = smoothPath(pts);
     const area = `${curve} L ${M.left + IW} ${M.top + IH} L ${M.left} ${M.top + IH} Z`;
 
-    const isToday = day.date === localDateStr(new Date());
-    const now = new Date();
-    const nowX = x(now.getHours() + now.getMinutes() / 60);
+    // De-clutter the high/low labels. Each label is nearly half the chart wide,
+    // so when extremes bunch up in time the labels overlap into an unreadable
+    // smear. Place the most extreme events first (the true daily high & low read
+    // first), then keep another label only if it clears the ones already placed;
+    // the dropped events still keep their marker dot. Horizontal position is
+    // clamped by the label's real width so the end labels aren't clipped.
+    const meanH = values.reduce((a, b) => a + b, 0) / values.length;
+    const tideLabels: { cx: number; cy: number; halfW: number; text: string }[] = [];
+    const candidates = tide.events
+      .map((e) => {
+        const hr = hourOf(e.time.replace(' ', 'T'));
+        if (Number.isNaN(hr)) return null;
+        const exact = hr + Number(e.time.slice(14, 16) || 0) / 60;
+        const text = `${e.type === 'high' ? 'H' : 'L'} ${e.heightFt}ft · ${fmtEventTime(e.time)}`;
+        const halfW = text.length * CHAR_HALF;
+        return {
+          text,
+          halfW,
+          cx: Math.min(Math.max(x(exact), halfW + 2), W - halfW - 2),
+          cy: y(e.heightFt) - 9,
+          rank: Math.abs(e.heightFt - meanH),
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .sort((a, b) => b.rank - a.rank);
+    // Every extreme keeps its label. A label that would overlap an already
+    // placed one (horizontally AND on the same line) tries other spots instead
+    // of being dropped: above its dot, below it, then stacked line by line.
+    const clashesAt = (cx: number, cy: number, halfW: number) =>
+      tideLabels.some(
+        (p) =>
+          Math.abs(p.cx - cx) < p.halfW + halfW + LABEL_GAP &&
+          Math.abs(p.cy - cy) < LINE_H,
+      );
+    for (const c of candidates) {
+      const above = c.cy; // default spot: just above the marker dot
+      const below = c.cy + 24; // just below the dot
+      let placedY: number | null = null;
+      for (let step = 0; step < 6 && placedY == null; step++) {
+        for (const raw of [above - step * (LINE_H + 1), below + step * (LINE_H + 1)]) {
+          const cy = Math.min(Math.max(raw, 12), M.top + IH - 4);
+          if (!clashesAt(c.cx, cy, c.halfW)) {
+            placedY = cy;
+            break;
+          }
+        }
+      }
+      tideLabels.push({ cx: c.cx, cy: placedY ?? c.cy, halfW: c.halfW, text: c.text });
+    }
 
-    chart = (
+    curveLayer = (
+      <>
+        {/* Tide curve + fill. */}
+        <Path d={area} fill={colors.water} opacity={0.16} />
+        <Path d={curve} stroke={colors.water} strokeWidth={2.5} fill="none" />
+
+        {/* High/low markers with time + height (stacked so clustered
+            extremes never overlap). */}
+        {tideLabels.map((l, i) => (
+          <HaloText key={`e${i}`} halo={textHalo} x={l.cx} y={l.cy} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
+            {l.text}
+          </HaloText>
+        ))}
+        {tide.events.map((e, i) => {
+          const hr = hourOf(e.time.replace(' ', 'T'));
+          if (Number.isNaN(hr)) return null;
+          const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
+          return <Circle key={`c${i}`} cx={ex} cy={y(e.heightFt)} r={3.5} fill={colors.water} stroke={colors.card} strokeWidth={1.5} />;
+        })}
+      </>
+    );
+  }
+
+  const chart =
+    curveLayer == null ? null : (
+      <View
+        ref={chartRef}
+        onLayout={() =>
+          chartRef.current?.measureInWindow((px, _py, w) => {
+            chartXRef.current = px;
+            if (w) chartWRef.current = w;
+          })
+        }
+        {...hourPan.panHandlers}
+      >
       <Svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', aspectRatio: W / H }}>
         {/* Peak-hour highlight bands — the "go NOW" hours. */}
         {biteByHour.map((score, hr) =>
@@ -309,8 +658,9 @@ export function TideGraphModal({
         })}
         {biteByHour.map((score, hr) =>
           isPeak(score) ? (
-            <SvgText
+            <HaloText
               key={`s${hr}`}
+              halo={textHalo}
               x={x(hr)}
               y={M.top + IH - BAR_MAX - 21}
               fontSize={11}
@@ -319,13 +669,14 @@ export function TideGraphModal({
               textAnchor="middle"
             >
               {score}
-            </SvgText>
+            </HaloText>
           ) : null,
         )}
 
         {/* Peak callout pill. */}
         {firstPeakHr >= 0 ? (
-          <SvgText
+          <HaloText
+            halo={textHalo}
             x={Math.min(Math.max(x(firstPeakHr), 58), W - 58)}
             y={13}
             fontSize={13}
@@ -334,31 +685,11 @@ export function TideGraphModal({
             textAnchor="middle"
           >
             {`★ Peak bite · ${hr12(firstPeakHr)}`}
-          </SvgText>
+          </HaloText>
         ) : null}
 
-        {/* Tide curve + fill. */}
-        <Path d={area} fill={colors.water} opacity={0.16} />
-        <Path d={curve} stroke={colors.water} strokeWidth={2.5} fill="none" />
-
-        {/* High/low markers with time + height. */}
-        {tide.events.map((e, i) => {
-          const hr = hourOf(e.time.replace(' ', 'T'));
-          if (Number.isNaN(hr)) return null;
-          const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
-          const ey = y(e.heightFt);
-          return (
-            <SvgText key={`e${i}`} x={Math.min(Math.max(ex, 26), W - 26)} y={ey - 9} fontSize={11} fontWeight="700" fill={colors.text} textAnchor="middle">
-              {`${e.type === 'high' ? 'H' : 'L'} ${e.heightFt}ft · ${fmtEventTime(e.time)}`}
-            </SvgText>
-          );
-        })}
-        {tide.events.map((e, i) => {
-          const hr = hourOf(e.time.replace(' ', 'T'));
-          if (Number.isNaN(hr)) return null;
-          const ex = x(hr + Number(e.time.slice(14, 16) || 0) / 60);
-          return <Circle key={`c${i}`} cx={ex} cy={y(e.heightFt)} r={3.5} fill={colors.water} stroke={colors.card} strokeWidth={1.5} />;
-        })}
+        {/* The active curve: tide heights, or the tapped forecast metric. */}
+        {curveLayer}
 
         {/* Now cursor (today only). */}
         {isToday ? (
@@ -368,9 +699,9 @@ export function TideGraphModal({
         {/* Hour axis. */}
         <Line x1={M.left} y1={M.top + IH} x2={M.left + IW} y2={M.top + IH} stroke={colors.cardBorder} strokeWidth={1} />
         {[0, 4, 8, 12, 16, 20].map((hr) => (
-          <SvgText key={`h${hr}`} x={x(hr)} y={H - 12} fontSize={11} fill={colors.textMuted} textAnchor="middle">
+          <HaloText key={`h${hr}`} halo={textHalo} x={x(hr)} y={H - 12} fontSize={11} fill={colors.textMuted} textAnchor="middle">
             {hr === 0 ? '12a' : hr < 12 ? `${hr}a` : hr === 12 ? '12p' : `${hr - 12}p`}
-          </SvgText>
+          </HaloText>
         ))}
 
         {/* Tap targets — last, so they sit on top and catch the touches. */}
@@ -388,8 +719,8 @@ export function TideGraphModal({
           ),
         )}
       </Svg>
+      </View>
     );
-  }
 
   if (!visible) return null;
 
@@ -397,48 +728,77 @@ export function TideGraphModal({
     // A floating sheet, not a Modal: everything above it (the map!) stays live.
     <View style={styles.overlay} pointerEvents="box-none">
       <View
-        style={[styles.sheet, sheetH != null && { height: sheetH }]}
+        style={[
+          styles.sheet,
+          // A dragged height is fixed; otherwise openHeight is a MINIMUM (not a
+          // fixed height) so the sheet still butts up to the map but grows to
+          // fit taller content — a fixed height was hiding the peak times and
+          // the legend below the fold.
+          sheetH != null
+            ? { height: sheetH }
+            : openHeight != null
+              ? { minHeight: openHeight }
+              : null,
+        ]}
         onLayout={(e) => {
-          // Only record the content-fit height while no custom height is
-          // applied — otherwise the drag ceiling would shrink to wherever
-          // the sheet was last dragged.
+          // Record the laid-out height as the drag ceiling while no custom
+          // height is applied — otherwise the ceiling would shrink to wherever
+          // the sheet was last dragged. With openHeight as a minimum this is the
+          // greater of openHeight and the content, which is exactly the ceiling.
           if (sheetHRef.current == null) {
             naturalH.current = e.nativeEvent.layout.height;
           }
         }}
       >
-        {/* Drag handle: pull down for more map, up for more graph. */}
-        <View style={styles.grabRow} {...pan.panHandlers}>
-          <View style={styles.grab} />
+        {/* Drag handle — the whole header (grab bar + title) resizes the sheet:
+            pull down for more map, up for more graph. Fling it down quickly to
+            dismiss, or up quickly to snap back to full height. Making the entire
+            header the drag target (not just the thin bar) keeps a downward swipe
+            from being missed and swallowed by the scroll view below. */}
+        <View {...pan.panHandlers}>
+          <View style={styles.grabRow}>
+            <View style={styles.grab} />
+          </View>
+          <View style={styles.head}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>{tide ? 'Tides & Bite' : 'Hourly & Bite'}</Text>
+              {tide ? (
+                <Text style={styles.subtitle}>
+                  {tide.stationName} ({tide.stationDistanceMi} mi)
+                </Text>
+              ) : null}
+            </View>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
+              <Feather name="x" size={20} color={colors.textMuted} />
+            </Pressable>
+          </View>
         </View>
         <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
-            <View style={styles.head}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Tides & Bite</Text>
-                {tide ? (
-                  <Text style={styles.subtitle}>
-                    {tide.stationName} ({tide.stationDistanceMi} mi)
-                  </Text>
-                ) : null}
-              </View>
-              <Pressable onPress={onClose} hitSlop={10} style={styles.close}>
-                <Feather name="x" size={20} color={colors.textMuted} />
-              </Pressable>
-            </View>
-
             {/* Day picker. */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
               {days.map((d, i) => {
                 const active = i === selDay;
+                const locked = lockedFromDay != null && i >= lockedFromDay;
                 return (
                   <Pressable
                     key={i}
                     onPress={() => {
+                      // The host's onSelectDay gates locked days (paywall).
                       onSelectDay(i);
-                      onSelectHour(null);
+                      if (!locked) onSelectHour(null);
                     }}
-                    style={({ pressed }) => [styles.day, active && styles.dayActive, pressed && pressedStyle]}
+                    style={({ pressed }) => [
+                      styles.day,
+                      active && styles.dayActive,
+                      locked && styles.dayLocked,
+                      pressed && pressedStyle,
+                    ]}
                   >
+                    {locked ? (
+                      <View style={styles.dayLock}>
+                        <Feather name="lock" size={10} color={colors.textMuted} />
+                      </View>
+                    ) : null}
                     <Text style={[styles.dayLabel, active && styles.dayLabelActive]}>{d.label}</Text>
                     <Text style={[styles.dayNum, active && styles.dayLabelActive]}>{d.num}</Text>
                     <View style={[styles.dayPill, { backgroundColor: scoreColor(d.score) }]}>
@@ -449,38 +809,73 @@ export function TideGraphModal({
               })}
             </ScrollView>
 
-            {/* Weather for the selected day/hour. */}
+            {/* Weather for the selected day/hour, with its bite grade. */}
             <View style={styles.condHead}>
-              <Text style={styles.condTitle}>
-                {days[selDay]?.label ?? ''} · {selHour != null ? hr12(selHour) : 'all day'}
-              </Text>
+              <View style={styles.condTitleRow}>
+                <Text style={styles.condTitle} numberOfLines={1}>
+                  {days[selDay]?.label ?? ''} · {selHour != null ? hr12(selHour) : 'all day'}
+                </Text>
+                {(() => {
+                  // The grade for what's selected: the tapped hour's bite
+                  // score, or the whole day's when no hour is picked.
+                  const selScore = selHour != null ? biteByHour[selHour] : strategy.biteScore;
+                  return selScore != null ? (
+                    <View style={[styles.gradePill, { backgroundColor: scoreColor(selScore) }]}>
+                      <Text style={styles.gradePillText}>
+                        {selScore} · {biteLabel(selScore)}
+                      </Text>
+                    </View>
+                  ) : null;
+                })()}
+              </View>
               {selHour != null ? (
                 <Pressable onPress={() => onSelectHour(null)} hitSlop={8}>
                   <Text style={styles.allday}>All day</Text>
                 </Pressable>
               ) : (
-                <Text style={styles.tapHint}>tap the chart for an hour</Text>
+                <Text style={styles.tapHint}>tap an hour</Text>
               )}
             </View>
+            {/* Tap a stat to plot that metric through the day; Tide reverts. */}
             <View style={styles.miniRow}>
-              <MiniStat label="Air" value={`${hourWeather.airTempF}°F`} />
+              <MiniStat
+                label="Air"
+                value={`${hourWeather.airTempF}°F`}
+                active={activeMetric === 'air'}
+                onPress={() => setMetric('air')}
+              />
               <MiniStat
                 label="Rain"
                 value={`${hourWeather.precipChancePct}%`}
                 hint={hourWeather.thunder ? '⚡ storms' : undefined}
                 warn
+                active={activeMetric === 'rain'}
+                onPress={() => setMetric('rain')}
               />
               <MiniStat
                 label="Wind"
                 value={`${hourWeather.windMph} mph`}
                 hint={hourWeather.windDirectionLabel}
+                // windDirectionDeg is where it comes FROM; +180 points the
+                // arrow the way the wind is actually blowing TO.
+                arrowDeg={(hourWeather.windDirectionDeg + 180) % 360}
+                active={activeMetric === 'wind'}
+                onPress={() => setMetric('wind')}
               />
               <MiniStat
                 label="Pressure"
                 value={`${hourWeather.pressureInHg}`}
                 hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
+                active={activeMetric === 'pressure'}
+                onPress={() => setMetric('pressure')}
               />
-              <MiniStat label="Sky" value={`${hourWeather.cloudCoverPct}%`} hint="cloud" />
+              <MiniStat
+                label="Sky"
+                value={`${hourWeather.cloudCoverPct}%`}
+                hint="cloud"
+                active={activeMetric === 'sky'}
+                onPress={() => setMetric('sky')}
+              />
               {selTide ? (
                 <MiniStat
                   label="Tide"
@@ -490,11 +885,35 @@ export function TideGraphModal({
                       ? `${selTide.nextEvent.type} ${fmtEventTime(selTide.nextEvent.time)}`
                       : undefined
                   }
+                  active={activeMetric === 'tide'}
+                  onPress={() => setMetric('tide')}
                 />
               ) : null}
             </View>
 
-            {!tide ? (
+            {activeMetric !== 'tide' ? (
+              <View style={styles.metricBar}>
+                <Text style={styles.metricBarText}>
+                  {METRICS[activeMetric].legend} through the day
+                </Text>
+                {tide ? (
+                  <Pressable
+                    onPress={() => setMetric('tide')}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.revertBtn, pressed && pressedStyle]}
+                  >
+                    <Feather name="corner-up-left" size={13} color={colors.onAccent} />
+                    <Text style={styles.revertText}>Tide chart</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            {activeMetric !== 'tide' ? (
+              chart ?? (
+                <Text style={styles.error}>No hourly forecast data for this day.</Text>
+              )
+            ) : !tide ? (
               <Text style={styles.error}>No tide station in range for this day.</Text>
             ) : failed ? (
               <Text style={styles.error}>
@@ -509,9 +928,26 @@ export function TideGraphModal({
               chart
             )}
 
+            {/* Best bite windows — compact colored chips (time + a dot whose
+                color reads the quality) so the "when to go" summary sits under
+                the chart on one or two lines instead of a tall stacked list. */}
+            {strategy.bestWindows.length > 0 ? (
+              <View style={styles.windows}>
+                <Text style={styles.windowsHead}>Best bite times</Text>
+                <View style={styles.windowChips}>
+                  {strategy.bestWindows.map((win, i) => (
+                    <View key={i} style={styles.windowChip}>
+                      <View style={[styles.windowDot, { backgroundColor: scoreColor(win.score) }]} />
+                      <Text style={styles.windowChipText}>{win.range}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.legend}>
-              <View style={[styles.swatch, { backgroundColor: colors.water }]} />
-              <Text style={styles.legendText}>Tide ft</Text>
+              <View style={[styles.swatch, { backgroundColor: legendMain.color }]} />
+              <Text style={styles.legendText}>{legendMain.label}</Text>
               <View style={[styles.swatch, { backgroundColor: colors.good, opacity: 0.6 }]} />
               <Text style={styles.legendText}>Bite</Text>
               <Text style={styles.legendText}>🐟 good</Text>
@@ -551,10 +987,11 @@ const useStyles = makeStyles((c, t) => ({
   },
   grabRow: {
     alignItems: 'center',
-    paddingVertical: spacing.xs + 2,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
   },
   grab: {
-    width: 52,
+    width: 60,
     height: 6,
     borderRadius: radius.pill,
     backgroundColor: c.textMuted,
@@ -566,19 +1003,19 @@ const useStyles = makeStyles((c, t) => ({
     marginBottom: 2,
   },
   title: {
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: '800',
     color: c.text,
   },
   subtitle: {
     color: c.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 1,
   },
   close: {
     padding: spacing.xs,
   },
-  dayRow: { gap: spacing.xs + 2, paddingVertical: 2 },
+  dayRow: { gap: spacing.xs + 2, paddingVertical: 2, flexGrow: 1, justifyContent: 'center' },
   day: {
     width: 50,
     alignItems: 'center',
@@ -590,6 +1027,9 @@ const useStyles = makeStyles((c, t) => ({
     gap: 3,
   },
   dayActive: { backgroundColor: c.accentDim, borderColor: c.accent },
+  // Pro-only days: dimmed with a lock badge; taps route to the paywall.
+  dayLocked: { opacity: 0.55 },
+  dayLock: { position: 'absolute', top: 3, right: 4 },
   dayLabel: { color: c.textMuted, fontSize: 13, fontWeight: '700' },
   dayLabelActive: { color: c.text },
   dayNum: { color: c.textMuted, fontSize: 12 },
@@ -603,16 +1043,29 @@ const useStyles = makeStyles((c, t) => ({
   dayPillText: { color: '#0e1f12', fontSize: 13, fontWeight: '900' },
   condHead: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
+  },
+  condTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
   },
   condTitle: {
     color: c.text,
     fontSize: 15,
     fontWeight: '800',
   },
+  // Bite grade for the selected day/hour, colored like the day chips' pills.
+  gradePill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+    borderRadius: 10,
+  },
+  gradePillText: { color: '#0e1f12', fontSize: 12, fontWeight: '900' },
   allday: {
     color: c.accent,
     fontSize: 13,
@@ -627,11 +1080,43 @@ const useStyles = makeStyles((c, t) => ({
     flexWrap: 'wrap',
     marginBottom: 2,
   },
-  mini: { width: '16.6%', minWidth: 54, marginBottom: spacing.xs },
+  mini: {
+    width: '16.6%',
+    minWidth: 54,
+    marginBottom: spacing.xs,
+    paddingVertical: 3,
+    paddingHorizontal: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  miniActive: { backgroundColor: c.accentDim, borderColor: c.accent },
   miniValue: { color: c.text, fontSize: 14, fontWeight: '800' },
   miniLabel: { color: c.textMuted, fontSize: 11, marginTop: 1 },
   miniHint: { color: c.accent, fontSize: 10, marginTop: 1 },
   miniHintWarn: { color: c.warn },
+  // Wind box: the blowing-to arrow sits inline with the direction label.
+  miniHintRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 },
+  miniHintInline: { marginTop: 0 },
+  // Heading + revert button shown while a forecast metric is plotted.
+  metricBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    marginBottom: spacing.xs,
+  },
+  metricBarText: { color: c.text, fontSize: 13, fontWeight: '700' },
+  revertBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: c.accent,
+    borderRadius: radius.pill,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.md,
+  },
+  revertText: { color: c.onAccent, fontSize: 12.5, fontWeight: '800' },
   error: {
     color: c.errorText,
     backgroundColor: c.errorBg,
@@ -642,6 +1127,23 @@ const useStyles = makeStyles((c, t) => ({
     fontSize: 13,
     marginVertical: spacing.md,
   },
+  // Best bite windows — compact wrap of colored chips.
+  windows: { marginTop: spacing.sm },
+  windowsHead: { color: c.textMuted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs },
+  windowChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
+  windowChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 3,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: c.bgElevated,
+    borderWidth: 1,
+    borderColor: c.cardBorder,
+  },
+  windowDot: { width: 8, height: 8, borderRadius: 4 },
+  windowChipText: { color: c.text, fontSize: 12.5, fontWeight: '800' },
   legend: {
     flexDirection: 'row',
     alignItems: 'center',

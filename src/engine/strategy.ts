@@ -22,7 +22,14 @@ import type { HourBite, BestWindow } from '@/types';
  * angling heuristic; the goal is explainable, not magic.
  */
 export function buildStrategy(c: Conditions): Strategy {
-  const { score: biteScore, factors } = scoreBite(c);
+  const { factors } = scoreBite(c);
+  const hourly = buildHourly(c);
+  // The all-day bite score is the AVERAGE across the day's hours, not just the
+  // midday snapshot — one reading at noon isn't representative of the whole day.
+  // (Falls back to the snapshot if there's no hourly data.)
+  const biteScore = hourly.length
+    ? clamp(Math.round(hourly.reduce((sum, h) => sum + h.score, 0) / hourly.length), 1, 99)
+    : scoreBite(c).score;
   // Pressured water nudges the approach toward finesse: one notch for moderate,
   // straight to finesse for high.
   let mood = biteMood(biteScore);
@@ -36,8 +43,6 @@ export function buildStrategy(c: Conditions): Strategy {
     const tip = speciesTip(sp);
     if (tip) factors.push(`Targeting ${speciesLabel(sp)}: ${tip}`);
   }
-
-  const hourly = buildHourly(c);
 
   return {
     biteScore,
@@ -433,7 +438,8 @@ function buildSummary(c: Conditions, score: number, mood: BiteMood): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function biteLabel(score: number): string {
+/** Word grade for a bite score — shared with the hourly sheet's header pill. */
+export function biteLabel(score: number): string {
   if (score >= 75) return 'Excellent';
   if (score >= 60) return 'Good';
   if (score >= 45) return 'Fair';
