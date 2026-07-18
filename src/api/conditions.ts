@@ -53,7 +53,7 @@ const WATER_TEMP_OUTAGE: SourceOutage = {
 const DEPTH_OUTAGE: SourceOutage = {
   key: 'depth',
   label: 'Charted water depth',
-  source: 'Open-Topo-Data (GEBCO)',
+  source: 'NOAA NCEI',
 };
 
 // The network results depend only on coordinates + waterType — never on the

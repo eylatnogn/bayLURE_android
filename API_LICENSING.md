@@ -42,6 +42,6 @@ element), so pressure comes from the chain below.
 | Fraunces font (OFL), Feather icons (MIT) | branding, icons | Commercial OK | — |
 
 **Bottom line:** ads are clear to add — no paid data plans needed. The only
-soft spots are polite-use policies on the search box (Nominatim) and depth
-readouts (Open-Topo-Data), both trivial in volume and both swappable later
-without touching the rest of the app.
+soft spot is the polite-use policy on the search box (Nominatim) — trivial in
+volume and swappable later without touching the rest of the app. (Depth
+readouts moved off Open-Topo-Data to the public-domain NOAA NCEI DEM.)
