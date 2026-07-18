@@ -43,7 +43,7 @@ import {
 } from '@/storage/presets';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
-import { gatherForecast } from '@/api/conditions';
+import { gatherForecast, type SourceOutage } from '@/api/conditions';
 import { isLikelySaltwater } from '@/api/tides';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
@@ -103,6 +103,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live sources that failed the last analysis (NOAA outage, etc.) — drives the
+  // "some data is temporarily unavailable" notice. Empty when all came through.
+  const [outages, setOutages] = useState<SourceOutage[]>([]);
   const [forecast, setForecast] = useState<Conditions[] | null>(null);
   const [strategies, setStrategies] = useState<Strategy[] | null>(null);
   const [selectedDay, setSelectedDay] = useState(0);
@@ -405,10 +408,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // than flipping a known-saltwater spot to freshwater.
   useEffect(() => {
     if (!coordinates || userSetWaterType.current) return;
-    void isLikelySaltwater(coordinates).then((salt) => {
-      if (userSetWaterType.current || salt == null) return;
-      setWaterTypeFiltered(salt ? 'saltwater' : 'freshwater');
-    });
+    const salt = isLikelySaltwater(coordinates);
+    if (salt == null) return;
+    setWaterTypeFiltered(salt ? 'saltwater' : 'freshwater');
   }, [coordinates, setWaterTypeFiltered]);
 
   const onSaveFavorite = useCallback(async () => {
@@ -458,7 +460,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setAnalyzing(true);
     if (!silent) setError(null);
     try {
-      const [week, fish, reg] = await Promise.all([
+      const [forecastRes, fish, reg] = await Promise.all([
         gatherForecast({
           coordinates,
           waterType,
@@ -471,6 +473,9 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
         reverseRegion(coordinates).catch(() => null),
       ]);
+      const week = forecastRes.days;
+      // Show (or clear) the source-outage notice for this run.
+      setOutages(forecastRes.outages);
       const strats = week.map((c) => buildStrategy(c));
       setForecast(week);
       onForecast?.(week);
@@ -1055,6 +1060,33 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
       {error ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
+
+      {/* A calm, non-blocking notice when a live source is down: the forecast
+          still renders (estimated/partial), and we say plainly it's the
+          provider's outage, not the angler's connection. */}
+      {outages.length > 0 && forecast ? (
+        <View style={styles.noticeBox}>
+          <View style={styles.noticeHead}>
+            <Feather name="alert-triangle" size={15} color={colors.warn} />
+            <Text style={styles.noticeTitle}>
+              Some live data is temporarily unavailable
+            </Text>
+          </View>
+          <Text style={styles.noticeText}>
+            {outages.length === 1 ? 'This source is' : 'These sources are'} down
+            right now, so parts of this read are estimated or missing:
+          </Text>
+          {outages.map((o) => (
+            <Text key={o.key} style={styles.noticeItem}>
+              {'•'}  {o.label} — {o.source}
+            </Text>
+          ))}
+          <Text style={styles.noticeFoot}>
+            This is on the provider's end, not your connection. Everything else
+            is live — try again shortly.
+          </Text>
         </View>
       ) : null}
 
@@ -1734,6 +1766,46 @@ const useStyles = makeStyles((colors, { shadow }) => ({
   errorText: {
     color: colors.errorText,
     fontSize: 13,
+  },
+  // Amber "notice" — softer than the red errorBox: the analysis still succeeded,
+  // this just flags that a source was down so a reading is estimated/missing.
+  noticeBox: {
+    backgroundColor: colors.card,
+    borderColor: colors.warn,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  noticeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  noticeTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+    flex: 1,
+  },
+  noticeText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  noticeItem: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  noticeFoot: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: spacing.sm,
   },
   hint: {
     color: colors.textMuted,

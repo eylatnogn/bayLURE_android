@@ -114,7 +114,7 @@ export interface WaterConditions {
 export interface ChartedDepth {
   /** Depth of the bottom below the surface, in feet. */
   depthFt: number;
-  /** Attribution for the reading, e.g. "GEBCO 2020". */
+  /** Attribution for the reading, e.g. "NOAA NCEI DEM". */
   source: string;
 }
 

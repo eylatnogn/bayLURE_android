@@ -22,6 +22,41 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
+/**
+ * Fetch a datagetter prediction payload, retrying once on failure. While NOAA
+ * recovers from a brownout it flaps: the same URL can return an HTTP 5xx, OR a
+ * 200 whose body is {"error": ...} with no predictions, then succeed seconds
+ * later. Both flavors count as a failed attempt here — an error body is an
+ * outage symptom, not a valid "no data" answer, since every station we query
+ * comes from NOAA's own tide-prediction station list. Throwing (rather than
+ * returning empty) lets the caller flag the outage to the angler instead of
+ * silently blanking the tides. Mirrors weather.ts's fetchNwsWithRetry.
+ */
+async function fetchPredictionsWithRetry(
+  params: URLSearchParams,
+  attempts = 2,
+): Promise<PredictionsResponse> {
+  let lastErr: unknown = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
+      if (!res.ok) throw new Error(`Tide predictions failed (${res.status}).`);
+      const data = (await res.json()) as PredictionsResponse;
+      if (data.error || !data.predictions) {
+        throw new Error(data.error?.message ?? 'Tide predictions empty.');
+      }
+      return data;
+    } catch (err) {
+      lastErr = err;
+      // Brief pause before the retry — the flap usually clears immediately.
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Tide predictions failed.');
+}
+
 interface StationMeta {
   id: string;
   name: string;
@@ -95,34 +130,35 @@ function nearestStation(
   return best ? { station: best, distanceMi: bestDist } : null;
 }
 
+/** Salt if a tide station sits within this many miles. */
+const SALTWATER_RADIUS_MI = 12;
+
 /**
  * Best-effort guess of whether a spot is saltwater: NOAA tide-prediction
  * stations sit on coasts and tidal rivers, so a station within ~12 mi means
  * the water is tidal (salt/brackish). Lakes and inland rivers have none nearby.
  * Great Lakes have no tide predictions, so they correctly read as freshwater.
- * Works through NOAA outages: live list → last persisted list → the station
- * coordinates bundled with the app (locations are static, so a snapshot is
- * fine for a proximity test). Returns null only when even the bundled data is
- * missing — "couldn't check" must NOT read as "freshwater", or an outage flips
- * a known-saltwater spot to fresh on load.
+ *
+ * This runs off the station coordinates BUNDLED with the app (see
+ * data/tideStationCoords) rather than the live NOAA list — a coarse proximity
+ * test doesn't need the network, and using one fixed, curated list keeps the
+ * answer deterministic and offline. (It also avoids a stale device-cached list
+ * or a live list with extra inland-bayou gauges over-claiming saltwater for
+ * spots anglers consider fresh.) Live NOAA is still used for actual tide data.
+ * Returns null only if the bundled data is somehow missing — "couldn't check"
+ * must NOT read as "freshwater", which would flip a saltwater spot to fresh.
  */
-export async function isLikelySaltwater(coords: Coordinates): Promise<boolean | null> {
-  try {
-    const stations = await loadStations();
-    const nearest = nearestStation(coords, stations);
-    return !!nearest && nearest.distanceMi <= 12;
-  } catch {
-    if (TIDE_STATION_COORDS.length < 2) return null;
-    let best = Infinity;
-    for (let i = 0; i + 1 < TIDE_STATION_COORDS.length; i += 2) {
-      const d = distanceMiles(coords, {
-        latitude: TIDE_STATION_COORDS[i]!,
-        longitude: TIDE_STATION_COORDS[i + 1]!,
-      });
-      if (d < best) best = d;
-    }
-    return best <= 12;
+export function isLikelySaltwater(coords: Coordinates): boolean | null {
+  if (TIDE_STATION_COORDS.length < 2) return null;
+  let best = Infinity;
+  for (let i = 0; i + 1 < TIDE_STATION_COORDS.length; i += 2) {
+    const d = distanceMiles(coords, {
+      latitude: TIDE_STATION_COORDS[i]!,
+      longitude: TIDE_STATION_COORDS[i + 1]!,
+    });
+    if (d < best) best = d;
   }
+  return best <= SALTWATER_RADIUS_MI;
 }
 
 /**
@@ -154,12 +190,12 @@ export async function fetchWeekTides(
     format: 'json',
   });
 
-  const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`Tide predictions failed (${res.status}).`);
-  const data = (await res.json()) as PredictionsResponse;
-  if (data.error || !data.predictions) return empty;
+  // Throws on an outage (HTTP failure OR a 200 carrying an error body) after
+  // one retry, so conditions.ts flags it to the angler instead of silently
+  // rendering a tideless forecast for a spot that clearly has tides.
+  const data = await fetchPredictionsWithRetry(params);
 
-  const events: TideEvent[] = data.predictions.map((p) => ({
+  const events: TideEvent[] = (data.predictions ?? []).map((p) => ({
     time: p.t,
     type: p.type === 'H' ? 'high' : 'low',
     heightFt: round(Number(p.v), 1),
@@ -217,9 +253,9 @@ export async function fetchTideHeights(
     interval: 'h',
     format: 'json',
   });
-  const res = await fetchWithTimeout(`${DATA_URL}?${params.toString()}`);
-  if (!res.ok) throw new Error(`Tide heights failed (${res.status}).`);
-  const data = (await res.json()) as { predictions?: Array<{ t: string; v: string }> };
+  // Same retry + throw-on-error-body as the hi/lo fetch; the graph modal's
+  // .catch shows its "couldn't load" state instead of a silently empty curve.
+  const data = await fetchPredictionsWithRetry(params);
   const points = (data.predictions ?? [])
     .map((p) => ({ time: p.t, heightFt: Number(p.v) }))
     .filter((p) => Number.isFinite(p.heightFt));
