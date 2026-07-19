@@ -39,6 +39,8 @@ import {
   addPreset,
   deletePreset,
   reorderPresets,
+  loadHiddenStarters,
+  hideStarter,
   type ConditionPreset,
 } from '@/storage/presets';
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
@@ -135,6 +137,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // control removes it — so a stray tap never deletes a spot or preset.
   const [confirmDeleteFav, setConfirmDeleteFav] = useState<string | null>(null);
   const [confirmDeletePreset, setConfirmDeletePreset] = useState<string | null>(null);
+  // Built-in Quick Start chips are deletable too (hidden by label, persisted);
+  // same two-step confirm, armed by the chip's small ×.
+  const [hiddenStarters, setHiddenStarters] = useState<string[]>([]);
+  const [confirmDeleteStarter, setConfirmDeleteStarter] = useState<string | null>(null);
   // The "Tides & Bite" hourly graph sheet (freshwater gets the same sheet as
   // "Hourly & Bite" — metric charts only, no tide curve).
   const [tideGraphOpen, setTideGraphOpen] = useState(false);
@@ -279,6 +285,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setCustomPresets(await deletePreset(id));
   }, []);
 
+  const onDeleteStarter = useCallback(async (label: string) => {
+    setHiddenStarters(await hideStarter(label));
+  }, []);
+
   // Drag reorder: update the list immediately, persist the new order after.
   const onReorderPresets = useCallback((list: ConditionPreset[]) => {
     setCustomPresets(list);
@@ -385,6 +395,10 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
 
   useEffect(() => {
     void loadPresets().then(setCustomPresets);
+  }, []);
+
+  useEffect(() => {
+    void loadHiddenStarters().then(setHiddenStarters);
   }, []);
 
   useEffect(() => {
@@ -545,39 +559,51 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
   // inner-view node that release-build Android view-flattening can drop), it
   // measures the map view directly — and the map wrapper is collapsable={false},
   // so it always resolves. The onLayout offset stays as a fallback.
-  const measureMapTop = useCallback((done: (y: number) => void) => {
-    const map = mapWrapRef.current;
-    const root = rootRef.current;
-    const fallback = () => done(Math.max(0, bodyY.current + mapRelY.current - 6));
-    if (!map?.measureInWindow || !root?.measureInWindow) {
-      fallback();
-      return;
-    }
-    // root top == scroll viewport top; map top - viewport top + current scroll
-    // = the map's offset within the scroll content.
-    root.measureInWindow((_rx, rootY) => {
-      map.measureInWindow((_mx, mapY) => {
-        if (typeof rootY !== 'number' || typeof mapY !== 'number') {
-          fallback();
-          return;
-        }
-        done(Math.max(0, scrollYRef.current + (mapY - rootY) - 6));
+  const measureTopIn = useCallback(
+    (target: View | null, fallbackRelY: number, done: (y: number) => void) => {
+      const root = rootRef.current;
+      const fallback = () => done(Math.max(0, bodyY.current + fallbackRelY - 6));
+      if (!target?.measureInWindow || !root?.measureInWindow) {
+        fallback();
+        return;
+      }
+      // root top == scroll viewport top; target top - viewport top + current
+      // scroll = the target's offset within the scroll content.
+      root.measureInWindow((_rx, rootY) => {
+        target.measureInWindow((_tx, targetY) => {
+          if (typeof rootY !== 'number' || typeof targetY !== 'number') {
+            fallback();
+            return;
+          }
+          done(Math.max(0, scrollYRef.current + (targetY - rootY) - 6));
+        });
       });
-    });
-  }, []);
+    },
+    [],
+  );
+
+  const measureMapTop = useCallback(
+    (done: (y: number) => void) => measureTopIn(mapWrapRef.current, mapRelY.current, done),
+    [measureTopIn],
+  );
 
   const jumpToForecast = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const forecastTop = Math.max(0, bodyY.current + forecastRelY.current - 8);
-    // At (or near) the forecast → hop up to the map; otherwise → down to it.
-    const atForecast = scrollYRef.current >= forecastTop - 160;
-    if (atForecast) {
-      measureMapTop((y) => scroller.scrollTo({ y, animated: true }));
-    } else {
-      scroller.scrollTo({ y: forecastTop, animated: true });
-    }
-  }, [measureMapTop]);
+    // Measure the forecast card's position LIVE, same as the map jump: the
+    // cached onLayout offset goes stale when the Location/Adjust panels above
+    // it expand or collapse (position-only moves don't refire onLayout), which
+    // left the jump landing mid-panel instead of on the bite score.
+    measureTopIn(forecastWrapRef.current, forecastRelY.current, (forecastTop) => {
+      // At (or near) the forecast → hop up to the map; otherwise → down to it.
+      const atForecast = scrollYRef.current >= forecastTop - 160;
+      if (atForecast) {
+        measureMapTop((y) => scroller.scrollTo({ y, animated: true }));
+      } else {
+        scroller.scrollTo({ y: forecastTop, animated: true });
+      }
+    });
+  }, [measureTopIn, measureMapTop]);
 
   // Bring the map to the top of the viewport so a bottom sheet opens "locked
   // up to the map" — the same feel as the Tides & Bite sheet — instead of
@@ -862,18 +888,47 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
             Tap a starter profile, or save your own setup below to reuse it.
           </Text>
           {/* Starter profiles and saved setups share one chip group so the
-              section reads as a single container. */}
-          <View style={styles.presetWrap}>
-            {PRESETS.map((p) => (
-              <Pressable
-                key={p.label}
-                onPress={() => applyPreset(p)}
-                style={({ pressed }) => [styles.preset, pressed && pressedStyle]}
-              >
-                <Text style={styles.presetText}>{p.label}</Text>
-              </Pressable>
-            ))}
-          </View>
+              section reads as a single container. Each starter's × arms the
+              same two-step delete the saved rows use; hidden ones persist. */}
+          {PRESETS.some((p) => !hiddenStarters.includes(p.label)) ? (
+            <View style={styles.presetWrap}>
+              {PRESETS.filter((p) => !hiddenStarters.includes(p.label)).map((p) =>
+                confirmDeleteStarter === p.label ? (
+                  <View key={p.label} style={[styles.preset, styles.presetChipRow]}>
+                    <Pressable
+                      onPress={() => {
+                        void onDeleteStarter(p.label);
+                        setConfirmDeleteStarter(null);
+                      }}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.confirmDeleteText}>Delete</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setConfirmDeleteStarter(null)} hitSlop={8}>
+                      <Text style={styles.confirmCancelText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View key={p.label} style={[styles.preset, styles.presetChipRow]}>
+                    <Pressable
+                      onPress={() => applyPreset(p)}
+                      hitSlop={6}
+                      style={({ pressed }) => pressed && pressedStyle}
+                    >
+                      <Text style={styles.presetText}>{p.label}</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setConfirmDeleteStarter(p.label)}
+                      hitSlop={8}
+                      accessibilityLabel={`Delete the ${p.label} starter preset`}
+                    >
+                      <Feather name="x" size={13} color={colors.textMuted} />
+                    </Pressable>
+                  </View>
+                ),
+              )}
+            </View>
+          ) : null}
 
           {/* The angler's own presets — a drag-to-reorder list (grip on the
               right) so the order they see is the order they set. */}
@@ -1682,6 +1737,12 @@ const useStyles = makeStyles((colors, { shadow }) => ({
     backgroundColor: colors.accentDim,
     borderWidth: 1,
     borderColor: colors.accent,
+  },
+  // Starter chip internals: label + trailing × (or Delete/Cancel when armed).
+  presetChipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   presetList: { marginTop: spacing.sm },
   // Card look for a reorderable custom-preset row (grip inside, on the right).

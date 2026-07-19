@@ -97,3 +97,28 @@ export async function importPresets(entries: unknown[]): Promise<number> {
 async function persist(list: ConditionPreset[]): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(list));
 }
+
+// The built-in Quick Start chips ("Lake bass", "Panfish", ...) aren't stored —
+// they ship with the app — so deleting one means remembering its label here
+// and filtering it out at render. Keyed by label: stable, and a future app
+// update renaming a starter simply un-hides the renamed one.
+const HIDDEN_STARTERS_KEY = 'balure.hiddenstarters.v1';
+
+export async function loadHiddenStarters(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(HIDDEN_STARTERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function hideStarter(label: string): Promise<string[]> {
+  const existing = await loadHiddenStarters();
+  if (existing.includes(label)) return existing;
+  const next = [...existing, label];
+  await AsyncStorage.setItem(HIDDEN_STARTERS_KEY, JSON.stringify(next));
+  return next;
+}
