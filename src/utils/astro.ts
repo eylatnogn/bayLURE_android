@@ -29,6 +29,58 @@ export function moonInfo(date: Date): MoonInfo {
   return { phase, illuminationPct, major };
 }
 
+/** Solunar feeding periods: majors = moon overhead/underfoot, minors = rise/set. */
+export interface SolunarTimes {
+  /** Epoch ms of lunar transits (upper and lower) near the given day. */
+  majors: number[];
+  /** Epoch ms of approximate moonrise/moonset (transit ± a quarter lunar day). */
+  minors: number[];
+}
+
+// The moon crosses the same meridian every ~24h50m (it falls behind the sun
+// by ~50 min/day as it orbits).
+const LUNAR_DAY_MS = 24.8412 * 3600000;
+
+/**
+ * Approximate solunar major/minor times around a date at a longitude.
+ *
+ * Model: at new moon the moon travels with the sun, so its upper transit is
+ * local solar noon; each day into the cycle it lags by ~1/29.5 of a lunar day,
+ * putting the full-moon transit at solar midnight. Mean solar noon ignores the
+ * equation of time (±16 min) and mean lunar motion ignores orbital
+ * eccentricity (±40 min), so windows land within about an hour — in family
+ * with the phase math above ("accurate to ~1 day, plenty for fishing") since
+ * the windows they anchor are 1.5-2.5 h wide.
+ *
+ * Returns every major/minor within ±1.5 days so hour-by-hour scoring can
+ * measure distance to the nearest one without day-boundary edge cases.
+ */
+export function solunarTimes(date: Date, longitude: number): SolunarTimes {
+  const synodic = 29.53058867;
+  const refNewMoon = Date.UTC(2000, 0, 6, 18, 14, 0);
+  const dayUtcMidnight = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const solarNoon = dayUtcMidnight + (12 - longitude / 15) * 3600000;
+
+  let frac = (((solarNoon - refNewMoon) / 86400000) % synodic) / synodic;
+  if (frac < 0) frac += 1;
+
+  const upperTransit = solarNoon + frac * LUNAR_DAY_MS;
+  const majors: number[] = [];
+  const minors: number[] = [];
+  const windowLo = dayUtcMidnight - 1.5 * 86400000;
+  const windowHi = dayUtcMidnight + 2.5 * 86400000;
+  for (let k = -3; k <= 3; k += 1) {
+    // Upper and lower transits, a half lunar day apart.
+    for (const major of [upperTransit + k * LUNAR_DAY_MS, upperTransit + (k - 0.5) * LUNAR_DAY_MS]) {
+      if (major >= windowLo && major <= windowHi) majors.push(major);
+      // Rise/set sit roughly midway between consecutive transits.
+      const minor = major + LUNAR_DAY_MS / 4;
+      if (minor >= windowLo && minor <= windowHi) minors.push(minor);
+    }
+  }
+  return { majors, minors };
+}
+
 function phaseName(frac: number): string {
   if (frac < 0.03 || frac > 0.97) return 'New moon';
   if (frac < 0.22) return 'Waxing crescent';

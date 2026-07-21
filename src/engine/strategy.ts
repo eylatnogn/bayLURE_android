@@ -13,6 +13,7 @@ import { buildBehavior } from '@/engine/behavior';
 import { depthLureAdjust } from '@/engine/depth';
 import { gearFor } from '@/engine/gear';
 import { tideStateAt } from '@/api/tides';
+import { solunarTimes, type SolunarTimes } from '@/utils/astro';
 import { hourLabel, hourOf } from '@/utils/dates';
 import type { HourBite, BestWindow } from '@/types';
 
@@ -169,6 +170,16 @@ function scoreBite(c: Conditions): { score: number; factors: string[] } {
     factors.push('Low-light period — a prime feeding window.');
   }
 
+  // Moon phase: new/full moons bring the strongest solunar feeding influence
+  // (and spring tides); quarter moons are classically the weakest stretch.
+  if (c.weather.moonMajor) {
+    score += 4;
+    factors.push(`${c.weather.moonPhase} — peak solunar period, stronger feeding and tides.`);
+  } else if (c.weather.moonPhase === 'First quarter' || c.weather.moonPhase === 'Last quarter') {
+    score -= 3;
+    factors.push(`${c.weather.moonPhase} moon — the weakest stretch of the solunar cycle.`);
+  }
+
   // Tide (saltwater): moving water feeds; slack water stalls.
   if (c.tide) {
     if (c.tide.state === 'incoming' || c.tide.state === 'outgoing') {
@@ -206,6 +217,12 @@ function biteMood(score: number): BiteMood {
 
 /** Grade the bite for each available hour of the day. */
 function buildHourly(c: Conditions): HourBite[] {
+  // Solunar major/minor times for this day and spot, computed once and shared
+  // by every hour (see utils/astro — approximate, like the phase math).
+  const solunar = c.hourlyWeather.length
+    ? solunarTimes(new Date(c.hourlyWeather[0]!.timeISO), c.coordinates.longitude)
+    : null;
+
   return c.hourlyWeather.map((hw) => {
     const perHour: Conditions = {
       ...c,
@@ -216,6 +233,7 @@ function buildHourly(c: Conditions): HourBite[] {
     };
     let score = scoreBite(perHour).score;
     score += dawnDuskBonus(hw.timeISO, hw.sunrise, hw.sunset);
+    if (solunar) score += solunarBonus(new Date(hw.timeISO).getTime(), solunar);
     return {
       timeISO: hw.timeISO,
       label: hourLabel(hw.timeISO),
@@ -223,6 +241,18 @@ function buildHourly(c: Conditions): HourBite[] {
       isDay: hw.isDay,
     };
   });
+}
+
+/**
+ * Bonus for hours inside a solunar feeding period: the ~2.5h majors around a
+ * lunar transit (moon overhead/underfoot) outrank the ~1.5h minors around
+ * moonrise/moonset. Sized between dawn/dusk (+8) and the phase nudge (+4);
+ * majors and minors never overlap, so no stacking.
+ */
+function solunarBonus(timeMs: number, solunar: SolunarTimes): number {
+  if (solunar.majors.some((m) => Math.abs(timeMs - m) <= 1.25 * 3600000)) return 6;
+  if (solunar.minors.some((m) => Math.abs(timeMs - m) <= 0.75 * 3600000)) return 3;
+  return 0;
 }
 
 /** Bonus for the prime change-of-light hours around sunrise and sunset. */
