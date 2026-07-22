@@ -125,8 +125,11 @@ export function buildMapHtml(
        on touch devices the SVG can otherwise swallow the tap. */
     .mapicon svg { display: block; pointer-events: none; }
     #fsbtn, #centerbtn, #layersbtn { position: absolute; z-index: 1000; }
+    /* Expand + recenter get a roomier 40px hit target (20px icon + 10px pad)
+       — they're the two most-tapped corner controls. */
+    #fsbtn, #centerbtn { padding: 10px; }
     #fsbtn { top: 8px; left: 8px; }
-    #centerbtn { top: 42px; left: 8px; }
+    #centerbtn { top: 56px; left: 8px; }
     /* One Layers button in the top-right corner; tapping it opens a column of
        the overlay toggles instead of stacking four chips over the map. */
     #layersbtn { top: 8px; right: 8px; }
@@ -338,8 +341,8 @@ export function buildMapHtml(
     // Full-screen toggle. The button lives in the map (like Wind/Depth) rather
     // than as a React overlay, so the WebView can't swallow the tap. The host
     // does the resizing: native a full-screen Modal, web a full-viewport overlay.
-    var SVG_EXPAND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
-    var SVG_SHRINK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+    var SVG_EXPAND = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+    var SVG_SHRINK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
     var fsBtn = document.getElementById('fsbtn');
     if (fsBtn) {
       fsBtn.innerHTML = ${fullscreen ? 'true' : 'false'} ? SVG_SHRINK : SVG_EXPAND;
@@ -574,7 +577,7 @@ export function buildMapHtml(
 
     // Re-center on the pin: pan (and zoom in from a wide view) back to the
     // marker after scrolling away. Crosshair button under the fullscreen one.
-    var SVG_CENTER = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="2" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="22" y2="12"/></svg>';
+    var SVG_CENTER = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="2" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="22" y2="12"/></svg>';
     var centerBtn = document.getElementById('centerbtn');
     if (centerBtn) {
       centerBtn.innerHTML = SVG_CENTER;
