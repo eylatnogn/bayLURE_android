@@ -12,6 +12,13 @@
 // `npm install react-native-purchases`, re-add the RevenueCat configure/
 // purchase/restore internals (git history of this file, 2026-07-09), and put
 // EXPO_PUBLIC_REVENUECAT_ANDROID_KEY back into eas.json's production env.
+//
+// PRICING (2026-07-20): $1.99/month with the first 2 weeks free. The price
+// and trial live in Google Play Console, not here — when creating the
+// subscription product (suggested id baylure_pro_monthly), set the base plan
+// to $1.99/month and add a 14-day free-trial offer (new subscribers only;
+// Play charges nothing until the trial ends and cancelling inside the trial
+// costs nothing). The strings below are display copy and must match it.
 import {
   createContext,
   useCallback,
@@ -57,7 +64,7 @@ const ProContext = createContext<ProContextValue>({
   isPro: false,
   canSubscribe: false,
   limitsActive: false,
-  priceString: '$4.99',
+  priceString: '$1.99',
   busy: false,
   paywallVisible: false,
   showPaywall: () => {},
@@ -94,7 +101,7 @@ export function ProProvider({ children }: { children: ReactNode }) {
         isPro: redeemed,
         canSubscribe: false,
         limitsActive: __DEV__,
-        priceString: '$4.99',
+        priceString: '$1.99',
         busy: false,
         paywallVisible,
         showPaywall: () => setPaywallVisible(true),

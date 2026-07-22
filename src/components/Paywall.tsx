@@ -102,7 +102,7 @@ export function Paywall() {
             <Button
               title={
                 canSubscribe
-                  ? `Go Pro — ${priceString}/month`
+                  ? `Try Pro free for 2 weeks — then ${priceString}/month`
                   : 'Subscriptions coming soon'
               }
               icon="anchor"
@@ -145,8 +145,9 @@ export function Paywall() {
 
             {canSubscribe ? (
               <Text style={styles.finePrint}>
-                Auto-renews monthly until canceled. Manage or cancel anytime in Google Play →
-                Subscriptions.
+                First 2 weeks free, then {priceString}/month, auto-renewing until
+                canceled. Cancel before the trial ends and you won't be charged.
+                Manage or cancel anytime in Google Play → Subscriptions.
               </Text>
             ) : null}
           </ScrollView>
