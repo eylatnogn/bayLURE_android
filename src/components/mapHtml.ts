@@ -258,12 +258,32 @@ export function buildMapHtml(
     // placement. Satellite (imagery + labels) is the default — anglers read
     // grass lines, laydowns, and channel edges from imagery; the Sat toggle
     // flips to the classic topo map.
+    // A dropped tile (transient 5xx — NOAA's chart service especially) would
+    // otherwise stay blank forever: over the near-opaque chart that reads as a
+    // "random square of satellite" punched through where the chart tile should
+    // be. Leaflet fires tileerror and gives up, so retry each failed tile a
+    // couple of times with backoff before accepting the hole.
+    function retryFailedTiles(layer) {
+      layer.on('tileerror', function (e) {
+        var img = e && e.tile;
+        if (!img || !img.src) { return; }
+        var n = (img._retries || 0) + 1;
+        if (n > 2) { return; }
+        img._retries = n;
+        var src = img.src.replace(/[?&]_retry=\d+$/, '');
+        setTimeout(function () {
+          img.src = src + (src.indexOf('?') >= 0 ? '&' : '?') + '_retry=' + n;
+        }, 800 * n);
+      });
+      return layer;
+    }
+
     function usgsLayer(service) {
-      return L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/' + service + '/MapServer/tile/{z}/{y}/{x}', {
+      return retryFailedTiles(L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/' + service + '/MapServer/tile/{z}/{y}/{x}', {
         maxNativeZoom: 16,
         maxZoom: 18,
         attribution: 'USGS The National Map'
-      });
+      }));
     }
     var satLayer = usgsLayer('USGSImageryTopo');
     var topoLayer = usgsLayer('USGSTopo');
@@ -1109,10 +1129,10 @@ export function buildMapHtml(
         if (!noaaLayer) {
           // NOAA Chart Display Service (MCS WMS): 1 features, 2 depths,
           // 3 seabed, 6 aids, 11 shallow-water pattern. US coastal + Great Lakes.
-          noaaLayer = L.tileLayer.wms(
+          noaaLayer = retryFailedTiles(L.tileLayer.wms(
             'https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/NOAAChartDisplay/MapServer/exts/MaritimeChartService/WMSServer',
             { layers: '1,2,3,6,11', format: 'image/png', transparent: true, version: '1.3.0', opacity: 0.9, pane: 'charts' }
-          );
+          ));
         }
         noaaLayer.addTo(map);
         depthShade.addTo(map);
