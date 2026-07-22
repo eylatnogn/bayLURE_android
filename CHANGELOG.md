@@ -2,7 +2,27 @@
 
 All notable changes to bayLURE. Dates are release/build dates.
 
-## Unreleased (after versionCode 10)
+## v0.90.0 — 2026-07-22
+- **Smarter bite score** — species-specific water-temperature windows,
+  seasonal behavior phase (pre-spawn/spawn/fall feed-up), moon phase and
+  solunar major/minor feeding windows in the hourly curve, a personal bias
+  learned from your own condition-tagged catches, and USGS river-flow data
+  for river spots.
+- **Map remembers your overlays** — Wind, Depth, Contour, Sat, and Radar
+  choices persist, so the map opens exactly how you left it (full screen
+  inherits satellite/wind now too).
+- **Map reliability** — failed chart/base tiles retry automatically (no
+  more random satellite squares punched through the nautical chart), and
+  the expand + re-center buttons are bigger.
+- **Live-data outage notice** — if a source (NOAA tides, water temp, depth)
+  is down, a calm banner says which readings are estimated or missing and
+  that it's the provider's outage, not your connection; tide fetches retry
+  through NOAA brownouts. Charted depth moved to NOAA NCEI (~3 m coastal
+  resolution, no rate limits).
+- **Quick Start cleanup** — the built-in starter presets can be deleted
+  (two-step confirm), and the choice sticks.
+- Jump button lands on the bite score even with the Location/Adjust panels
+  expanded.
 - **Rain & lightning** — the conditions grid shows chance of rain for the
   selected day/hour, and a warning banner calls out forecast thunderstorm
   hours ("lightning and open water don't mix"). Data from the NWS
