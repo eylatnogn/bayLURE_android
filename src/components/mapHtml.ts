@@ -73,6 +73,11 @@ export function buildMapHtml(
   initialContour = false,
   /** Open at this zoom — so full screen picks up where the inline map was. */
   initialZoom: number | null = null,
+  /** Start on satellite (vs topo) — persisted so the map opens how the
+   * angler left it (same for the wind flag below). */
+  initialSat = true,
+  /** Start with the wind overlay enabled. */
+  initialWindOn = true,
 ): string {
   const c = center ?? DEFAULT_CENTER;
   const zoom = initialZoom ?? (center ? 12 : 4);
@@ -196,10 +201,10 @@ export function buildMapHtml(
   <button class="maptoggle mapicon" id="centerbtn" aria-label="Center on pin"></button>
   <button class="maptoggle mapicon" id="layersbtn" aria-label="Map layers"></button>
   <div id="layerspanel">
-    <button class="maptoggle" id="windtoggle">Wind: on</button>
+    <button class="maptoggle${initialWindOn ? '' : ' off'}" id="windtoggle">Wind: ${initialWindOn ? 'on' : 'off'}</button>
     <button class="maptoggle${initialDepth ? '' : ' off'}" id="depthtoggle">Depth: ${initialDepth ? 'on' : 'off'}</button>
     <button class="maptoggle${initialContour ? '' : ' off'}" id="contourtoggle">Contour: ${initialContour ? 'on' : 'off'}</button>
-    <button class="maptoggle" id="sattoggle">Sat: on</button>
+    <button class="maptoggle${initialSat ? '' : ' off'}" id="sattoggle">Sat: ${initialSat ? 'on' : 'off'}</button>
     <button class="maptoggle${initialRadar ? '' : ' off'}" id="radartoggle">Radar: ${initialRadar ? 'on' : 'off'}</button>
   </div>
   <!-- Starts minimized — the expanded key crowds the map (esp. with Depth on). -->
@@ -287,8 +292,8 @@ export function buildMapHtml(
     }
     var satLayer = usgsLayer('USGSImageryTopo');
     var topoLayer = usgsLayer('USGSTopo');
-    var satEnabled = true;
-    satLayer.addTo(map);
+    var satEnabled = ${initialSat ? 'true' : 'false'};
+    (satEnabled ? satLayer : topoLayer).addTo(map);
 
     // Panes so the stack is base tiles < GEBCO shading < NOAA charts < radar <
     // wind < markers. With leaflet-rotate active the base tile pane lives inside
@@ -400,7 +405,7 @@ export function buildMapHtml(
     var GRID = 5;           // GRID x GRID field points over the view
     var windLayer = null;
     var windTimer = null;
-    var windEnabled = true; // toggled by the on-map Wind button
+    var windEnabled = ${initialWindOn ? 'true' : 'false'}; // toggled by the on-map Wind button
 
     // Surface why the wind overlay is blank (no analysis yet, CDN offline) in
     // the pin-readout box instead of failing silently.
@@ -564,6 +569,7 @@ export function buildMapHtml(
         var wr = document.getElementById('windread');
         if (wr) { wr.style.display = 'none'; }
       }
+      postHost({ type: 'wind', on: windEnabled });
     });
 
     // Re-center on the pin: pan (and zoom in from a wide view) back to the
@@ -634,6 +640,7 @@ export function buildMapHtml(
           topoLayer.addTo(map);
         }
         setMapBg();
+        postHost({ type: 'sat', on: satEnabled });
       });
     }
 

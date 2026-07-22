@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { makeStyles, radius, useTheme } from '@/theme';
 import { fetchDemMeters } from '@/api/depth';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
+import { loadMapPrefs, saveMapPrefs, type MapPrefs } from '@/storage/mapPrefs';
 import {
   RadarTimeline,
   type RadarControl,
@@ -45,8 +46,40 @@ export function MapPicker({
   const depthOnRef = useRef(false);
   const radarOnRef = useRef(false);
   const contourOnRef = useRef(false);
+  const satOnRef = useRef(true);
+  const windOnRef = useRef(true);
   // Inline map's current zoom, so full screen opens at the same framing.
   const zoomRef = useRef<number | null>(null);
+
+  // Persisted overlay choices: the inline document waits for the (fast) load
+  // so every launch opens the map the way the angler last had it. Every
+  // toggle message from either map instance re-saves the full set.
+  const [prefs, setPrefs] = useState<MapPrefs | null>(null);
+  // Ref, not state: the message-handler effect below only re-runs on onPick
+  // changes, so persist() must read the loaded flag through a ref to avoid a
+  // stale closure that silently never saves.
+  const prefsLoadedRef = useRef(false);
+  useEffect(() => {
+    void loadMapPrefs().then((p) => {
+      depthOnRef.current = p.depth;
+      contourOnRef.current = p.contour;
+      radarOnRef.current = p.radar;
+      satOnRef.current = p.sat;
+      windOnRef.current = p.wind;
+      prefsLoadedRef.current = true;
+      setPrefs(p);
+    });
+  }, []);
+  const persist = () => {
+    if (!prefsLoadedRef.current) return;
+    saveMapPrefs({
+      depth: depthOnRef.current,
+      contour: contourOnRef.current,
+      radar: radarOnRef.current,
+      sat: satOnRef.current,
+      wind: windOnRef.current,
+    });
+  };
 
   // The full-screen iframe unmounts with the overlay; drop its timeline too.
   useEffect(() => {
@@ -62,16 +95,25 @@ export function MapPicker({
           return;
         }
         if (data?.type === 'depth') {
-          // Seed full screen from the INLINE map's depth state.
-          if (event.source === inlineRef.current?.contentWindow) {
-            depthOnRef.current = !!data.on;
-          }
+          // Track from either map instance: seeds the next full screen AND
+          // persists so the next app open restores it.
+          depthOnRef.current = !!data.on;
+          persist();
           return;
         }
         if (data?.type === 'contour') {
-          if (event.source === inlineRef.current?.contentWindow) {
-            contourOnRef.current = !!data.on;
-          }
+          contourOnRef.current = !!data.on;
+          persist();
+          return;
+        }
+        if (data?.type === 'sat') {
+          satOnRef.current = !!data.on;
+          persist();
+          return;
+        }
+        if (data?.type === 'wind') {
+          windOnRef.current = !!data.on;
+          persist();
           return;
         }
         if (data?.type === 'view') {
@@ -123,8 +165,11 @@ export function MapPicker({
         if (data?.type === 'radar' || data?.type === 'radarFrame') {
           const fromFull = event.source === fullRef.current?.contentWindow;
           const set = fromFull ? setFullRadar : setInlineRadar;
-          // Track the inline map's radar on/off to seed a new full screen.
-          if (data.type === 'radar' && !fromFull) radarOnRef.current = !!data.on;
+          // Track radar on/off to seed a new full screen and persist it.
+          if (data.type === 'radar' && typeof data.on === 'boolean') {
+            radarOnRef.current = data.on;
+            persist();
+          }
           if (data.type === 'radar') {
             set(
               data.on
@@ -192,15 +237,32 @@ export function MapPicker({
     fullRef.current?.contentWindow?.postMessage(msg, '*');
   }, [windTargetLabel, windMph, windDirDeg]);
 
-  // Build each document ONCE. Center changes are pushed via postMessage
-  // (balure:moveSpot) and wind via balure:setWind — never a new srcDoc.
+  // Build each document ONCE, after the persisted prefs land (empty until
+  // then, so the first paint already matches the angler's saved overlays).
+  // Center changes are pushed via postMessage (balure:moveSpot) and wind via
+  // balure:setWind — never a new srcDoc.
   const srcDoc = useMemo(
-    () => buildMapHtml(centerRef.current, windRef.current.label, false, windRef.current.mph, windRef.current.dir),
+    () =>
+      prefs
+        ? buildMapHtml(
+            centerRef.current,
+            windRef.current.label,
+            false,
+            windRef.current.mph,
+            windRef.current.dir,
+            prefs.depth,
+            prefs.radar,
+            prefs.contour,
+            null,
+            prefs.sat,
+            prefs.wind,
+          )
+        : '',
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [prefs],
   );
   // Keyed on `expanded`, so each time it opens it bakes in the *current*
-  // location, wind, and the inline map's depth state; stable while open.
+  // location, wind, and the inline map's overlay state; stable while open.
   const srcDocFull = useMemo(
     () =>
       buildMapHtml(
@@ -213,6 +275,8 @@ export function MapPicker({
         radarOnRef.current,
         contourOnRef.current,
         zoomRef.current,
+        satOnRef.current,
+        windOnRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [expanded],

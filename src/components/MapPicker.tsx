@@ -5,6 +5,7 @@ import { WebView } from 'react-native-webview';
 import { makeStyles, radius, spacing } from '@/theme';
 import { fetchDemMeters } from '@/api/depth';
 import { buildMapHtml, type MapPickerProps } from '@/components/mapHtml';
+import { loadMapPrefs, saveMapPrefs, type MapPrefs } from '@/storage/mapPrefs';
 import {
   RadarTimeline,
   type RadarControl,
@@ -32,6 +33,14 @@ interface CanvasProps extends MapPickerProps {
   initialZoom?: number | null;
   /** Reports the map's zoom after every move, for the inheritance above. */
   onView?: (zoom: number) => void;
+  /** Bake the satellite/topo base choice at mount (persisted + inherited). */
+  initialSat?: boolean;
+  /** Reports satellite on/off so the host can persist and seed it. */
+  onSat?: (on: boolean) => void;
+  /** Bake the wind overlay on/off at mount (persisted + inherited). */
+  initialWindOn?: boolean;
+  /** Reports wind on/off so the host can persist and seed it. */
+  onWind?: (on: boolean) => void;
 }
 
 // The Leaflet WebView. The expand/collapse control lives *inside* the map HTML
@@ -56,6 +65,10 @@ function MapCanvas({
   onContour,
   initialZoom = null,
   onView,
+  initialSat = true,
+  onSat,
+  initialWindOn = true,
+  onWind,
 }: CanvasProps) {
   const styles = useStyles();
   const webRef = useRef<WebView>(null);
@@ -76,6 +89,8 @@ function MapCanvas({
   const initialRadarRef = useRef(initialRadar);
   const initialContourRef = useRef(initialContour);
   const initialZoomRef = useRef(initialZoom);
+  const initialSatRef = useRef(initialSat);
+  const initialWindOnRef = useRef(initialWindOn);
   const html = useMemo(
     () =>
       buildMapHtml(
@@ -88,6 +103,8 @@ function MapCanvas({
         initialRadarRef.current,
         initialContourRef.current,
         initialZoomRef.current,
+        initialSatRef.current,
+        initialWindOnRef.current,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fullscreen],
@@ -203,6 +220,14 @@ function MapCanvas({
             onContour?.(!!data.on);
             return;
           }
+          if (data?.type === 'sat') {
+            onSat?.(!!data.on);
+            return;
+          }
+          if (data?.type === 'wind') {
+            onWind?.(!!data.on);
+            return;
+          }
           if (data?.type === 'view') {
             if (typeof data.zoom === 'number') onView?.(data.zoom);
             return;
@@ -292,16 +317,53 @@ export function MapPicker(props: MapPickerProps) {
   const fullCtl = useRef<RadarControl | null>(null);
   // Depth/contour overlay state, shared so full screen opens with what the
   // inline map had on (each map is its own instance and doesn't otherwise
-  // sync toggles).
+  // sync toggles). Seeded from the persisted prefs so every launch opens the
+  // map the way the angler last had it; null until that (fast) load lands,
+  // and the WebView waits for it — the initial state is baked into the HTML.
+  const [prefs, setPrefs] = useState<MapPrefs | null>(null);
   const [depthOn, setDepthOn] = useState(false);
   const [contourOn, setContourOn] = useState(false);
+  const [satOn, setSatOn] = useState(true);
+  const [windOn, setWindOn] = useState(true);
+  const radarPref = useRef(false);
   // Inline map's current zoom, so full screen opens at the same framing.
   const inlineZoom = useRef<number | null>(null);
+
+  useEffect(() => {
+    void loadMapPrefs().then((p) => {
+      setDepthOn(p.depth);
+      setContourOn(p.contour);
+      setSatOn(p.sat);
+      setWindOn(p.wind);
+      radarPref.current = p.radar;
+      setPrefs(p);
+    });
+  }, []);
+
+  // Persist every toggle change (radar saves inside onRadarMsg — it isn't
+  // React state). Skipped until the initial load has seeded the values.
+  useEffect(() => {
+    if (!prefs) return;
+    saveMapPrefs({ depth: depthOn, contour: contourOn, sat: satOn, wind: windOn, radar: radarPref.current });
+  }, [prefs, depthOn, contourOn, satOn, windOn]);
+
+  const onRadarMsg = (
+    data: { type: string; on?: boolean; frames?: string[]; idx?: number; nowIdx?: number },
+    set: (fn: (r: RadarTimelineState | null) => RadarTimelineState | null) => void,
+  ) => {
+    if (data.type === 'radar' && typeof data.on === 'boolean' && prefs) {
+      radarPref.current = data.on;
+      saveMapPrefs({ depth: depthOn, contour: contourOn, sat: satOn, wind: windOn, radar: data.on });
+    }
+    radarReducer(data, set);
+  };
 
   // The full-screen map unmounts with the modal; drop its timeline with it.
   useEffect(() => {
     if (!expanded) setFullRadar(null);
   }, [expanded]);
+
+  if (!prefs) return <View style={styles.frame} />;
 
   return (
     <View>
@@ -310,10 +372,17 @@ export function MapPicker(props: MapPickerProps) {
           {...props}
           fullscreen={false}
           onToggleFullscreen={() => setExpanded(true)}
-          onRadar={(d) => radarReducer(d, setInlineRadar)}
+          onRadar={(d) => onRadarMsg(d, setInlineRadar)}
           controlRef={inlineCtl}
+          initialDepth={prefs.depth}
           onDepth={setDepthOn}
+          initialRadar={prefs.radar}
+          initialContour={prefs.contour}
           onContour={setContourOn}
+          initialSat={prefs.sat}
+          onSat={setSatOn}
+          initialWindOn={prefs.wind}
+          onWind={setWindOn}
           onView={(z) => { inlineZoom.current = z; }}
         />
       </View>
@@ -332,7 +401,7 @@ export function MapPicker(props: MapPickerProps) {
                   {...props}
                   fullscreen
                   onToggleFullscreen={() => setExpanded(false)}
-                  onRadar={(d) => radarReducer(d, setFullRadar)}
+                  onRadar={(d) => onRadarMsg(d, setFullRadar)}
                   controlRef={fullCtl}
                   initialDepth={depthOn}
                   onDepth={setDepthOn}
@@ -340,6 +409,10 @@ export function MapPicker(props: MapPickerProps) {
                   initialContour={contourOn}
                   onContour={setContourOn}
                   initialZoom={inlineZoom.current}
+                  initialSat={satOn}
+                  onSat={setSatOn}
+                  initialWindOn={windOn}
+                  onWind={setWindOn}
                 />
               </View>
               {fullRadar ? (
