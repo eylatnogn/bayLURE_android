@@ -237,6 +237,42 @@ function similarity(
 /** A day "resembles" a catch at or above this similarity. */
 const MATCH_THRESHOLD = 0.6;
 
+/** The personal-history nudge fed into the bite score. */
+export interface PersonalBias {
+  /** Score points to add (0 or positive — absence of catches is not a signal). */
+  delta: number;
+  /** How many logged catches today's conditions resemble. */
+  matches: number;
+  /** "Why" line for the factors list, when there's a bias. */
+  factor: string | null;
+}
+
+/**
+ * The poor-man's Fishbrain: bias the bite score with the angler's OWN logged
+ * catches. Days resembling conditions they've actually caught fish in get a
+ * small boost (+2 per matching catch, capped at +6). One-sided on purpose —
+ * having no similar catches means nothing (they may just not have fished such
+ * a day yet), so there is never a penalty.
+ */
+export function personalBias(catches: CatchRecord[], day: Conditions): PersonalBias {
+  const tagged = catches
+    .map((c) => c.conditions)
+    .filter((c): c is CatchConditions => !!c);
+  let matches = 0;
+  for (const c of tagged) {
+    if (similarity(c, day).score >= MATCH_THRESHOLD) matches += 1;
+  }
+  if (matches === 0) return { delta: 0, matches: 0, factor: null };
+  return {
+    delta: Math.min(6, matches * 2),
+    matches,
+    factor:
+      matches === 1
+        ? 'Conditions resemble a day you logged a catch — days like this have produced for you.'
+        : `Conditions resemble ${matches} of your logged catches — days like this have produced for you.`,
+  };
+}
+
 function matchLabel(date: string, dayOffset: number): string {
   if (dayOffset === 0) return 'Today';
   if (dayOffset === 1) return 'Tomorrow';

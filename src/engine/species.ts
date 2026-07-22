@@ -196,6 +196,45 @@ export function speciesLabel(id: Species): string {
   return LABELS[id] ?? 'Any species';
 }
 
+// Prime feeding water-temperature range (°F) per species — the widely
+// published activity windows anglers plan around. Drives the bite score's
+// temperature factor when the angler picks targets: 60–80°F is a largemouth
+// assumption, and a 58°F day that's "cooling off" for bass is prime trout or
+// striper water. Within ~8°F of the window still supports a moderate bite;
+// beyond that the species is largely dormant (cold) or stressed (hot).
+const PRIME_TEMP_F: Partial<Record<Species, [number, number]>> = {
+  // Freshwater
+  largemouth: [60, 80],
+  smallmouth: [55, 72],
+  walleye: [48, 68],
+  panfish: [58, 75],
+  trout: [48, 62],
+  catfish: [68, 85],
+  pike: [52, 68],
+  // Saltwater — inshore
+  redfish: [60, 80],
+  seatrout: [58, 78],
+  snook: [70, 88],
+  flounder: [56, 75],
+  striper: [50, 65],
+  tarpon: [74, 88],
+  spanish: [64, 80],
+  // Saltwater — offshore
+  mahi: [72, 82],
+  kingmackerel: [68, 80],
+  cobia: [68, 80],
+  grouper: [62, 80],
+  snapper: [60, 80],
+  amberjack: [60, 78],
+  tuna: [58, 75],
+  wahoo: [70, 82],
+};
+
+/** Prime water-temp window for a species, or null for 'any'/unknown. */
+export function speciesPrimeTempF(id: Species): [number, number] | null {
+  return PRIME_TEMP_F[id] ?? null;
+}
+
 export function speciesTip(id: Species): string | null {
   return SPECIES.find((s) => s.id === id)?.tip ?? null;
 }

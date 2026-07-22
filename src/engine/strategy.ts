@@ -1,6 +1,8 @@
 import type { Conditions, LurePick, Strategy } from '@/types';
 import { LURES, type LureEntry, type Presentation } from '@/engine/lureDatabase';
-import { speciesLabel, speciesTip } from '@/engine/species';
+import { speciesLabel, speciesPrimeTempF, speciesTip } from '@/engine/species';
+import { personalBias } from '@/engine/catchReport';
+import type { CatchRecord } from '@/types';
 import {
   aggressivePenalty,
   buildPressurePlaybook,
@@ -22,15 +24,22 @@ import type { HourBite, BestWindow } from '@/types';
  * transparent rule-based model. Every number here encodes a widely-held
  * angling heuristic; the goal is explainable, not magic.
  */
-export function buildStrategy(c: Conditions): Strategy {
+export function buildStrategy(c: Conditions, catches: CatchRecord[] = []): Strategy {
   const { factors } = scoreBite(c);
-  const hourly = buildHourly(c);
+  // Personal history: lift the whole day when its conditions resemble days
+  // the angler has actually caught fish (see catchReport.personalBias).
+  const bias = personalBias(catches, c);
+  let hourly = buildHourly(c);
+  if (bias.delta > 0) {
+    hourly = hourly.map((h) => ({ ...h, score: clamp(h.score + bias.delta, 1, 99) }));
+    if (bias.factor) factors.push(bias.factor);
+  }
   // The all-day bite score is the AVERAGE across the day's hours, not just the
   // midday snapshot — one reading at noon isn't representative of the whole day.
   // (Falls back to the snapshot if there's no hourly data.)
   const biteScore = hourly.length
     ? clamp(Math.round(hourly.reduce((sum, h) => sum + h.score, 0) / hourly.length), 1, 99)
-    : scoreBite(c).score;
+    : clamp(scoreBite(c).score + bias.delta, 1, 99);
   // Pressured water nudges the approach toward finesse: one notch for moderate,
   // straight to finesse for high.
   let mood = biteMood(biteScore);
@@ -106,9 +115,38 @@ function scoreBite(c: Conditions): { score: number; factors: string[] } {
     factors.push('Low pressure — often coincides with active feeding.');
   }
 
-  // Water temperature vs. a broad "active" window.
+  // Water temperature. With targets selected, score against each species' own
+  // prime window (60–80°F is a bass assumption — the same 58°F reads cold for
+  // largemouth but prime for trout or striper) and let the FRIENDLIEST target
+  // carry the day: if any picked species should be active, the day fishes well
+  // for that target. No targets → the broad generic window.
   const wt = c.water.waterTempF;
-  if (wt >= 60 && wt <= 80) {
+  const windows = c.species
+    .map((sp) => ({ sp, win: speciesPrimeTempF(sp) }))
+    .filter((w): w is { sp: (typeof c.species)[number]; win: [number, number] } => w.win != null);
+  if (windows.length > 0) {
+    let best = windows[0]!;
+    let bestDelta = -Infinity;
+    for (const w of windows) {
+      const d = speciesTempDelta(wt, w.win);
+      if (d > bestDelta) {
+        bestDelta = d;
+        best = w;
+      }
+    }
+    const [lo, hi] = best.win;
+    const name = speciesLabel(best.sp);
+    score += bestDelta;
+    if (bestDelta >= 12) {
+      factors.push(`Water ${wt}°F is prime for ${name} (${lo}–${hi}°F window).`);
+    } else if (bestDelta > 0) {
+      factors.push(`Water ${wt}°F is workable for ${name} — prime is ${lo}–${hi}°F.`);
+    } else if (wt < lo) {
+      factors.push(`Water ${wt}°F is cold for ${name} (prime ${lo}–${hi}°F) — slow way down.`);
+    } else {
+      factors.push(`Water ${wt}°F is hot for ${name} (prime ${lo}–${hi}°F) — fish deep, early, late.`);
+    }
+  } else if (wt >= 60 && wt <= 80) {
     score += 12;
     factors.push(`Water temp ${wt}°F is in the prime activity range.`);
   } else if ((wt >= 50 && wt < 60) || (wt > 80 && wt <= 86)) {
@@ -123,6 +161,21 @@ function scoreBite(c: Conditions): { score: number; factors: string[] } {
   }
   if (c.water.isEstimated) {
     factors.push('Water temp is estimated from air temp (no measured reading nearby).');
+  }
+
+  // Seasonal behavior phase (freshwater; salt migrations vary too much by
+  // species/region for one rule): the spring warm-up puts fish shallow and
+  // feeding around the spawn, and the fall cool-down triggers the pre-winter
+  // feed-up. Month gates the season, water temp confirms the phase is on.
+  if (c.waterType === 'freshwater') {
+    const month = Number(c.date.slice(5, 7));
+    if (month >= 3 && month <= 6 && wt >= 48 && wt <= 68) {
+      score += 8;
+      factors.push('Spring spawn window — fish are shallow and feeding through the spawn cycle.');
+    } else if (month >= 9 && month <= 11 && wt >= 48 && wt <= 68) {
+      score += 8;
+      factors.push('Fall feed-up — fish are bulking for winter and chasing bait.');
+    }
   }
 
   // Wind: a light chop is ideal; dead calm and gales are both harder.
@@ -191,6 +244,28 @@ function scoreBite(c: Conditions): { score: number; factors: string[] } {
     }
   }
 
+  // River flow (USGS gauge), only when the angler says they're fishing
+  // current: for river fish the flow trend dominates almost everything else.
+  // Falling-and-clearing after a rise is prime; a fast rise means cold muddy
+  // runoff; steady flow is a dependable seam bite.
+  if (c.flow && c.structures.includes('current')) {
+    const pct = c.flow.changePct;
+    const cfs = `${c.flow.cfs.toLocaleString()} cfs`;
+    if (pct == null || Math.abs(pct) <= 10) {
+      score += 4;
+      factors.push(`River flow steady (~${cfs}) — a dependable current-seam bite.`);
+    } else if (pct > 30) {
+      score -= 8;
+      factors.push(`River rising fast (+${Math.round(pct)}% in a day) — runoff likely muddying and pushing fish to the edges.`);
+    } else if (pct > 10) {
+      score += 2;
+      factors.push(`River coming up (+${Math.round(pct)}%) — fresh flow can spark feeding; watch the clarity.`);
+    } else {
+      score += 6;
+      factors.push(`River dropping (${Math.round(pct)}%) — falling, clearing water is prime river fishing.`);
+    }
+  }
+
   // Fishing pressure: educated fish are warier and harder to fool.
   const penalty = pressureBitePenalty(c.pressureLevel);
   if (penalty > 0) {
@@ -203,6 +278,14 @@ function scoreBite(c: Conditions): { score: number; factors: string[] } {
   }
 
   return { score: clamp(Math.round(score), 1, 99), factors };
+}
+
+/** Score water temp against one species' prime window (see species.ts). */
+function speciesTempDelta(wt: number, [lo, hi]: [number, number]): number {
+  if (wt >= lo && wt <= hi) return 12;
+  const miss = wt < lo ? lo - wt : wt - hi;
+  if (miss <= 8) return 4;
+  return wt < lo ? -10 : -8;
 }
 
 function biteMood(score: number): BiteMood {

@@ -1,5 +1,6 @@
 import type {
   ChartedDepth,
+  RiverFlow,
   Conditions,
   Coordinates,
   PressureLevel,
@@ -13,6 +14,7 @@ import { fetchWeekWeather, FORECAST_DAYS } from '@/api/weather';
 import { fetchWeekWater } from '@/api/marine';
 import { fetchWeekTides } from '@/api/tides';
 import { fetchChartedDepth } from '@/api/bathymetry';
+import { fetchRiverFlow } from '@/api/flow';
 import { addDays, localDateStr } from '@/utils/dates';
 
 export interface ConditionsRequest {
@@ -67,6 +69,7 @@ interface CachedFetch {
   water: Awaited<ReturnType<typeof fetchWeekWater>>['days'];
   tides: Conditions['tide'][];
   chartedDepth: ChartedDepth | null;
+  flow: RiverFlow | null;
   outages: SourceOutage[];
 }
 
@@ -86,7 +89,7 @@ async function getFetched(req: ConditionsRequest): Promise<CachedFetch> {
   const week = await fetchWeekWeather(req.coordinates);
   const days = week.days.length;
   const emptyTides = () => new Array<Conditions['tide']>(days).fill(null);
-  const [water, tidesRes, depthRes] = await Promise.all([
+  const [water, tidesRes, depthRes, flow] = await Promise.all([
     fetchWeekWater(
       req.coordinates,
       req.waterType,
@@ -102,6 +105,11 @@ async function getFetched(req: ConditionsRequest): Promise<CachedFetch> {
     fetchChartedDepth(req.coordinates)
       .then((chartedDepth) => ({ chartedDepth, failed: false }))
       .catch(() => ({ chartedDepth: null as ChartedDepth | null, failed: true })),
+    // River flow (freshwater only): best-effort — most spots have no gauge in
+    // range, and the score only reads it when the angler is fishing current.
+    req.waterType === 'freshwater'
+      ? fetchRiverFlow(req.coordinates).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   // Record which sources came up short so the UI can tell the angler why a read
@@ -120,6 +128,7 @@ async function getFetched(req: ConditionsRequest): Promise<CachedFetch> {
     water: water.days,
     tides: tidesRes.tides,
     chartedDepth: depthRes.chartedDepth,
+    flow,
     outages,
   };
   fetchCache.set(key, entry);
@@ -148,7 +157,7 @@ export interface ForecastResult {
 export async function gatherForecast(
   req: ConditionsRequest,
 ): Promise<ForecastResult> {
-  const { week, water, tides, chartedDepth, fetchedAt, outages } =
+  const { week, water, tides, chartedDepth, flow, fetchedAt, outages } =
     await getFetched(req);
 
   const base = new Date();
@@ -169,6 +178,7 @@ export async function gatherForecast(
     water: water[d] ?? { waterTempF: 0, isEstimated: true, waveHeightFt: null },
     chartedDepth,
     tide: tides[d] ?? null,
+    flow,
   }));
 
   return { days, outages };

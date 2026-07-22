@@ -46,6 +46,7 @@ import {
 import { getCurrentLocation, reverseGeocode } from '@/api/location';
 import { geocodeQuery, reverseRegion, type Region } from '@/api/geocode';
 import { gatherForecast, type SourceOutage } from '@/api/conditions';
+import { loadCatches } from '@/storage/catchLog';
 import { isLikelySaltwater } from '@/api/tides';
 import { fetchAreaFish, type AreaFish } from '@/api/areaSpecies';
 import { buildStrategy } from '@/engine/strategy';
@@ -474,7 +475,7 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
     setAnalyzing(true);
     if (!silent) setError(null);
     try {
-      const [forecastRes, fish, reg] = await Promise.all([
+      const [forecastRes, fish, reg, loggedCatches] = await Promise.all([
         gatherForecast({
           coordinates,
           waterType,
@@ -486,11 +487,14 @@ export function HomeScreen({ onSnapshot, onForecast }: Props) {
         }),
         fetchAreaFish(coordinates).catch(() => [] as AreaFish[]),
         reverseRegion(coordinates).catch(() => null),
+        // The angler's own logged catches bias the score toward days that
+        // resemble ones that produced for them (personalBias).
+        loadCatches().catch(() => []),
       ]);
       const week = forecastRes.days;
       // Show (or clear) the source-outage notice for this run.
       setOutages(forecastRes.outages);
-      const strats = week.map((c) => buildStrategy(c));
+      const strats = week.map((c) => buildStrategy(c, loggedCatches));
       setForecast(week);
       onForecast?.(week);
       setStrategies(strats);

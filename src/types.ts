@@ -171,6 +171,24 @@ export interface Conditions {
    */
   chartedDepth?: ChartedDepth | null;
   tide: TideConditions | null;
+  /**
+   * Nearest USGS gauge's river flow (freshwater only) — a location attribute
+   * like chartedDepth, copied onto each day. Scored only when the angler says
+   * they're fishing current; null when no gauge is near or the fetch failed.
+   */
+  flow?: RiverFlow | null;
+}
+
+/** Streamflow at the nearest USGS gauge, for the river-bite factor. */
+export interface RiverFlow {
+  /** Latest discharge in cubic feet per second. */
+  cfs: number;
+  /** Change vs ~24 h ago as a percentage, null when the series is too short. */
+  changePct: number | null;
+  /** Gauge name, e.g. "CHATTAHOOCHEE RIVER NEAR NORCROSS, GA". */
+  siteName: string;
+  /** Miles from the spot to the gauge. */
+  distanceMi: number;
 }
 
 export interface LurePick {
