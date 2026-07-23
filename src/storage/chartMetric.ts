@@ -13,6 +13,9 @@ const KEY = 'balure.chartmetric.v1';
 export interface ChartMetricPref {
   preferred: string;
   fallback: string;
+  /** Which stat tiles show, in the angler's order (subset of the tile keys).
+   * Absent in prefs saved before tiles became customizable. */
+  tiles?: string[];
 }
 
 export async function loadChartMetric(): Promise<ChartMetricPref | null> {
@@ -23,7 +26,13 @@ export async function loadChartMetric(): Promise<ChartMetricPref | null> {
     if (typeof parsed.preferred !== 'string' || typeof parsed.fallback !== 'string') {
       return null;
     }
-    return { preferred: parsed.preferred, fallback: parsed.fallback };
+    return {
+      preferred: parsed.preferred,
+      fallback: parsed.fallback,
+      tiles: Array.isArray(parsed.tiles)
+        ? parsed.tiles.filter((t): t is string => typeof t === 'string')
+        : undefined,
+    };
   } catch {
     return null;
   }

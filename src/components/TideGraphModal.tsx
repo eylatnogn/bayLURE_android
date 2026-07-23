@@ -22,6 +22,7 @@ import type { Conditions, Strategy, WeatherConditions } from '@/types';
 import { biteLabel } from '@/engine/strategy';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { loadChartMetric, saveChartMetric } from '@/storage/chartMetric';
+import { ReorderableStrip } from '@/components/ReorderableStrip';
 import { hourOf, localDateStr } from '@/utils/dates';
 import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
 
@@ -143,6 +144,38 @@ function isMetricKey(s: string): s is MetricKey {
   return s in METRICS;
 }
 
+// The stat tiles under the chart — the angler picks which show and in what
+// order (same drag-reorder / add-remove pattern as the main conditions strip).
+// 'tide' is a tile like any other, but renders only when the spot has tide
+// data. At least one tile always remains.
+type TileKey = MetricKey | 'tide';
+const DEFAULT_TILES: TileKey[] = ['air', 'rain', 'wind', 'pressure', 'sky', 'humidity', 'tide'];
+const TILE_META: Record<TileKey, { label: string; icon: keyof typeof Feather.glyphMap }> = {
+  air: { label: 'Air', icon: 'thermometer' },
+  rain: { label: 'Rain', icon: 'umbrella' },
+  wind: { label: 'Wind', icon: 'wind' },
+  pressure: { label: 'Pressure', icon: 'activity' },
+  sky: { label: 'Sky', icon: 'cloud' },
+  humidity: { label: 'Humidity', icon: 'percent' },
+  tide: { label: 'Tide', icon: 'repeat' },
+};
+const isTileKey = (s: string): s is TileKey => s === 'tide' || isMetricKey(s);
+
+/** Keep valid, de-duped tile keys in saved order; default set when none. */
+function reconcileTiles(stored: unknown): TileKey[] {
+  const out: TileKey[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(stored)) {
+    for (const k of stored) {
+      if (typeof k === 'string' && isTileKey(k) && !seen.has(k)) {
+        out.push(k);
+        seen.add(k);
+      }
+    }
+  }
+  return out.length ? out : [...DEFAULT_TILES];
+}
+
 /** SVG text with a soft outline behind it (dark in dark mode, light in light
  * mode), so the white/gray chart labels stay legible where they cross the bite
  * bars, the curve, and the peak bands. */
@@ -238,8 +271,21 @@ export function TideGraphModal({
   // The metric that stands in for the tide curve when the spot has none
   // (freshwater, or tide data down) — the angler's last non-tide pick.
   const [tideFallback, setTideFallback] = useState<MetricKey>('air');
-  // Persisted preference, loaded once; `metric` snaps to it on each open.
+  // Which stat tiles show, in the angler's order; editable in-place.
+  const [tiles, setTiles] = useState<TileKey[]>(DEFAULT_TILES);
+  const [editingTiles, setEditingTiles] = useState(false);
+  // Persisted preferences, loaded once; refs mirror state so one save helper
+  // can always write the complete, current set.
   const preferredRef = useRef<'tide' | MetricKey>('tide');
+  const tideFallbackRef = useRef<MetricKey>('air');
+  const tilesRef = useRef<TileKey[]>(DEFAULT_TILES);
+  const persistPrefs = useCallback(() => {
+    saveChartMetric({
+      preferred: preferredRef.current,
+      fallback: tideFallbackRef.current,
+      tiles: tilesRef.current,
+    });
+  }, []);
   useEffect(() => {
     void loadChartMetric().then((saved) => {
       if (!saved) return;
@@ -247,19 +293,40 @@ export function TideGraphModal({
         preferredRef.current = saved.preferred as 'tide' | MetricKey;
         setMetric(preferredRef.current);
       }
-      if (isMetricKey(saved.fallback)) setTideFallback(saved.fallback);
+      if (isMetricKey(saved.fallback)) {
+        tideFallbackRef.current = saved.fallback;
+        setTideFallback(saved.fallback);
+      }
+      if (saved.tiles) {
+        tilesRef.current = reconcileTiles(saved.tiles);
+        setTiles(tilesRef.current);
+      }
     });
   }, []);
   // Tap a tile: show that curve now, and make it the default from here on.
   const pickMetric = useCallback((m: 'tide' | MetricKey) => {
     setMetric(m);
     preferredRef.current = m;
-    setTideFallback((prev) => {
-      const fb = m !== 'tide' ? m : prev;
-      saveChartMetric({ preferred: m, fallback: fb });
-      return fb;
-    });
-  }, []);
+    if (m !== 'tide') {
+      tideFallbackRef.current = m;
+      setTideFallback(m);
+    }
+    persistPrefs();
+  }, [persistPrefs]);
+  // Reorder / add / remove the tile set (never below one tile). If the tile
+  // backing the currently plotted curve was removed, hop to the first
+  // remaining tile so the chart never shows a curve with no tile.
+  const updateTiles = useCallback((next: TileKey[]) => {
+    if (next.length === 0) return;
+    tilesRef.current = next;
+    setTiles(next);
+    const cur = preferredRef.current;
+    if (!next.includes(cur === 'tide' ? 'tide' : cur)) {
+      pickMetric(next[0]!);
+      return; // pickMetric persisted with the new tiles already in the ref
+    }
+    persistPrefs();
+  }, [pickMetric, persistPrefs]);
   // Dragged sheet height; null = fit the content. Locks where the drag ends
   // and survives close/reopen, so the angler sets it once.
   const [sheetH, setSheetH] = useState<number | null>(null);
@@ -871,66 +938,171 @@ export function TideGraphModal({
                 <Text style={styles.tapHint}>tap an hour</Text>
               )}
             </View>
-            {/* Tap a stat to plot that metric through the day; Tide reverts. */}
-            <View style={styles.miniRow}>
-              <MiniStat
-                label="Air"
-                value={`${hourWeather.airTempF}°F`}
-                active={activeMetric === 'air'}
-                onPress={() => pickMetric('air')}
-              />
-              <MiniStat
-                label="Rain"
-                value={`${hourWeather.precipChancePct}%`}
-                hint={hourWeather.thunder ? '⚡ storms' : undefined}
-                warn
-                active={activeMetric === 'rain'}
-                onPress={() => pickMetric('rain')}
-              />
-              <MiniStat
-                label="Wind"
-                value={`${hourWeather.windMph} mph`}
-                hint={hourWeather.windDirectionLabel}
-                // windDirectionDeg is where it comes FROM; +180 points the
-                // arrow the way the wind is actually blowing TO.
-                arrowDeg={(hourWeather.windDirectionDeg + 180) % 360}
-                active={activeMetric === 'wind'}
-                onPress={() => pickMetric('wind')}
-              />
-              <MiniStat
-                label="Pressure"
-                value={`${hourWeather.pressureInHg}`}
-                hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
-                active={activeMetric === 'pressure'}
-                onPress={() => pickMetric('pressure')}
-              />
-              <MiniStat
-                label="Sky"
-                value={`${hourWeather.cloudCoverPct}%`}
-                hint="cloud"
-                active={activeMetric === 'sky'}
-                onPress={() => pickMetric('sky')}
-              />
-              <MiniStat
-                label="Humidity"
-                value={`${hourWeather.humidityPct}%`}
-                active={activeMetric === 'humidity'}
-                onPress={() => pickMetric('humidity')}
-              />
-              {selTide ? (
-                <MiniStat
-                  label="Tide"
-                  value={TIDE_SHORT[selTide.state] ?? '—'}
-                  hint={
-                    selTide.nextEvent
-                      ? `${selTide.nextEvent.type} ${fmtEventTime(selTide.nextEvent.time)}`
-                      : undefined
-                  }
-                  active={activeMetric === 'tide'}
-                  onPress={() => pickMetric('tide')}
+            {/* Tap a stat to plot that metric through the day; Tide reverts.
+                The move icon opens edit mode: drag to reorder, ✕ to remove,
+                chips to add back — same pattern as the main conditions strip. */}
+            {editingTiles ? (
+              <View style={styles.tilesEditWrap}>
+                <View style={styles.tilesEditHead}>
+                  <Text style={styles.tilesEditHint}>Drag to reorder · tap ✕ to remove</Text>
+                  <Pressable
+                    onPress={() => setEditingTiles(false)}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.tilesDoneBtn, pressed && pressedStyle]}
+                  >
+                    <Feather name="check" size={13} color={colors.accent} />
+                    <Text style={styles.tilesDoneText}>Done</Text>
+                  </Pressable>
+                </View>
+                <ReorderableStrip
+                  items={tiles}
+                  keyOf={(k) => k}
+                  height={48}
+                  onReorder={updateTiles}
+                  renderItem={(k, dragging) => (
+                    <View style={[styles.tilesEditTile, dragging && styles.tilesEditTileActive]}>
+                      {tiles.length > 1 ? (
+                        <Pressable
+                          onPress={() => updateTiles(tiles.filter((t) => t !== k))}
+                          hitSlop={10}
+                          style={styles.tileRemove}
+                        >
+                          <Feather name="x" size={11} color="#fff" />
+                        </Pressable>
+                      ) : null}
+                      <Feather
+                        name={TILE_META[k].icon}
+                        size={14}
+                        color={dragging ? colors.accent : colors.text}
+                      />
+                      <Text style={styles.tilesEditLabel} numberOfLines={1}>
+                        {TILE_META[k].label}
+                      </Text>
+                    </View>
+                  )}
                 />
-              ) : null}
+                {DEFAULT_TILES.some((k) => !tiles.includes(k)) ? (
+                  <View style={styles.tilesAddSection}>
+                    <Text style={styles.tilesAddLabel}>Add a tile</Text>
+                    <View style={styles.tilesAddRow}>
+                      {DEFAULT_TILES.filter((k) => !tiles.includes(k)).map((k) => (
+                        <Pressable
+                          key={k}
+                          onPress={() => updateTiles([...tiles, k])}
+                          style={({ pressed }) => [styles.tilesAddChip, pressed && pressedStyle]}
+                        >
+                          <Feather name={TILE_META[k].icon} size={12} color={colors.accent} />
+                          <Text style={styles.tilesAddChipLabel}>{TILE_META[k].label}</Text>
+                          <Feather name="plus" size={12} color={colors.accent} />
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+            <View style={styles.miniRowWrap}>
+            <View style={[styles.miniRow, styles.miniRowFlex]}>
+              {tiles.map((k) => {
+                switch (k) {
+                  case 'air':
+                    return (
+                      <MiniStat
+                        key="air"
+                        label="Air"
+                        value={`${hourWeather.airTempF}°F`}
+                        active={activeMetric === 'air'}
+                        onPress={() => pickMetric('air')}
+                      />
+                    );
+                  case 'rain':
+                    return (
+                      <MiniStat
+                        key="rain"
+                        label="Rain"
+                        value={`${hourWeather.precipChancePct}%`}
+                        hint={hourWeather.thunder ? '⚡ storms' : undefined}
+                        warn
+                        active={activeMetric === 'rain'}
+                        onPress={() => pickMetric('rain')}
+                      />
+                    );
+                  case 'wind':
+                    return (
+                      <MiniStat
+                        key="wind"
+                        label="Wind"
+                        value={`${hourWeather.windMph} mph`}
+                        hint={hourWeather.windDirectionLabel}
+                        // windDirectionDeg is where it comes FROM; +180 points
+                        // the arrow the way the wind is actually blowing TO.
+                        arrowDeg={(hourWeather.windDirectionDeg + 180) % 360}
+                        active={activeMetric === 'wind'}
+                        onPress={() => pickMetric('wind')}
+                      />
+                    );
+                  case 'pressure':
+                    return (
+                      <MiniStat
+                        key="pressure"
+                        label="Pressure"
+                        value={`${hourWeather.pressureInHg}`}
+                        hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
+                        active={activeMetric === 'pressure'}
+                        onPress={() => pickMetric('pressure')}
+                      />
+                    );
+                  case 'sky':
+                    return (
+                      <MiniStat
+                        key="sky"
+                        label="Sky"
+                        value={`${hourWeather.cloudCoverPct}%`}
+                        hint="cloud"
+                        active={activeMetric === 'sky'}
+                        onPress={() => pickMetric('sky')}
+                      />
+                    );
+                  case 'humidity':
+                    return (
+                      <MiniStat
+                        key="humidity"
+                        label="Humidity"
+                        value={`${hourWeather.humidityPct}%`}
+                        active={activeMetric === 'humidity'}
+                        onPress={() => pickMetric('humidity')}
+                      />
+                    );
+                  case 'tide':
+                    return selTide ? (
+                      <MiniStat
+                        key="tide"
+                        label="Tide"
+                        value={TIDE_SHORT[selTide.state] ?? '—'}
+                        hint={
+                          selTide.nextEvent
+                            ? `${selTide.nextEvent.type} ${fmtEventTime(selTide.nextEvent.time)}`
+                            : undefined
+                        }
+                        active={activeMetric === 'tide'}
+                        onPress={() => pickMetric('tide')}
+                      />
+                    ) : null;
+                  default:
+                    return null;
+                }
+              })}
             </View>
+            <Pressable
+              onPress={() => setEditingTiles(true)}
+              hitSlop={8}
+              accessibilityLabel="Customize tiles"
+              style={({ pressed }) => [styles.tilesEditBtn, pressed && pressedStyle]}
+            >
+              <Feather name="move" size={14} color={colors.textMuted} />
+            </Pressable>
+            </View>
+            )}
 
             {activeMetric !== 'tide' ? (
               <View style={styles.metricBar}>
@@ -1121,6 +1293,89 @@ const useStyles = makeStyles((c, t) => ({
     flexWrap: 'wrap',
     marginBottom: 2,
   },
+  // Tile row + the customize (move) button beside it.
+  miniRowWrap: { flexDirection: 'row', alignItems: 'flex-start' },
+  miniRowFlex: { flex: 1 },
+  tilesEditBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    marginLeft: 2,
+  },
+  // Edit mode — mirrors the main conditions strip's reorder UI.
+  tilesEditWrap: { paddingVertical: spacing.xs },
+  tilesEditHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  tilesEditHint: { color: c.textMuted, fontSize: 12, fontStyle: 'italic' },
+  tilesDoneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: c.accent,
+    backgroundColor: c.accentDim,
+  },
+  tilesDoneText: { color: c.accent, fontSize: 12, fontWeight: '800' },
+  tilesEditTile: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    backgroundColor: c.card,
+    borderColor: c.cardBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    marginHorizontal: 3,
+    alignSelf: 'stretch',
+  },
+  tilesEditTileActive: {
+    borderColor: c.accent,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  tilesEditLabel: { color: c.text, fontSize: 10, fontWeight: '700' },
+  tileRemove: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: c.bad,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  tilesAddSection: { marginTop: spacing.md },
+  tilesAddLabel: {
+    color: c.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: spacing.xs,
+  },
+  tilesAddRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  tilesAddChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: c.card,
+    borderColor: c.accent,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+  },
+  tilesAddChipLabel: { color: c.text, fontSize: 12, fontWeight: '700' },
   mini: {
     width: '16.6%',
     minWidth: 54,

@@ -8,6 +8,11 @@ All notable changes to bayLURE. Dates are release/build dates.
   option) and opens on it every time. Spots without tide data (freshwater,
   or a NOAA outage) fill the chart with your last-chosen metric instead of
   defaulting to air.
+- **Customize the stat tiles** — the move icon next to the tiles opens the
+  same drag-to-reorder mode as the main conditions strip: drag tiles into
+  your order, ✕ removes them (at least one always stays), and removed ones
+  come back from "Add a tile" chips. If you remove the tile whose curve is
+  showing, the chart hops to your first tile. All of it persists.
 
 ## v0.90.0 — 2026-07-22
 - **Smarter bite score** — species-specific water-temperature windows,
