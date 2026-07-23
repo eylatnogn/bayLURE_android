@@ -2,6 +2,13 @@
 
 All notable changes to bayLURE. Dates are release/build dates.
 
+## Unreleased (after v0.90.0)
+- **Pick your graph metric** — the Tides & Bite chart remembers which curve
+  you prefer (tide, air, rain, wind, pressure, cloud, or the new humidity
+  option) and opens on it every time. Spots without tide data (freshwater,
+  or a NOAA outage) fill the chart with your last-chosen metric instead of
+  defaulting to air.
+
 ## v0.90.0 — 2026-07-22
 - **Smarter bite score** — species-specific water-temperature windows,
   seasonal behavior phase (pre-spawn/spawn/fall feed-up), moon phase and

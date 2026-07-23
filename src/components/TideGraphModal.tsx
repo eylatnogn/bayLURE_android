@@ -4,7 +4,7 @@
 // a Modal) so the map above it stays fully interactive; the host scrolls the
 // map into view when it opens. A grab handle above the title lets the angler
 // drag the sheet shorter/taller (it locks where they leave it).
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -21,6 +21,7 @@ import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-
 import type { Conditions, Strategy, WeatherConditions } from '@/types';
 import { biteLabel } from '@/engine/strategy';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
+import { loadChartMetric, saveChartMetric } from '@/storage/chartMetric';
 import { hourOf, localDateStr } from '@/utils/dates';
 import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
 
@@ -113,8 +114,10 @@ const TIDE_SHORT: Record<string, string> = {
 };
 
 // Forecast metrics the chart can plot instead of the tide curve — tap a stat
-// tile to switch, tap Tide (or the revert button) to come back.
-type MetricKey = 'air' | 'rain' | 'wind' | 'pressure' | 'sky';
+// tile to switch, tap Tide (or the revert button) to come back. All are
+// hourly-forecastable series (the chart needs a value for every hour), and
+// the choice persists so the chart opens on the angler's preferred metric.
+type MetricKey = 'air' | 'rain' | 'wind' | 'pressure' | 'sky' | 'humidity';
 interface MetricCfg {
   /** Legend/heading text, e.g. "Rain %". */
   legend: string;
@@ -133,7 +136,12 @@ const METRICS: Record<MetricKey, MetricCfg> = {
   wind: { legend: 'Wind mph', unit: ' mph', pad: 2, get: (w) => w.windMph },
   pressure: { legend: 'Pressure inHg', unit: ' inHg', pad: 0.05, decimals: 2, get: (w) => w.pressureInHg },
   sky: { legend: 'Cloud %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.cloudCoverPct },
+  humidity: { legend: 'Humidity %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.humidityPct },
 };
+
+function isMetricKey(s: string): s is MetricKey {
+  return s in METRICS;
+}
 
 /** SVG text with a soft outline behind it (dark in dark mode, light in light
  * mode), so the white/gray chart labels stay legible where they cross the bite
@@ -227,6 +235,31 @@ export function TideGraphModal({
   const [failed, setFailed] = useState(false);
   // What the chart's curve shows: the tide, or a tapped forecast metric.
   const [metric, setMetric] = useState<'tide' | MetricKey>('tide');
+  // The metric that stands in for the tide curve when the spot has none
+  // (freshwater, or tide data down) — the angler's last non-tide pick.
+  const [tideFallback, setTideFallback] = useState<MetricKey>('air');
+  // Persisted preference, loaded once; `metric` snaps to it on each open.
+  const preferredRef = useRef<'tide' | MetricKey>('tide');
+  useEffect(() => {
+    void loadChartMetric().then((saved) => {
+      if (!saved) return;
+      if (saved.preferred === 'tide' || isMetricKey(saved.preferred)) {
+        preferredRef.current = saved.preferred as 'tide' | MetricKey;
+        setMetric(preferredRef.current);
+      }
+      if (isMetricKey(saved.fallback)) setTideFallback(saved.fallback);
+    });
+  }, []);
+  // Tap a tile: show that curve now, and make it the default from here on.
+  const pickMetric = useCallback((m: 'tide' | MetricKey) => {
+    setMetric(m);
+    preferredRef.current = m;
+    setTideFallback((prev) => {
+      const fb = m !== 'tide' ? m : prev;
+      saveChartMetric({ preferred: m, fallback: fb });
+      return fb;
+    });
+  }, []);
   // Dragged sheet height; null = fit the content. Locks where the drag ends
   // and survives close/reopen, so the angler sets it once.
   const [sheetH, setSheetH] = useState<number | null>(null);
@@ -305,12 +338,13 @@ export function TideGraphModal({
   ).current;
 
   // Every open starts at the default (content-fit) height — never the height
-  // it was dragged to last time.
+  // it was dragged to last time. The curve opens on the angler's persisted
+  // preferred metric (tide by default), not hardcoded tide.
   useEffect(() => {
     if (visible) {
       sheetHRef.current = null;
       setSheetH(null);
-      setMetric('tide');
+      setMetric(preferredRef.current);
     }
   }, [visible]);
 
@@ -328,9 +362,10 @@ export function TideGraphModal({
   const strategy = strategies[selDay];
   const tide = day?.tide ?? null;
   // Freshwater spots have no tide station, but every other metric still
-  // graphs fine — so "tide" quietly becomes the air-temp chart there, and the
-  // sheet works the same minus tide-specific UI (revert button, Tide tile).
-  const activeMetric: 'tide' | MetricKey = metric === 'tide' && !tide ? 'air' : metric;
+  // graphs fine — so "tide" quietly becomes the angler's chosen fallback
+  // metric there (their last non-tide pick, air by default), and the sheet
+  // works the same minus tide-specific UI (revert button, Tide tile).
+  const activeMetric: 'tide' | MetricKey = metric === 'tide' && !tide ? tideFallback : metric;
 
   useEffect(() => {
     if (!visible || !tide || !day) return;
@@ -842,7 +877,7 @@ export function TideGraphModal({
                 label="Air"
                 value={`${hourWeather.airTempF}°F`}
                 active={activeMetric === 'air'}
-                onPress={() => setMetric('air')}
+                onPress={() => pickMetric('air')}
               />
               <MiniStat
                 label="Rain"
@@ -850,7 +885,7 @@ export function TideGraphModal({
                 hint={hourWeather.thunder ? '⚡ storms' : undefined}
                 warn
                 active={activeMetric === 'rain'}
-                onPress={() => setMetric('rain')}
+                onPress={() => pickMetric('rain')}
               />
               <MiniStat
                 label="Wind"
@@ -860,21 +895,27 @@ export function TideGraphModal({
                 // arrow the way the wind is actually blowing TO.
                 arrowDeg={(hourWeather.windDirectionDeg + 180) % 360}
                 active={activeMetric === 'wind'}
-                onPress={() => setMetric('wind')}
+                onPress={() => pickMetric('wind')}
               />
               <MiniStat
                 label="Pressure"
                 value={`${hourWeather.pressureInHg}`}
                 hint={`${TREND_ARROW[hourWeather.pressureTrend] ?? '·'} ${hourWeather.pressureTrend}`}
                 active={activeMetric === 'pressure'}
-                onPress={() => setMetric('pressure')}
+                onPress={() => pickMetric('pressure')}
               />
               <MiniStat
                 label="Sky"
                 value={`${hourWeather.cloudCoverPct}%`}
                 hint="cloud"
                 active={activeMetric === 'sky'}
-                onPress={() => setMetric('sky')}
+                onPress={() => pickMetric('sky')}
+              />
+              <MiniStat
+                label="Humidity"
+                value={`${hourWeather.humidityPct}%`}
+                active={activeMetric === 'humidity'}
+                onPress={() => pickMetric('humidity')}
               />
               {selTide ? (
                 <MiniStat
@@ -886,7 +927,7 @@ export function TideGraphModal({
                       : undefined
                   }
                   active={activeMetric === 'tide'}
-                  onPress={() => setMetric('tide')}
+                  onPress={() => pickMetric('tide')}
                 />
               ) : null}
             </View>
@@ -898,7 +939,7 @@ export function TideGraphModal({
                 </Text>
                 {tide ? (
                   <Pressable
-                    onPress={() => setMetric('tide')}
+                    onPress={() => pickMetric('tide')}
                     hitSlop={6}
                     style={({ pressed }) => [styles.revertBtn, pressed && pressedStyle]}
                   >
