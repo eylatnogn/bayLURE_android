@@ -69,6 +69,14 @@ export interface WeatherConditions {
   /** Wind speed in mph. */
   windMph: number;
   windGustMph: number;
+  /** Dew point °F — air cooling to it at dawn means fog. */
+  dewPointF: number;
+  /** Apparent ("feels like") temperature °F. */
+  feelsLikeF: number;
+  /** Forecast rain amount for this hour, inches (0 when dry). */
+  rainAmtIn: number;
+  /** Hourly forecast wave height (ft); null away from coastal NWS grids. */
+  waveHeightFt: number | null;
   /** Wind direction in degrees (meteorological: where wind comes FROM). */
   windDirectionDeg: number;
   /** Compass label, e.g. "NW". */

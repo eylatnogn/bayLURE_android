@@ -23,6 +23,7 @@ import { biteLabel } from '@/engine/strategy';
 import { fetchTideHeights, tideAt, type TideHeightPoint } from '@/api/tides';
 import { loadChartMetric, saveChartMetric } from '@/storage/chartMetric';
 import { ReorderableStrip } from '@/components/ReorderableStrip';
+import { solunarActivityAt, solunarTimes, type SolunarTimes } from '@/utils/astro';
 import { hourOf, localDateStr } from '@/utils/dates';
 import { makeStyles, pressedStyle, radius, scoreColor, spacing, useTheme } from '@/theme';
 
@@ -118,7 +119,19 @@ const TIDE_SHORT: Record<string, string> = {
 // tile to switch, tap Tide (or the revert button) to come back. All are
 // hourly-forecastable series (the chart needs a value for every hour), and
 // the choice persists so the chart opens on the angler's preferred metric.
-type MetricKey = 'air' | 'rain' | 'wind' | 'pressure' | 'sky' | 'humidity';
+type MetricKey =
+  | 'air'
+  | 'rain'
+  | 'wind'
+  | 'pressure'
+  | 'sky'
+  | 'humidity'
+  | 'gust'
+  | 'dew'
+  | 'feels'
+  | 'rainamt'
+  | 'waves'
+  | 'solunar';
 interface MetricCfg {
   /** Legend/heading text, e.g. "Rain %". */
   legend: string;
@@ -129,7 +142,10 @@ interface MetricCfg {
   /** Fixed axis range (percent metrics), instead of fitting the data. */
   domain?: [number, number];
   decimals?: number;
-  get: (w: WeatherConditions) => number;
+  /** Hour value; null = no data for this hour (dropped from the curve).
+   * `solunar` is the solunar feeding times for the day (only the solunar
+   * metric reads it). */
+  get: (w: WeatherConditions, solunar?: SolunarTimes | null) => number | null;
 }
 const METRICS: Record<MetricKey, MetricCfg> = {
   air: { legend: 'Air °F', unit: '°F', pad: 2, get: (w) => w.airTempF },
@@ -138,6 +154,19 @@ const METRICS: Record<MetricKey, MetricCfg> = {
   pressure: { legend: 'Pressure inHg', unit: ' inHg', pad: 0.05, decimals: 2, get: (w) => w.pressureInHg },
   sky: { legend: 'Cloud %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.cloudCoverPct },
   humidity: { legend: 'Humidity %', unit: '%', pad: 5, domain: [0, 100], get: (w) => w.humidityPct },
+  gust: { legend: 'Gusts mph', unit: ' mph', pad: 2, get: (w) => w.windGustMph },
+  dew: { legend: 'Dew point °F', unit: '°F', pad: 2, get: (w) => w.dewPointF },
+  feels: { legend: 'Feels like °F', unit: '°F', pad: 2, get: (w) => w.feelsLikeF },
+  rainamt: { legend: 'Rain amount in/hr', unit: '"', pad: 0.02, decimals: 2, get: (w) => w.rainAmtIn },
+  waves: { legend: 'Waves ft', unit: ' ft', pad: 0.5, decimals: 1, get: (w) => w.waveHeightFt },
+  solunar: {
+    legend: 'Solunar activity',
+    unit: '',
+    pad: 0.5,
+    domain: [0, 7],
+    get: (w, solunar) =>
+      solunar ? solunarActivityAt(new Date(w.timeISO).getTime(), solunar) : 0,
+  },
 };
 
 function isMetricKey(s: string): s is MetricKey {
@@ -150,6 +179,16 @@ function isMetricKey(s: string): s is MetricKey {
 // data. At least one tile always remains.
 type TileKey = MetricKey | 'tide';
 const DEFAULT_TILES: TileKey[] = ['air', 'rain', 'wind', 'pressure', 'sky', 'humidity', 'tide'];
+/** Everything offered in "Add a tile" — defaults first, then the extras. */
+const ALL_TILES: TileKey[] = [
+  ...DEFAULT_TILES,
+  'gust',
+  'waves',
+  'rainamt',
+  'dew',
+  'feels',
+  'solunar',
+];
 const TILE_META: Record<TileKey, { label: string; icon: keyof typeof Feather.glyphMap }> = {
   air: { label: 'Air', icon: 'thermometer' },
   rain: { label: 'Rain', icon: 'umbrella' },
@@ -157,6 +196,12 @@ const TILE_META: Record<TileKey, { label: string; icon: keyof typeof Feather.gly
   pressure: { label: 'Pressure', icon: 'activity' },
   sky: { label: 'Sky', icon: 'cloud' },
   humidity: { label: 'Humidity', icon: 'percent' },
+  gust: { label: 'Gusts', icon: 'wind' },
+  waves: { label: 'Waves', icon: 'trending-up' },
+  rainamt: { label: 'Rain amt', icon: 'cloud-rain' },
+  dew: { label: 'Dew point', icon: 'droplet' },
+  feels: { label: 'Feels like', icon: 'thermometer' },
+  solunar: { label: 'Solunar', icon: 'moon' },
   tide: { label: 'Tide', icon: 'repeat' },
 };
 const isTileKey = (s: string): s is TileKey => s === 'tide' || isMetricKey(s);
@@ -428,11 +473,27 @@ export function TideGraphModal({
   const day = forecast[selDay];
   const strategy = strategies[selDay];
   const tide = day?.tide ?? null;
+  // Solunar feeding times for this day + spot, shared by the solunar curve
+  // and the Solunar tile's Major/Minor readout.
+  const solunarSt: SolunarTimes | null = day
+    ? solunarTimes(
+        new Date(day.hourlyWeather?.[0]?.timeISO ?? `${day.date}T12:00`),
+        day.coordinates.longitude,
+      )
+    : null;
+  // Wave data only exists on coastal NWS grids — the Waves tile/curve hides
+  // itself elsewhere, exactly like the Tide tile.
+  const hasWaves = (day?.hourlyWeather ?? []).some((h) => h.waveHeightFt != null);
   // Freshwater spots have no tide station, but every other metric still
   // graphs fine — so "tide" quietly becomes the angler's chosen fallback
   // metric there (their last non-tide pick, air by default), and the sheet
-  // works the same minus tide-specific UI (revert button, Tide tile).
-  const activeMetric: 'tide' | MetricKey = metric === 'tide' && !tide ? tideFallback : metric;
+  // works the same minus tide-specific UI (revert button, Tide tile). A
+  // waves preference degrades the same way on spots with no wave forecast.
+  let resolvedMetric: 'tide' | MetricKey = metric === 'tide' && !tide ? tideFallback : metric;
+  if (resolvedMetric === 'waves' && !hasWaves) {
+    resolvedMetric = tideFallback !== 'waves' ? tideFallback : 'air';
+  }
+  const activeMetric: 'tide' | MetricKey = resolvedMetric;
 
   useEffect(() => {
     if (!visible || !tide || !day) return;
@@ -492,8 +553,11 @@ export function TideGraphModal({
   if (activeMetric !== 'tide') {
     const cfg = METRICS[activeMetric];
     const series = (day.hourlyWeather ?? [])
-      .map((h) => ({ hr: hourOf(h.timeISO), v: cfg.get(h) }))
-      .filter((p) => !Number.isNaN(p.hr) && typeof p.v === 'number' && !Number.isNaN(p.v))
+      .map((h) => ({ hr: hourOf(h.timeISO), v: cfg.get(h, solunarSt) }))
+      .filter(
+        (p): p is { hr: number; v: number } =>
+          !Number.isNaN(p.hr) && typeof p.v === 'number' && !Number.isNaN(p.v),
+      )
       .sort((a, b) => a.hr - b.hr);
     if (series.length >= 2) {
       const vals = series.map((p) => p.v);
@@ -981,11 +1045,11 @@ export function TideGraphModal({
                     </View>
                   )}
                 />
-                {DEFAULT_TILES.some((k) => !tiles.includes(k)) ? (
+                {ALL_TILES.some((k) => !tiles.includes(k)) ? (
                   <View style={styles.tilesAddSection}>
                     <Text style={styles.tilesAddLabel}>Add a tile</Text>
                     <View style={styles.tilesAddRow}>
-                      {DEFAULT_TILES.filter((k) => !tiles.includes(k)).map((k) => (
+                      {ALL_TILES.filter((k) => !tiles.includes(k)).map((k) => (
                         <Pressable
                           key={k}
                           onPress={() => updateTiles([...tiles, k])}
@@ -1073,6 +1137,77 @@ export function TideGraphModal({
                         onPress={() => pickMetric('humidity')}
                       />
                     );
+                  case 'gust':
+                    return (
+                      <MiniStat
+                        key="gust"
+                        label="Gusts"
+                        value={`${hourWeather.windGustMph} mph`}
+                        active={activeMetric === 'gust'}
+                        onPress={() => pickMetric('gust')}
+                      />
+                    );
+                  case 'waves':
+                    return hourWeather.waveHeightFt != null ? (
+                      <MiniStat
+                        key="waves"
+                        label="Waves"
+                        value={`${hourWeather.waveHeightFt} ft`}
+                        active={activeMetric === 'waves'}
+                        onPress={() => pickMetric('waves')}
+                      />
+                    ) : null;
+                  case 'rainamt':
+                    return (
+                      <MiniStat
+                        key="rainamt"
+                        label="Rain amt"
+                        value={`${hourWeather.rainAmtIn}"`}
+                        active={activeMetric === 'rainamt'}
+                        onPress={() => pickMetric('rainamt')}
+                      />
+                    );
+                  case 'dew':
+                    return (
+                      <MiniStat
+                        key="dew"
+                        label="Dew point"
+                        value={`${hourWeather.dewPointF}°F`}
+                        hint={
+                          hourWeather.airTempF - hourWeather.dewPointF <= 3
+                            ? 'fog risk'
+                            : undefined
+                        }
+                        warn
+                        active={activeMetric === 'dew'}
+                        onPress={() => pickMetric('dew')}
+                      />
+                    );
+                  case 'feels':
+                    return (
+                      <MiniStat
+                        key="feels"
+                        label="Feels like"
+                        value={`${hourWeather.feelsLikeF}°F`}
+                        active={activeMetric === 'feels'}
+                        onPress={() => pickMetric('feels')}
+                      />
+                    );
+                  case 'solunar': {
+                    const act = solunarSt
+                      ? solunarActivityAt(new Date(hourWeather.timeISO).getTime(), solunarSt)
+                      : 0;
+                    return (
+                      <MiniStat
+                        key="solunar"
+                        label="Solunar"
+                        value={act >= 6 ? 'Major' : act >= 3 ? 'Minor' : 'Quiet'}
+                        hint="feeding"
+                        active={activeMetric === 'solunar'}
+                        onPress={() => pickMetric('solunar')}
+                      />
+                    );
+                  }
                   case 'tide':
                     return selTide ? (
                       <MiniStat

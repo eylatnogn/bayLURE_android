@@ -56,6 +56,10 @@ interface GridProperties {
   windDirection?: GridSeriesJson;
   probabilityOfPrecipitation?: GridSeriesJson;
   waveHeight?: GridSeriesJson;
+  dewpoint?: GridSeriesJson;
+  apparentTemperature?: GridSeriesJson;
+  /** Rain amount, accumulated over each entry's period (mm). */
+  quantitativePrecipitation?: GridSeriesJson;
   /** Categorical weather periods — the source for thunderstorm warnings. */
   weather?: {
     values?: Array<{
@@ -365,6 +369,16 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
   const humidity = parseSeries(grid.relativeHumidity, asIs);
   const wind = parseSeries(grid.windSpeed, toMph);
   const gust = parseSeries(grid.windGust, toMph);
+  const dew = parseSeries(grid.dewpoint, toF);
+  const feels = parseSeries(grid.apparentTemperature, toF);
+  // QPF arrives as an accumulation per period (mm over e.g. PT6H); convert to
+  // a per-hour rate in inches so every charted hour reads the same way.
+  const qpf = parseSeries(grid.quantitativePrecipitation, (v, uom) =>
+    uom.includes('mm') ? v / 25.4 : v,
+  );
+  for (const p of qpf.points) {
+    p.value /= Math.max(1, (p.end - p.start) / 3600000);
+  }
   const windDir = parseSeries(grid.windDirection, asIs);
   const precipProb = parseSeries(grid.probabilityOfPrecipitation, asIs);
   const wave = parseSeries(grid.waveHeight, toFt);
@@ -425,6 +439,15 @@ export async function fetchWeekWeather(coords: Coordinates): Promise<WeekWeather
       pressureTrend: pressureTrendFromChange(change),
       windMph: round(valueAt(wind, ms) ?? 0),
       windGustMph: round(valueAt(gust, ms) ?? valueAt(wind, ms) ?? 0),
+      dewPointF: round(valueAt(dew, ms) ?? 0),
+      feelsLikeF: round(valueAt(feels, ms) ?? valueAt(temp, ms) ?? 0),
+      rainAmtIn: round(valueAt(qpf, ms) ?? 0, 2),
+      // Hourly wave height; null away from coastal grids (mirrors the daily
+      // waveHeightFtByDay availability).
+      waveHeightFt:
+        wave.points.length > 0 && valueAt(wave, ms) != null
+          ? round(valueAt(wave, ms)!, 1)
+          : null,
       windDirectionDeg: round(dir),
       windDirectionLabel: degreesToCompass(dir),
       cloudCoverPct: round(cloud),

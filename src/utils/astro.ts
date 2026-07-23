@@ -81,6 +81,18 @@ export function solunarTimes(date: Date, longitude: number): SolunarTimes {
   return { majors, minors };
 }
 
+/**
+ * Solunar feeding activity at a moment: 6 inside a ~2.5h major window
+ * (moon overhead/underfoot), 3 inside a ~1.5h minor (moonrise/set), else 0.
+ * The same numbers feed the bite score's hourly bonus and the planner
+ * chart's "Solunar" curve, so the two can never disagree.
+ */
+export function solunarActivityAt(timeMs: number, st: SolunarTimes): number {
+  if (st.majors.some((m) => Math.abs(timeMs - m) <= 1.25 * 3600000)) return 6;
+  if (st.minors.some((m) => Math.abs(timeMs - m) <= 0.75 * 3600000)) return 3;
+  return 0;
+}
+
 function phaseName(frac: number): string {
   if (frac < 0.03 || frac > 0.97) return 'New moon';
   if (frac < 0.22) return 'Waxing crescent';

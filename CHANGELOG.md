@@ -8,6 +8,12 @@ All notable changes to bayLURE. Dates are release/build dates.
   option) and opens on it every time. Spots without tide data (freshwater,
   or a NOAA outage) fill the chart with your last-chosen metric instead of
   defaulting to air.
+- **Six new chart stats** — Gusts, hourly Waves (coastal spots), Rain
+  amount (in/hr, distinguishes drizzle from a downpour), Dew point (with a
+  fog-risk flag when air temp closes within 3°F), Feels-like temp, and a
+  **Solunar activity curve** that draws the day's major/minor feeding
+  windows from the same math the bite score uses. All join via "Add a
+  tile" — the default row is unchanged.
 - **Customize the stat tiles** — the move icon next to the tiles opens the
   same drag-to-reorder mode as the main conditions strip: drag tiles into
   your order, ✕ removes them (at least one always stays), and removed ones

@@ -15,7 +15,7 @@ import { buildBehavior } from '@/engine/behavior';
 import { depthLureAdjust } from '@/engine/depth';
 import { gearFor } from '@/engine/gear';
 import { tideStateAt } from '@/api/tides';
-import { solunarTimes, type SolunarTimes } from '@/utils/astro';
+import { solunarActivityAt, solunarTimes, type SolunarTimes } from '@/utils/astro';
 import { hourLabel, hourOf } from '@/utils/dates';
 import type { HourBite, BestWindow } from '@/types';
 
@@ -330,12 +330,11 @@ function buildHourly(c: Conditions): HourBite[] {
  * Bonus for hours inside a solunar feeding period: the ~2.5h majors around a
  * lunar transit (moon overhead/underfoot) outrank the ~1.5h minors around
  * moonrise/moonset. Sized between dawn/dusk (+8) and the phase nudge (+4);
- * majors and minors never overlap, so no stacking.
+ * majors and minors never overlap, so no stacking. The window math lives in
+ * utils/astro (solunarActivityAt) — shared with the planner chart's curve.
  */
 function solunarBonus(timeMs: number, solunar: SolunarTimes): number {
-  if (solunar.majors.some((m) => Math.abs(timeMs - m) <= 1.25 * 3600000)) return 6;
-  if (solunar.minors.some((m) => Math.abs(timeMs - m) <= 0.75 * 3600000)) return 3;
-  return 0;
+  return solunarActivityAt(timeMs, solunar);
 }
 
 /** Bonus for the prime change-of-light hours around sunrise and sunset. */
